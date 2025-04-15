@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Tiger Language in WASM</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+        textarea, pre {
+            width: 100%;
+            box-sizing: border-box;
+            font-family: monospace;
+            padding: 10px;
+            font-size: 1rem;
+        }
+        textarea {
+            height: 150px;
+        }
+        pre {
+            background-color: #f0f0f0;
+            min-height: 100px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐯 Tiger Language</h1>
+
+    <label for="code">Tiger Code:</label>
+    <textarea id="code">let name = "Tiger"
+print name</textarea>
+
+    <button onclick="runTiger()">Run Tiger</button>
+
+    <label for="output">Output:</label>
+    <pre id="output">Waiting...</pre>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
+            go.run(result.instance);
+        });
+
+        function runTiger() {
+            const code = document.getElementById("code").value;
+            const result = evalTiger(code);
+            document.getElementById("output").innerText = result;
+        }
+    </script>
+</body>
+</html>
