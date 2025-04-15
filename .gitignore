@@ -1,4 +1,4 @@
 *.wasm
 .gitattributes
 go.mod
-wasm_exec
+wasm_exec.js
