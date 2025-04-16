@@ -1,7 +1,7 @@
 package lexer
 
 import (
-	"Tiger-Programming-Language/token"
+	"tiger/go/token"
 	"unicode"
 )
 

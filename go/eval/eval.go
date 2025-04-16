@@ -1,8 +1,8 @@
 package eval
 
 import (
-	"Tiger-Programming-Language/ast"
 	"fmt"
+	"tiger/go/ast"
 )
 
 type Environment struct {

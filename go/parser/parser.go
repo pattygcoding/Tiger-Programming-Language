@@ -1,10 +1,10 @@
 package parser
 
 import (
-	"Tiger-Programming-Language/ast"
-	"Tiger-Programming-Language/lexer"
-	"Tiger-Programming-Language/token"
 	"strconv"
+	"tiger/go/ast"
+	"tiger/go/lexer"
+	"tiger/go/token"
 )
 
 type Parser struct {

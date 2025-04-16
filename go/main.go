@@ -1,11 +1,11 @@
 package main
 
 import (
-	"Tiger-Programming-Language/eval"
-	"Tiger-Programming-Language/lexer"
-	"Tiger-Programming-Language/parser"
 	"fmt"
 	"syscall/js"
+	"tiger/go/eval"
+	"tiger/go/lexer"
+	"tiger/go/parser"
 )
 
 func evalTiger(this js.Value, args []js.Value) interface{} {

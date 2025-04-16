@@ -2,7 +2,7 @@
  
 To compile:
 ```powershell
-$env:GOOS="js"; $env:GOARCH="wasm"; go build -o main.wasm
+$env:GOOS="js"; $env:GOARCH="wasm"; go build -o main.wasm ./go
 ```
 
 To clean compile:
