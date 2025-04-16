@@ -1,8 +1,18 @@
 # Tiger-Programming-Language
  
-To compile:
+To compile Go interpreter:
 ```powershell
 $env:GOOS="js"; $env:GOARCH="wasm"; go build -o main.wasm ./go
+```
+
+To compile Rust interpreter (WIP, this will eventually compile WASM):
+```powershell
+cargo run --manifest-path rust/Cargo.toml
+```
+
+Clean the compiled Rust cargo:
+```powershell
+cargo clean --manifest-path rust/Cargo.toml
 ```
 
 To clean compile:
@@ -19,7 +29,7 @@ To run locally:
 ```powershell
 python -m http.server 8000
 ```
-Then go to http://localhost:8000/index.html (or use VS Code Live Server, or Node)
+Then go to http://localhost:8000/tiger_go.html or http://localhost:8000/tiger_rust.html (or use VS Code Live Server, or Node)
 
 # Syntax Rules
 
