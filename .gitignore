@@ -1,4 +1,11 @@
 *.wasm
+
 .gitattributes
+.vscode/
+
 go.mod
 wasm_exec.js
+
+rust/Cargo.lock
+rust/debug.log
+rust/*.log
