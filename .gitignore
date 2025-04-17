@@ -7,5 +7,7 @@ go.mod
 wasm_exec.js
 
 rust/Cargo.lock
+rust/pkg-rust/
+rust/target/
 rust/debug.log
 rust/*.log
