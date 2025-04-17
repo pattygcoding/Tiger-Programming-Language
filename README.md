@@ -1,35 +1,36 @@
 # Tiger-Programming-Language
  
-To compile Go interpreter:
+To compile the Tiger programming language to WebAssembly, you need to have Go and Rust installed on your system. The project uses Go for the interpreter and Rust for the WebAssembly compilation.:
 ```powershell
-$env:GOOS="js"; $env:GOARCH="wasm"; go build -o main.wasm ./go
+$env:GOOS="js"; $env:GOARCH="wasm"; go build -o main.wasm ./go # Compiles Go to WebAssembly
+```
+```powershell
+wasm-pack build rust --target web --out-dir pkg-rust --release # Compiles Rust to WebAssembly
 ```
 
-To compile Rust interpreter (WIP, this will eventually compile WASM):
-```powershell
-cargo run --manifest-path rust/Cargo.toml
-```
-
-Clean the compiled Rust cargo:
-```powershell
-cargo clean --manifest-path rust/Cargo.toml
-```
 
 To clean compile:
 ```powershell
-Remove-Item .\main.wasm -Force
+Remove-Item .\main.wasm -Force # Removes the old Go WebAssembly file generated from go
+```
+```powershell
+cargo clean --manifest-path rust/Cargo.toml # Cleans the Rust project
+Remove-Item -Recurse -Force rust/pkg-rust # May need to remove the pkg-rust folder if it exists
 ```
 
-To obtain wasm_exec.js:
+To obtain wasm_exec.js (for running Go WebAssembly):
 ```powershell
 Copy-Item -Path "$(go env GOROOT)\misc\wasm\wasm_exec.js" -Destination ".\wasm_exec.js"
 ```
 
 To run locally:
 ```powershell
-python -m http.server 8000
+python -m http.server 8000 # Go (requires Python)
 ```
-Then go to http://localhost:8000/tiger_go.html or http://localhost:8000/tiger_rust.html (or use VS Code Live Server, or Node)
+```powershell
+npx serve . # Rust (requires Node)
+```
+Then go to http://localhost:8000/tiger_go.html or http://localhost:3000/tiger_rust.html
 
 # Syntax Rules
 

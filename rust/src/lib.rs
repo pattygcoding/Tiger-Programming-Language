@@ -1,18 +1,17 @@
-/*pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+use wasm_bindgen::prelude::*;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod token;
+pub mod lexer;
+pub mod parser;
+pub mod ast;
+pub mod eval;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}*/
+#[wasm_bindgen]
+pub fn eval_tiger(code: &str) -> String {
+    let mut lexer = lexer::Lexer::new(code.to_string());
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
 
-pub fn hello() -> &'static str {
-    "Hello, Tiger from Rust!"
+    let mut env = eval::Environment::new();
+    eval::eval(&program, &mut env)
 }

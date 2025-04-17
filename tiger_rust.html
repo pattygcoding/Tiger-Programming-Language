@@ -1,52 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <title>Tiger Language in Rust + WASM</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            padding: 20px;
-        }
-        textarea, pre {
-            width: 100%;
-            box-sizing: border-box;
-            font-family: monospace;
-            padding: 10px;
-            font-size: 1rem;
-        }
-        textarea {
-            height: 150px;
-        }
-        pre {
-            background-color: #f0f0f0;
-            min-height: 100px;
-            margin-top: 10px;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Tiger Language in Rust + WASM</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    textarea, pre {
+      width: 100%;
+      box-sizing: border-box;
+      font-family: monospace;
+      padding: 10px;
+      font-size: 1rem;
+    }
+    textarea {
+      height: 150px;
+    }
+    pre {
+      background-color: #f0f0f0;
+      min-height: 100px;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 <body>
-    <h1>🦀 Tiger Language (Rust)</h1>
+  <h1>🦀 Tiger Language (Rust)</h1>
 
-    <label for="code">Tiger Code:</label>
-    <textarea id="code">let name = "Tiger"
+  <label for="code">Tiger Code:</label>
+  <textarea id="code">let name = "Tiger"
 print name</textarea>
 
-    <button id="run">Run Tiger</button>
+  <button id="run" disabled>Run Tiger</button>
 
-    <label for="output">Output:</label>
-    <pre id="output">Waiting...</pre>
+  <label for="output">Output:</label>
+  <pre id="output">Loading WASM...</pre>
 
-    <script type="module">
-        import init, { eval_tiger } from "./main.js"; // from wasm-pack build
+  <script type="module">
+    import init, { eval_tiger } from "./rust/pkg-rust/tiger.js";
 
-        init().then(() => {
-            document.getElementById("run").onclick = () => {
-                const code = document.getElementById("code").value;
-                const result = eval_tiger(code);
-                document.getElementById("output").innerText = result;
-            };
-        });
-    </script>
+    const output = document.getElementById("output");
+    const runButton = document.getElementById("run");
+
+    async function start() {
+      try {
+        console.log("⏳ Initializing Tiger WASM...");
+        await init();
+        console.log("✅ Tiger WASM ready.");
+        output.innerText = "Ready to run Tiger code.";
+        runButton.disabled = false;
+
+        runButton.onclick = () => {
+          const code = document.getElementById("code").value;
+          try {
+            const result = eval_tiger(code);
+            output.innerText = result;
+          } catch (err) {
+            console.error("❌ Runtime error:", err);
+            output.innerText = `Runtime error:\n${err}`;
+          }
+        };
+      } catch (err) {
+        console.error("❌ Failed to load WASM:", err);
+        output.innerText = "❌ Failed to load WASM.";
+      }
+    }
+
+    start();
+  </script>
 </body>
 </html>
