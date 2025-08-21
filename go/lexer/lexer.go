@@ -49,7 +49,17 @@ func (l *Lexer) NextToken() token.Token {
 	case '*':
 		tok.Type = token.ASTERISK
 	case '/':
-		tok.Type = token.SLASH
+		if l.peekChar() == '/' {
+			// Single line comment
+			l.skipSingleLineComment()
+			return l.NextToken()
+		} else if l.peekChar() == '*' {
+			// Multi line comment
+			l.skipMultiLineComment()
+			return l.NextToken()
+		} else {
+			tok.Type = token.SLASH
+		}
 	case '<':
 		if l.peekChar() == '=' {
 			ch := l.ch
@@ -167,4 +177,27 @@ func isLetter(ch byte) bool {
 
 func isDigit(ch byte) bool {
 	return '0' <= ch && ch <= '9'
+}
+
+func (l *Lexer) skipSingleLineComment() {
+	for l.ch != '\n' && l.ch != 0 {
+		l.readChar()
+	}
+}
+
+func (l *Lexer) skipMultiLineComment() {
+	l.readChar() // skip initial '/'
+	l.readChar() // skip initial '*'
+	
+	for {
+		if l.ch == '*' && l.peekChar() == '/' {
+			l.readChar() // skip '*'
+			l.readChar() // skip '/'
+			break
+		}
+		if l.ch == 0 {
+			break
+		}
+		l.readChar()
+	}
 }

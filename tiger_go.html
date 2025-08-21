@@ -2,53 +2,287 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Tiger Language in WASM</title>
+    <title>🐯 Tiger Language - WebAssembly Demo</title>
     <style>
         body {
-            font-family: sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
             padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .editor-container {
+            display: flex;
+            gap: 20px;
+        }
+        .editor-section, .output-section {
+            flex: 1;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
         }
         textarea, pre {
             width: 100%;
             box-sizing: border-box;
-            font-family: monospace;
-            padding: 10px;
-            font-size: 1rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            border: 2px solid #e1e5e9;
+            border-radius: 6px;
         }
         textarea {
-            height: 150px;
+            height: 400px;
+            padding: 15px;
+            resize: vertical;
+            background: #fafbfc;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
         }
         pre {
-            background-color: #f0f0f0;
-            min-height: 100px;
+            background-color: #f8f9fa;
+            min-height: 400px;
             margin-top: 10px;
+            padding: 15px;
+            overflow: auto;
+            color: #2d3748;
+            white-space: pre-wrap;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 15px auto;
+            display: block;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-1px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .examples {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e5e9;
+        }
+        .example-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .example-btn {
+            background: #f8f9fa;
+            color: #495057;
+            border: 1px solid #dee2e6;
+            padding: 8px 12px;
+            font-size: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .example-btn:hover {
+            background: #e9ecef;
+        }
+        .features {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .features h3 {
+            margin-top: 0;
+            color: #333;
         }
     </style>
 </head>
 <body>
-    <h1>🐯 Tiger Language</h1>
+    <div class="container">
+        <h1>🐯 Tiger Programming Language</h1>
+        <p class="subtitle">A modern programming language with Python-like features and C-style syntax, running in your browser via WebAssembly!</p>
 
-    <label for="code">Tiger Code:</label>
-    <textarea id="code">let name = "Tiger"
-print name</textarea>
+        <div class="editor-container">
+            <div class="editor-section">
+                <label for="code">Tiger Code:</label>
+                <textarea id="code">// Tiger Language Demo - Constants and Variables
+const PI = 3.14159;
+const GREETING = "Hello from Tiger!";
 
-    <button onclick="runTiger()">Run Tiger</button>
+// Variables with different types
+let radius = 5;
+let area = PI * radius * radius;
+let name = "Tiger User";
 
-    <label for="output">Output:</label>
-    <pre id="output">Waiting...</pre>
+// Print values
+print GREETING;
+print "Area of circle with radius";
+print radius;
+print "is:";
+print area;
+
+// Conditionals with braces
+if area > 70 {
+    print "That's a large circle!";
+} else {
+    print "That's a small circle.";
+}
+
+// Functions
+func greet(person) {
+    print "Hello";
+    print person;
+}
+
+greet(name);</textarea>
+
+                <button onclick="runTiger()">▶️ Run Tiger Code</button>
+                
+                <div class="examples">
+                    <label>Try these examples:</label>
+                    <div class="example-buttons">
+                        <button class="example-btn" onclick="loadExample('basic')">Basic Variables</button>
+                        <button class="example-btn" onclick="loadExample('functions')">Functions</button>
+                        <button class="example-btn" onclick="loadExample('loops')">Loops</button>
+                        <button class="example-btn" onclick="loadExample('constants')">Constants</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="output-section">
+                <label for="output">Output:</label>
+                <pre id="output">Click "Run Tiger Code" to see output...</pre>
+                
+                <div class="features">
+                    <h3>🚀 Tiger Language Features:</h3>
+                    <ul>
+                        <li><strong>Variables:</strong> <code>let x = 10;</code></li>
+                        <li><strong>Constants:</strong> <code>const PI = 3.14;</code></li>
+                        <li><strong>Functions:</strong> <code>func name(params) { ... }</code></li>
+                        <li><strong>Conditionals:</strong> <code>if (condition) { ... }</code></li>
+                        <li><strong>Loops:</strong> <code>while (condition) { ... }</code></li>
+                        <li><strong>Types:</strong> Strings, Integers, Floats, Booleans</li>
+                        <li><strong>Comments:</strong> <code>// single</code> and <code>/* multi */</code></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="wasm_exec.js"></script>
     <script>
         const go = new Go();
         WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
             go.run(result.instance);
+            console.log("🐯 Tiger WASM loaded successfully!");
         });
 
         function runTiger() {
             const code = document.getElementById("code").value;
-            const result = evalTiger(code);
-            document.getElementById("output").innerText = result;
+            try {
+                const result = evalTiger(code);
+                document.getElementById("output").innerText = result || "Program executed successfully (no output)";
+            } catch (error) {
+                document.getElementById("output").innerText = "Error: " + error.message;
+            }
         }
+
+        function loadExample(type) {
+            const examples = {
+                basic: `// Basic Variables and Types
+let name = "Tiger";
+let age = 5;
+let height = 1.85;
+let isActive = true;
+
+print "Name:";
+print name;
+print "Age:";
+print age;
+print "Height:";
+print height;
+print "Active:";
+print isActive;`,
+
+                functions: `// Functions Demo
+func multiply(a, b) {
+    let result = a * b;
+    print "Result is:";
+    print result;
+}
+
+func greetUser(name) {
+    print "Welcome";
+    print name;
+    print "to Tiger Language!";
+}
+
+multiply(7, 8);
+greetUser("Developer");`,
+
+                loops: `// Loops Demo
+let counter = 0;
+
+print "While loop counting to 5:";
+while counter < 5 {
+    print counter;
+    counter = counter + 1;
+}
+
+print "Loop finished!";`,
+
+                constants: `// Constants Demo
+const COMPANY = "Tiger Corp";
+const VERSION = "1.0";
+const MAX_USERS = 1000;
+
+print "Welcome to";
+print COMPANY;
+print "Version";
+print VERSION;
+print "Max users:";
+print MAX_USERS;
+
+// Constants cannot be changed
+print "Constants ensure data integrity!";`
+            };
+
+            document.getElementById("code").value = examples[type];
+        }
+
+        // Allow Ctrl+Enter to run code
+        document.getElementById("code").addEventListener("keydown", function(e) {
+            if (e.ctrlKey && e.key === "Enter") {
+                runTiger();
+            }
+        });
     </script>
 </body>
 </html>
