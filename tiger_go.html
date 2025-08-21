@@ -198,19 +198,61 @@ greet(name);</textarea>
 
     <script src="wasm_exec.js"></script>
     <script>
-        const go = new Go();
-        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
-            go.run(result.instance);
-            console.log("🐯 Tiger WASM loaded successfully!");
-        });
+        let wasmLoaded = false;
+        let wasmError = null;
+
+        // Check if Go is available (loaded from wasm_exec.js)
+        if (typeof Go !== 'undefined') {
+            const go = new Go();
+            WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
+                go.run(result.instance);
+                wasmLoaded = true;
+                console.log("🐯 Tiger WASM loaded successfully!");
+            }).catch((error) => {
+                wasmError = error;
+                console.error("Failed to load Tiger WASM:", error);
+                document.getElementById("output").innerHTML = `<strong>⚠️ WASM Loading Error:</strong><br>
+Could not load main.wasm. Please build the project first:<br>
+<code>make build</code><br><br>
+Error: ${error.message}`;
+            });
+        } else {
+            wasmError = new Error("wasm_exec.js not loaded");
+            document.getElementById("output").innerHTML = `<strong>⚠️ Missing Dependencies:</strong><br>
+The following files are required but missing:<br>
+• <code>wasm_exec.js</code><br>
+• <code>main.wasm</code><br><br>
+Please build the project first:<br>
+<code>make build</code><br><br>
+This will generate the required WebAssembly files.`;
+        }
 
         function runTiger() {
             const code = document.getElementById("code").value;
+            
+            // Check if WASM is loaded
+            if (wasmError) {
+                return; // Error message already displayed
+            }
+            
+            if (!wasmLoaded) {
+                document.getElementById("output").innerText = "⏳ Please wait for WASM to load...";
+                return;
+            }
+            
             try {
                 const result = evalTiger(code);
                 document.getElementById("output").innerText = result || "Program executed successfully (no output)";
             } catch (error) {
-                document.getElementById("output").innerText = "Error: " + error.message;
+                if (error.message.includes("evalTiger is not defined")) {
+                    document.getElementById("output").innerHTML = `<strong>⚠️ Tiger WASM not ready:</strong><br>
+The evalTiger function is not available. This usually means:<br>
+• WASM files are missing or failed to load<br>
+• Try refreshing the page<br>
+• Make sure you ran: <code>make build</code>`;
+                } else {
+                    document.getElementById("output").innerText = "Error: " + error.message;
+                }
             }
         }
 
