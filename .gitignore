@@ -1,11 +1,25 @@
+# Build artifacts
 *.wasm
+*.exe
+wasm_exec.js
+tiger-cli*
+main.wasm
 
-.gitattributes
+# Go build artifacts
+go.mod
+go.sum
+
+# Test files
+*.tg
+test*.tg
+simple*.tg
+advanced*.tg
+comprehensive-test.tg
+
+# Development artifacts
 .vscode/
 
-go.mod
-wasm_exec.js
-
+# Rust artifacts (legacy)
 rust/Cargo.lock
 rust/pkg-rust/
 rust/target/
