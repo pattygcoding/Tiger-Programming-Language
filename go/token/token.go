@@ -41,25 +41,33 @@ const (
 
 	// Keywords
 	LET   = "LET"
+	CONST = "CONST"
 	PRINT = "PRINT"
 	IF    = "IF"
 	ELSE  = "ELSE"
 	WHILE = "WHILE"
+	FOR   = "FOR"
 	TRUE  = "TRUE"
 	FALSE = "FALSE"
 
-	FUNC = "FUNC"
+	FUNC   = "FUNC"
+	CLASS  = "CLASS"
+	RETURN = "RETURN"
 )
 
 var keywords = map[string]TokenType{
-	"let":   LET,
-	"print": PRINT,
-	"if":    IF,
-	"else":  ELSE,
-	"while": WHILE,
-	"true":  TRUE,
-	"false": FALSE,
-	"func":  FUNC,
+	"let":    LET,
+	"const":  CONST,
+	"print":  PRINT,
+	"if":     IF,
+	"else":   ELSE,
+	"while":  WHILE,
+	"for":    FOR,
+	"true":   TRUE,
+	"false":  FALSE,
+	"func":   FUNC,
+	"class":  CLASS,
+	"return": RETURN,
 }
 
 func LookupIdent(ident string) TokenType {

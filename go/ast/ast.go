@@ -79,6 +79,14 @@ type LetStatement struct {
 func (ls *LetStatement) statementNode()       {}
 func (ls *LetStatement) TokenLiteral() string { return "let" }
 
+type ConstStatement struct {
+	Name  *Identifier
+	Value Expression
+}
+
+func (cs *ConstStatement) statementNode()       {}
+func (cs *ConstStatement) TokenLiteral() string { return "const" }
+
 type PrintStatement struct {
 	Value Expression
 }
@@ -102,6 +110,16 @@ type WhileStatement struct {
 
 func (ws *WhileStatement) statementNode()       {}
 func (ws *WhileStatement) TokenLiteral() string { return "while" }
+
+type ForStatement struct {
+	Init      Statement   // initialization: let i = 0
+	Condition Expression  // condition: i < 10
+	Update    Statement   // update: i = i + 1
+	Body      *BlockStatement
+}
+
+func (fs *ForStatement) statementNode()       {}
+func (fs *ForStatement) TokenLiteral() string { return "for" }
 
 type BlockStatement struct {
 	Statements []Statement
@@ -133,3 +151,18 @@ type ExpressionStatement struct {
 
 func (es *ExpressionStatement) statementNode()       {}
 func (es *ExpressionStatement) TokenLiteral() string { return "" }
+
+type ReturnStatement struct {
+	Value Expression
+}
+
+func (rs *ReturnStatement) statementNode()       {}
+func (rs *ReturnStatement) TokenLiteral() string { return "return" }
+
+type ClassStatement struct {
+	Name    *Identifier
+	Methods []*FunctionLiteral
+}
+
+func (cs *ClassStatement) statementNode()       {}
+func (cs *ClassStatement) TokenLiteral() string { return "class" }

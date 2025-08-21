@@ -56,6 +56,24 @@ func Eval(node ast.Node, env *Environment) string {
 			env.Set(node.Name.Value, val)
 		}
 
+	case *ast.ConstStatement:
+		switch val := node.Value.(type) {
+		case *ast.StringLiteral:
+			env.Set(node.Name.Value, val.Value)
+		case *ast.IntegerLiteral:
+			env.Set(node.Name.Value, fmt.Sprintf("%d", val.Value))
+		case *ast.FloatLiteral:
+			env.Set(node.Name.Value, fmt.Sprintf("%.1f", val.Value))
+		case *ast.Boolean:
+			env.Set(node.Name.Value, fmt.Sprintf("%t", val.Value))
+		case *ast.Identifier:
+			if v, ok := env.Get(val.Value); ok {
+				env.Set(node.Name.Value, v)
+			}
+		case *ast.FunctionLiteral:
+			env.Set(node.Name.Value, val)
+		}
+
 	case *ast.PrintStatement:
 		return evalExpression(node.Value, env)
 
@@ -76,6 +94,25 @@ func Eval(node ast.Node, env *Environment) string {
 		}
 		return output
 
+	case *ast.ForStatement:
+		var output string
+		// Execute init statement
+		if node.Init != nil {
+			Eval(node.Init, env)
+		}
+		// Loop while condition is true
+		for evalCondition(node.Condition, env) {
+			out := Eval(node.Body, env)
+			if out != "" {
+				output += out + "\n"
+			}
+			// Execute update statement
+			if node.Update != nil {
+				Eval(node.Update, env)
+			}
+		}
+		return output
+
 	case *ast.BlockStatement:
 		var output string
 		for _, stmt := range node.Statements {
@@ -91,6 +128,13 @@ func Eval(node ast.Node, env *Environment) string {
 		if result != "" {
 			fmt.Println(result)
 		}
+		
+	case *ast.ReturnStatement:
+		return evalExpression(node.Value, env)
+		
+	case *ast.ClassStatement:
+		// For now, just store the class definition in the environment
+		env.Set(node.Name.Value, node)
 	}
 	return ""
 }
