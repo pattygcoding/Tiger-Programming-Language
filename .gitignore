@@ -1,13 +1,9 @@
 # Build artifacts
-*.wasm
 *.exe
-wasm_exec.js
 tiger-cli*
-main.wasm
 
-# Go build artifacts
-go.mod
-go.sum
+# Note: main.wasm and wasm_exec.js are needed for the web demo to work
+# Note: go.mod and go.sum are needed for Go module dependencies
 
 # Test files
 *.tg
