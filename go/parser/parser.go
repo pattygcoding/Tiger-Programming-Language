@@ -41,16 +41,24 @@ func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
 	case token.LET:
 		return p.parseLetStatement()
+	case token.CONST:
+		return p.parseConstStatement()
 	case token.PRINT:
 		return p.parsePrintStatement()
 	case token.IF:
 		return p.parseIfStatement()
 	case token.WHILE:
 		return p.parseWhileStatement()
+	case token.FOR:
+		return p.parseForStatement()
 	case token.LBRACE:
 		return p.parseBlockStatement()
 	case token.FUNC:
 		return p.parseFunctionDefinition()
+	case token.CLASS:
+		return p.parseClassStatement()
+	case token.RETURN:
+		return p.parseReturnStatement()
 	default:
 		return p.parseExpressionStatement()
 	}
@@ -194,4 +202,77 @@ func (p *Parser) parseCallExpression(fn ast.Expression) ast.Expression {
 func (p *Parser) parseExpressionStatement() *ast.ExpressionStatement {
 	expr := p.parseExpression()
 	return &ast.ExpressionStatement{Expression: expr}
+}
+
+func (p *Parser) parseConstStatement() *ast.ConstStatement {
+	p.nextToken()
+	name := &ast.Identifier{Value: p.curToken.Literal}
+	p.nextToken() // skip =
+	p.nextToken() // value token
+	value := p.parseExpression()
+	return &ast.ConstStatement{Name: name, Value: value}
+}
+
+func (p *Parser) parseForStatement() *ast.ForStatement {
+	p.nextToken() // skip 'for'
+	p.nextToken() // skip '('
+	
+	// Parse init statement
+	var init ast.Statement
+	if p.curToken.Type == token.LET {
+		init = p.parseLetStatement()
+	}
+	p.nextToken() // skip ';'
+	p.nextToken()
+	
+	// Parse condition
+	condition := p.parseExpression()
+	p.nextToken() // skip ';'
+	p.nextToken()
+	
+	// Parse update statement
+	var update ast.Statement
+	if p.curToken.Type == token.IDENT {
+		update = p.parseExpressionStatement()
+	}
+	p.nextToken() // skip ')'
+	p.nextToken() // skip '{'
+	
+	// Parse body
+	body := p.parseBlockStatement()
+	
+	return &ast.ForStatement{
+		Init:      init,
+		Condition: condition,
+		Update:    update,
+		Body:      body,
+	}
+}
+
+func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
+	p.nextToken()
+	value := p.parseExpression()
+	return &ast.ReturnStatement{Value: value}
+}
+
+func (p *Parser) parseClassStatement() *ast.ClassStatement {
+	p.nextToken()
+	name := &ast.Identifier{Value: p.curToken.Literal}
+	p.nextToken() // skip '{'
+	
+	methods := []*ast.FunctionLiteral{}
+	for p.curToken.Type != token.RBRACE && p.curToken.Type != token.EOF {
+		if p.curToken.Type == token.FUNC {
+			letStmt := p.parseFunctionDefinition()
+			if functionLit, ok := letStmt.Value.(*ast.FunctionLiteral); ok {
+				methods = append(methods, functionLit)
+			}
+		}
+		p.nextToken()
+	}
+	
+	return &ast.ClassStatement{
+		Name:    name,
+		Methods: methods,
+	}
 }
