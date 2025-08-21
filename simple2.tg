@@ -1,3 +1,0 @@
-const COUNT = 3;
-print "Count is:";
-print COUNT;
