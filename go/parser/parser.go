@@ -43,8 +43,6 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseLetStatement()
 	case token.CONST:
 		return p.parseConstStatement()
-	case token.PRINT:
-		return p.parsePrintStatement()
 	case token.IF:
 		return p.parseIfStatement()
 	case token.WHILE:
@@ -71,12 +69,6 @@ func (p *Parser) parseLetStatement() *ast.LetStatement {
 	p.nextToken() // value token
 	value := p.parseExpression()
 	return &ast.LetStatement{Name: name, Value: value}
-}
-
-func (p *Parser) parsePrintStatement() *ast.PrintStatement {
-	p.nextToken()
-	value := p.parseExpression()
-	return &ast.PrintStatement{Value: value}
 }
 
 func (p *Parser) parseIfStatement() *ast.IfStatement {
@@ -124,6 +116,24 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 }
 
 func (p *Parser) parseExpression() ast.Expression {
+	left := p.parsePrimaryExpression()
+	
+	for p.peekToken.Type == token.PLUS || p.peekToken.Type == token.MINUS || 
+		p.peekToken.Type == token.ASTERISK || p.peekToken.Type == token.SLASH ||
+		p.peekToken.Type == token.EQ || p.peekToken.Type == token.NOT_EQ ||
+		p.peekToken.Type == token.LT || p.peekToken.Type == token.GT ||
+		p.peekToken.Type == token.LTE || p.peekToken.Type == token.GTE {
+		p.nextToken()
+		operator := p.curToken.Literal
+		p.nextToken()
+		right := p.parsePrimaryExpression()
+		left = &ast.InfixExpression{Left: left, Operator: operator, Right: right}
+	}
+	
+	return left
+}
+
+func (p *Parser) parsePrimaryExpression() ast.Expression {
 	switch p.curToken.Type {
 	case token.STRING:
 		return &ast.StringLiteral{Value: p.curToken.Literal}
@@ -145,12 +155,9 @@ func (p *Parser) parseExpression() ast.Expression {
 		return &ast.Boolean{Value: false}
 	case token.LPAREN:
 		p.nextToken()
-		left := p.parseExpression()
-		op := p.curToken.Literal
-		p.nextToken()
-		right := p.parseExpression()
+		exp := p.parseExpression()
 		p.nextToken() // skip RPAREN
-		return &ast.InfixExpression{Left: left, Operator: op, Right: right}
+		return exp
 	default:
 		return nil
 	}

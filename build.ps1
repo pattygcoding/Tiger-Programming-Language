@@ -34,7 +34,7 @@ function Test-GoInstalled {
 function Build-CLI {
     Write-Info "Building Tiger CLI..."
     if (Test-GoInstalled) {
-        go build -o tiger-cli.exe ./go
+        go build -o tiger-cli.exe ./go/main_cli.go
         if ($LASTEXITCODE -eq 0) {
             Write-Status "CLI built successfully: ./tiger-cli.exe"
         } else {
@@ -49,7 +49,7 @@ function Build-WASM {
     if (Test-GoInstalled) {
         $env:GOOS = "js"
         $env:GOARCH = "wasm"
-        go build -o main.wasm ./go
+        go build -o main.wasm ./go/main_wasm.go
         if ($LASTEXITCODE -eq 0) {
             Write-Status "WASM built successfully: ./main.wasm"
         } else {
@@ -153,15 +153,15 @@ function Build-All-Platforms {
     if (Test-GoInstalled) {
         # Windows
         $env:GOOS = "windows"; $env:GOARCH = "amd64"
-        go build -o tiger-cli-windows.exe ./go
+        go build -o tiger-cli-windows.exe ./go/main_cli.go
         
         # macOS
         $env:GOOS = "darwin"; $env:GOARCH = "amd64"
-        go build -o tiger-cli-darwin ./go
+        go build -o tiger-cli-darwin ./go/main_cli.go
         
         # Linux
         $env:GOOS = "linux"; $env:GOARCH = "amd64"
-        go build -o tiger-cli-linux ./go
+        go build -o tiger-cli-linux ./go/main_cli.go
         
         # Reset environment variables
         Remove-Item Env:GOOS -ErrorAction SilentlyContinue
