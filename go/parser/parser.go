@@ -117,8 +117,8 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 
 func (p *Parser) parseExpression() ast.Expression {
 	left := p.parsePrimaryExpression()
-	
-	for p.peekToken.Type == token.PLUS || p.peekToken.Type == token.MINUS || 
+
+	for p.peekToken.Type == token.PLUS || p.peekToken.Type == token.MINUS ||
 		p.peekToken.Type == token.ASTERISK || p.peekToken.Type == token.SLASH ||
 		p.peekToken.Type == token.EQ || p.peekToken.Type == token.NOT_EQ ||
 		p.peekToken.Type == token.LT || p.peekToken.Type == token.GT ||
@@ -129,7 +129,7 @@ func (p *Parser) parseExpression() ast.Expression {
 		right := p.parsePrimaryExpression()
 		left = &ast.InfixExpression{Left: left, Operator: operator, Right: right}
 	}
-	
+
 	return left
 }
 
@@ -223,7 +223,7 @@ func (p *Parser) parseConstStatement() *ast.ConstStatement {
 func (p *Parser) parseForStatement() *ast.ForStatement {
 	p.nextToken() // skip 'for'
 	p.nextToken() // skip '('
-	
+
 	// Parse init statement
 	var init ast.Statement
 	if p.curToken.Type == token.LET {
@@ -231,12 +231,12 @@ func (p *Parser) parseForStatement() *ast.ForStatement {
 	}
 	p.nextToken() // skip ';'
 	p.nextToken()
-	
+
 	// Parse condition
 	condition := p.parseExpression()
 	p.nextToken() // skip ';'
 	p.nextToken()
-	
+
 	// Parse update statement
 	var update ast.Statement
 	if p.curToken.Type == token.IDENT {
@@ -244,10 +244,10 @@ func (p *Parser) parseForStatement() *ast.ForStatement {
 	}
 	p.nextToken() // skip ')'
 	p.nextToken() // skip '{'
-	
+
 	// Parse body
 	body := p.parseBlockStatement()
-	
+
 	return &ast.ForStatement{
 		Init:      init,
 		Condition: condition,
@@ -266,7 +266,7 @@ func (p *Parser) parseClassStatement() *ast.ClassStatement {
 	p.nextToken()
 	name := &ast.Identifier{Value: p.curToken.Literal}
 	p.nextToken() // skip '{'
-	
+
 	methods := []*ast.FunctionLiteral{}
 	for p.curToken.Type != token.RBRACE && p.curToken.Type != token.EOF {
 		if p.curToken.Type == token.FUNC {
@@ -277,7 +277,7 @@ func (p *Parser) parseClassStatement() *ast.ClassStatement {
 		}
 		p.nextToken()
 	}
-	
+
 	return &ast.ClassStatement{
 		Name:    name,
 		Methods: methods,

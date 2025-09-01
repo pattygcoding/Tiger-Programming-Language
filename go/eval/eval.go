@@ -273,7 +273,7 @@ func evalCallExpression(call *ast.CallExpression, env *Environment) string {
 	if !ok {
 		return "[error: unsupported function call]"
 	}
-	
+
 	// Handle built-in functions
 	if fnName.Value == "print" {
 		if len(call.Arguments) != 1 {
@@ -282,7 +282,7 @@ func evalCallExpression(call *ast.CallExpression, env *Environment) string {
 		result := evalExpression(call.Arguments[0], env)
 		return result
 	}
-	
+
 	// Handle user-defined functions
 	val, ok := env.Get(fnName.Value)
 	if !ok {
