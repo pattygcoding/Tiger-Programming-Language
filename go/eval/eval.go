@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"strconv"
 	"tiger/go/ast"
 )
 
@@ -45,7 +46,7 @@ func Eval(node ast.Node, env *Environment) string {
 		case *ast.IntegerLiteral:
 			env.Set(node.Name.Value, fmt.Sprintf("%d", val.Value))
 		case *ast.FloatLiteral:
-			env.Set(node.Name.Value, fmt.Sprintf("%.1f", val.Value))
+			env.Set(node.Name.Value, fmt.Sprintf("%.6f", val.Value))
 		case *ast.Boolean:
 			env.Set(node.Name.Value, fmt.Sprintf("%t", val.Value))
 		case *ast.Identifier:
@@ -54,6 +55,10 @@ func Eval(node ast.Node, env *Environment) string {
 			}
 		case *ast.FunctionLiteral:
 			env.Set(node.Name.Value, val)
+		default:
+			// Handle any other expression type (like InfixExpression)
+			result := evalExpression(val, env)
+			env.Set(node.Name.Value, result)
 		}
 
 	case *ast.ConstStatement:
@@ -63,7 +68,7 @@ func Eval(node ast.Node, env *Environment) string {
 		case *ast.IntegerLiteral:
 			env.Set(node.Name.Value, fmt.Sprintf("%d", val.Value))
 		case *ast.FloatLiteral:
-			env.Set(node.Name.Value, fmt.Sprintf("%.1f", val.Value))
+			env.Set(node.Name.Value, fmt.Sprintf("%.6f", val.Value))
 		case *ast.Boolean:
 			env.Set(node.Name.Value, fmt.Sprintf("%t", val.Value))
 		case *ast.Identifier:
@@ -72,6 +77,10 @@ func Eval(node ast.Node, env *Environment) string {
 			}
 		case *ast.FunctionLiteral:
 			env.Set(node.Name.Value, val)
+		default:
+			// Handle any other expression type (like InfixExpression)
+			result := evalExpression(val, env)
+			env.Set(node.Name.Value, result)
 		}
 
 	case *ast.PrintStatement:
@@ -125,9 +134,7 @@ func Eval(node ast.Node, env *Environment) string {
 
 	case *ast.ExpressionStatement:
 		result := evalExpression(node.Expression, env)
-		if result != "" {
-			fmt.Println(result)
-		}
+		return result
 		
 	case *ast.ReturnStatement:
 		return evalExpression(node.Value, env)
@@ -154,9 +161,11 @@ func evalExpression(expr ast.Expression, env *Environment) string {
 	case *ast.IntegerLiteral:
 		return fmt.Sprintf("%d", val.Value)
 	case *ast.FloatLiteral:
-		return fmt.Sprintf("%.1f", val.Value)
+		return fmt.Sprintf("%.6f", val.Value)
 	case *ast.Boolean:
 		return fmt.Sprintf("%t", val.Value)
+	case *ast.InfixExpression:
+		return evalArithmetic(val, env)
 	case *ast.CallExpression:
 		return evalCallExpression(val, env)
 	}
@@ -174,22 +183,89 @@ func evalCondition(node ast.Expression, env *Environment) bool {
 	case *ast.InfixExpression:
 		left := evalExpression(val.Left, env)
 		right := evalExpression(val.Right, env)
-		switch val.Operator {
-		case "==":
-			return left == right
-		case "!=":
-			return left != right
-		case "<":
-			return left < right
-		case "<=":
-			return left <= right
-		case ">":
-			return left > right
-		case ">=":
-			return left >= right
+		
+		// Try to convert to numbers for numeric comparison
+		leftFloat, leftErr := strconv.ParseFloat(left, 64)
+		rightFloat, rightErr := strconv.ParseFloat(right, 64)
+		
+		if leftErr == nil && rightErr == nil {
+			// Both are numbers, do numeric comparison
+			switch val.Operator {
+			case "==":
+				return leftFloat == rightFloat
+			case "!=":
+				return leftFloat != rightFloat
+			case "<":
+				return leftFloat < rightFloat
+			case "<=":
+				return leftFloat <= rightFloat
+			case ">":
+				return leftFloat > rightFloat
+			case ">=":
+				return leftFloat >= rightFloat
+			}
+		} else {
+			// String comparison
+			switch val.Operator {
+			case "==":
+				return left == right
+			case "!=":
+				return left != right
+			case "<":
+				return left < right
+			case "<=":
+				return left <= right
+			case ">":
+				return left > right
+			case ">=":
+				return left >= right
+			}
 		}
 	}
 	return false
+}
+
+func evalArithmetic(expr *ast.InfixExpression, env *Environment) string {
+	left := evalExpression(expr.Left, env)
+	right := evalExpression(expr.Right, env)
+	
+	// Try to convert to numbers for arithmetic
+	leftFloat, leftErr := strconv.ParseFloat(left, 64)
+	rightFloat, rightErr := strconv.ParseFloat(right, 64)
+	
+	if leftErr == nil && rightErr == nil {
+		var result float64
+		switch expr.Operator {
+		case "+":
+			result = leftFloat + rightFloat
+		case "-":
+			result = leftFloat - rightFloat
+		case "*":
+			result = leftFloat * rightFloat
+		case "/":
+			if rightFloat != 0 {
+				result = leftFloat / rightFloat
+			} else {
+				return "[division by zero]"
+			}
+		default:
+			return "[unsupported arithmetic operator: " + expr.Operator + "]"
+		}
+		
+		// Return as string with appropriate formatting
+		if result == float64(int64(result)) {
+			return fmt.Sprintf("%d", int64(result))
+		} else {
+			return fmt.Sprintf("%.6f", result)
+		}
+	}
+	
+	// String concatenation for +
+	if expr.Operator == "+" {
+		return left + right
+	}
+	
+	return "[invalid arithmetic operation]"
 }
 
 func evalCallExpression(call *ast.CallExpression, env *Environment) string {
@@ -216,9 +292,5 @@ func evalCallExpression(call *ast.CallExpression, env *Environment) string {
 	}
 
 	bodyOutput := Eval(fn.Body, newEnv)
-	if bodyOutput != "" {
-		fmt.Print(bodyOutput)
-	}
-
-	return ""
+	return bodyOutput
 }
