@@ -1,4 +1,4 @@
-//go:build js
+﻿//go:build js
 
 package main
 
@@ -17,6 +17,8 @@ func evalTiger(this js.Value, args []js.Value) interface{} {
 	program := p.ParseProgram()
 	env := eval.NewEnvironment()
 	result := eval.Eval(program, env)
+
+	// result is already a string from eval.Eval
 	return js.ValueOf(result)
 }
 

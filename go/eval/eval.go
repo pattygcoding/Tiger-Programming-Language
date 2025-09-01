@@ -135,10 +135,10 @@ func Eval(node ast.Node, env *Environment) string {
 	case *ast.ExpressionStatement:
 		result := evalExpression(node.Expression, env)
 		return result
-		
+
 	case *ast.ReturnStatement:
 		return evalExpression(node.Value, env)
-		
+
 	case *ast.ClassStatement:
 		// For now, just store the class definition in the environment
 		env.Set(node.Name.Value, node)
@@ -183,11 +183,11 @@ func evalCondition(node ast.Expression, env *Environment) bool {
 	case *ast.InfixExpression:
 		left := evalExpression(val.Left, env)
 		right := evalExpression(val.Right, env)
-		
+
 		// Try to convert to numbers for numeric comparison
 		leftFloat, leftErr := strconv.ParseFloat(left, 64)
 		rightFloat, rightErr := strconv.ParseFloat(right, 64)
-		
+
 		if leftErr == nil && rightErr == nil {
 			// Both are numbers, do numeric comparison
 			switch val.Operator {
@@ -228,11 +228,11 @@ func evalCondition(node ast.Expression, env *Environment) bool {
 func evalArithmetic(expr *ast.InfixExpression, env *Environment) string {
 	left := evalExpression(expr.Left, env)
 	right := evalExpression(expr.Right, env)
-	
+
 	// Try to convert to numbers for arithmetic
 	leftFloat, leftErr := strconv.ParseFloat(left, 64)
 	rightFloat, rightErr := strconv.ParseFloat(right, 64)
-	
+
 	if leftErr == nil && rightErr == nil {
 		var result float64
 		switch expr.Operator {
@@ -251,7 +251,7 @@ func evalArithmetic(expr *ast.InfixExpression, env *Environment) string {
 		default:
 			return "[unsupported arithmetic operator: " + expr.Operator + "]"
 		}
-		
+
 		// Return as string with appropriate formatting
 		if result == float64(int64(result)) {
 			return fmt.Sprintf("%d", int64(result))
@@ -259,12 +259,12 @@ func evalArithmetic(expr *ast.InfixExpression, env *Environment) string {
 			return fmt.Sprintf("%.6f", result)
 		}
 	}
-	
+
 	// String concatenation for +
 	if expr.Operator == "+" {
 		return left + right
 	}
-	
+
 	return "[invalid arithmetic operation]"
 }
 
@@ -273,6 +273,17 @@ func evalCallExpression(call *ast.CallExpression, env *Environment) string {
 	if !ok {
 		return "[error: unsupported function call]"
 	}
+	
+	// Handle built-in functions
+	if fnName.Value == "print" {
+		if len(call.Arguments) != 1 {
+			return "[error: print expects exactly 1 argument]"
+		}
+		result := evalExpression(call.Arguments[0], env)
+		return result
+	}
+	
+	// Handle user-defined functions
 	val, ok := env.Get(fnName.Value)
 	if !ok {
 		return "[undefined function: " + fnName.Value + "]"
