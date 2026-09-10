@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all ten programs and compare their output with the corresponding checked-in `.txt` files:
+Run all fifteen programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 go test ./benchmarks -count=1 -v
@@ -26,8 +26,19 @@ go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
 | `08_graphs.tg` | BFS, DFS, shortest paths, cycles, disconnected vertices |
 | `09_dynamic_programming.tg` | Coin change, knapsack, grid paths, increasing subsequences |
 | `10_language_semantics.tg` | Scope, truthiness, short-circuiting, returns, aliases, cyclic values |
+| `11_oop_shapes.tg` | Polymorphism, overrides, inherited methods, chained calls |
+| `12_oop_accounts.tg` | Constructors, per-instance state, super calls, transactions |
+| `13_oop_super.tg` | Deep inheritance, lexical super, inherited constructors, local classes |
+| `14_oop_composition.tg` | Nested objects, recursive methods, shared references, fluent methods |
+| `15_oop_callbacks.tg` | Detached bound methods, captured self/super, callable fields |
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly ten source files and ten matching output files exist. Every program executes in a fresh evaluator with the normal execution limits.
+Run only the five OOP programs:
+
+```sh
+go test ./benchmarks -run 'TestPrograms/1[1-5]_' -count=1 -v
+```
+
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly fifteen source files and fifteen matching output files exist. Every program executes in a fresh evaluator with the normal execution limits.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 

@@ -1,0 +1,121 @@
+const TITLE = "Account state and inheritance";
+
+class Account {
+    def init(self, owner, opening) {
+        self.owner = owner;
+        self.balance = opening;
+        self.history = [opening];
+    }
+
+    def record(self) {
+        self.history = self.history + [self.balance];
+    }
+
+    def deposit(self, amount) {
+        if amount < 0 {
+            return false;
+        }
+        self.balance = self.balance + amount;
+        self.record();
+        return true;
+    }
+
+    def withdraw(self, amount) {
+        if amount < 0 or amount > self.balance {
+            return false;
+        }
+        self.balance = self.balance - amount;
+        self.record();
+        return true;
+    }
+
+    def summary(self) {
+        return self.owner + "=" + str(self.balance);
+    }
+}
+
+class Savings(Account) {
+    def init(self, owner, opening, percent) {
+        super.init(owner, opening);
+        self.percent = percent;
+    }
+
+    def interest(self) {
+        amount = self.balance * self.percent / 100;
+        self.deposit(amount);
+        return amount;
+    }
+}
+
+class FeeAccount(Account) {
+    def init(self, owner, opening, fee) {
+        super.init(owner, opening);
+        self.fee = fee;
+        self.fees_paid = 0;
+    }
+
+    def withdraw(self, amount) {
+        if amount < 0 {
+            return false;
+        }
+        if super.withdraw(amount + self.fee) {
+            self.fees_paid = self.fees_paid + self.fee;
+            return true;
+        }
+        return false;
+    }
+}
+
+class Bank {
+    def init(self) {
+        self.accounts = {};
+    }
+
+    def add(self, account) {
+        if account.owner in self.accounts {
+            return false;
+        }
+        self.accounts[account.owner] = account;
+        return true;
+    }
+
+    def total(self) {
+        total = 0;
+        for owner in self.accounts {
+            total = total + self.accounts[owner].balance;
+        }
+        return total;
+    }
+
+    def transfer(self, source, destination, amount) {
+        if not source in self.accounts or not destination in self.accounts {
+            return false;
+        }
+        if source == destination or amount < 0 {
+            return false;
+        }
+        if not self.accounts[source].withdraw(amount) {
+            return false;
+        }
+        return self.accounts[destination].deposit(amount);
+    }
+}
+
+const ALICE = Savings("Alice", 100, 10);
+const BOB = FeeAccount("Bob", 80, 2);
+const BANK = Bank();
+print(TITLE);
+print("register:", BANK.add(ALICE), BANK.add(BOB), BANK.add(ALICE));
+print("interest:", ALICE.interest());
+print("deposit:", BOB.deposit(20));
+print("transfer:", BANK.transfer("Alice", "Bob", 30));
+print("withdraw:", BOB.withdraw(10), BOB.withdraw(1000));
+print("summaries:", ALICE.summary(), BOB.summary());
+print("total:", BANK.total(), "fees:", BOB.fees_paid);
+print("history:", ALICE.history, BOB.history);
+print("invalid:", BANK.transfer("missing", "Bob", 1), BANK.transfer("Alice", "Alice", 1));
+print("negative:", ALICE.deposit(-1), BOB.withdraw(-1));
+const SAVED_DEPOSIT = ALICE.deposit;
+print("saved:", SAVED_DEPOSIT(5), ALICE.balance);
+print("independent:", Account("Other", 7).history, BOB.balance);
+print("final:", BANK.total());

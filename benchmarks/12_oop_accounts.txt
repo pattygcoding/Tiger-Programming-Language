@@ -1,0 +1,14 @@
+Account state and inheritance
+register: true true false
+interest: 10
+deposit: true
+transfer: true
+withdraw: true false
+summaries: Alice=80 Bob=118
+total: 198 fees: 2
+history: [100, 110, 80] [80, 100, 130, 118]
+invalid: false false
+negative: false false
+saved: true 85
+independent: [7] 118
+final: 203

@@ -10,6 +10,19 @@ import (
 )
 
 func TestStandaloneBuild(t *testing.T) {
+	testStandalone(t, `def square(number) { return number * number; } print(square(9));`, "81\n")
+}
+
+func TestStandaloneOOP(t *testing.T) {
+	source, err := os.ReadFile("../../examples/oop.tg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testStandalone(t, string(source), "Rex is a Canine.\nRex barks!\nRex fetches the ball.\n")
+}
+
+func testStandalone(t *testing.T, source, expected string) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("standalone integration build")
 	}
@@ -18,14 +31,14 @@ func TestStandaloneBuild(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		output += ".exe"
 	}
-	if err := Build(`def square(number) { return number * number; } print(square(9));`, "embedded.tg", output); err != nil {
+	if err := Build(source, "embedded.tg", output); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command(output)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "PATH=")
 	actual, err := command.CombinedOutput()
-	if err != nil || string(actual) != "81\n" {
+	if err != nil || string(actual) != expected {
 		t.Fatalf("standalone output=%q err=%v", actual, err)
 	}
 }

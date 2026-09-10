@@ -1,0 +1,14 @@
+Polymorphic shapes
+base: area=0, perimeter=0
+rectangle: area=12, perimeter=14
+square: area=25, perimeter=20, side=5
+triangle: area=6, perimeter=12
+total: 43
+scaled: 48 225 24
+perimeters: 28 60 24
+saved method: 48
+square: square: area=225, perimeter=60, side=15
+total scaled: 297
+empty: 0 []
+chain: 96
+identity: true false

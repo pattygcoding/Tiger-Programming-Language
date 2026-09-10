@@ -94,6 +94,13 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *o
 			} else {
 				check(node, env.Assign(target.Name, value))
 			}
+		case *ast.Property:
+			receiver := eval.expression(target.Receiver, env)
+			instance, ok := receiver.(*object.Instance)
+			if !ok {
+				fail(target, "cannot assign a property of %s", receiver.Type())
+			}
+			instance.Fields[target.Name] = value
 		case *ast.Index:
 			collection := eval.expression(target.Collection, env)
 			key := eval.expression(target.Key, env)
@@ -108,6 +115,23 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *o
 		}
 	case *ast.Function:
 		check(node, env.Define(node.Name, &object.Function{Declaration: node, Env: env}, false))
+	case *ast.Class:
+		class := &object.Class{Name: node.Name, Methods: map[string]*object.Method{}}
+		if node.Parent != nil {
+			parent := eval.expression(node.Parent, env)
+			var ok bool
+			class.Parent, ok = parent.(*object.Class)
+			if !ok {
+				fail(node.Parent, "parent must be a class, got %s", parent.Type())
+			}
+		}
+		for _, method := range node.Methods {
+			class.Methods[method.Name] = &object.Method{
+				Function: &object.Function{Declaration: method, Env: env},
+				Owner:    class,
+			}
+		}
+		check(node, env.Define(node.Name, class, false))
 	case *ast.Return:
 		value := object.Value(object.Null{})
 		if node.Value != nil {
@@ -179,6 +203,14 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		value, err := env.Get(node.Name)
 		check(node, err)
 		return value
+	case *ast.Super:
+		value, err := env.Get("super")
+		if err != nil {
+			fail(node, "super is only available inside methods")
+		}
+		return value
+	case *ast.Property:
+		return property(node, eval.expression(node.Receiver, env))
 	case *ast.List:
 		list := &object.List{}
 		for _, element := range node.Elements {
@@ -246,27 +278,7 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		for index, argument := range node.Arguments {
 			arguments[index] = eval.expression(argument, env)
 		}
-		switch callable := function.(type) {
-		case *object.Builtin:
-			value, err := callable.Call(arguments)
-			check(node, err)
-			return value
-		case *object.Function:
-			declaration := callable.Declaration
-			if len(arguments) != len(declaration.Parameters) {
-				fail(node, "%s expects %d arguments, got %d", declaration.Name, len(declaration.Parameters), len(arguments))
-			}
-			scope := object.NewEnvironment(callable.Env)
-			for index, parameter := range declaration.Parameters {
-				check(node, scope.Define(parameter, arguments[index], false))
-			}
-			if result := eval.block(declaration.Body, scope); result != nil {
-				return result.Value
-			}
-			return object.Null{}
-		default:
-			fail(node, "%s is not callable", function.Type())
-		}
+		return eval.call(node, function, arguments)
 	}
 	fail(expression, "unsupported expression")
 	return object.Null{}

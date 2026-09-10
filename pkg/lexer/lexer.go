@@ -58,7 +58,7 @@ func Scan(source string) ([]Token, error) {
 			token.Text = string(scan.source[start:scan.pos])
 			token.Kind = Ident
 			switch token.Text {
-			case "const", "def", "return", "if", "elif", "else", "while", "for", "in", "true", "false", "null", "and", "or", "not":
+			case "const", "def", "class", "super", "return", "if", "elif", "else", "while", "for", "in", "true", "false", "null", "and", "or", "not":
 				token.Kind = Kind(token.Text)
 			}
 		case current >= '0' && current <= '9':
@@ -127,7 +127,7 @@ func Scan(source string) ([]Token, error) {
 				} else if current == '!' {
 					return nil, token.Errorf("expected '=' after '!'; use 'not' for negation")
 				}
-			case '+', '-', '*', '/', '%', '(', ')', '[', ']', '{', '}', ':', ',', ';':
+			case '+', '-', '*', '/', '%', '(', ')', '[', ']', '{', '}', ':', ',', ';', '.':
 			default:
 				return nil, token.Errorf("unexpected character %q", current)
 			}

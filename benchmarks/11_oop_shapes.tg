@@ -1,0 +1,120 @@
+const TITLE = "Polymorphic shapes";
+
+class Shape {
+    def init(self, label) {
+        self.label = label;
+    }
+
+    def area(self) {
+        return 0;
+    }
+
+    def perimeter(self) {
+        return 0;
+    }
+
+    def describe(self) {
+        return self.label + ": area=" + str(self.area()) + ", perimeter=" + str(self.perimeter());
+    }
+}
+
+class Rectangle(Shape) {
+    def init(self, width, height) {
+        super.init("rectangle");
+        self.width = width;
+        self.height = height;
+    }
+
+    def area(self) {
+        return self.width * self.height;
+    }
+
+    def perimeter(self) {
+        return 2 * (self.width + self.height);
+    }
+
+    def scale(self, factor) {
+        self.width = self.width * factor;
+        self.height = self.height * factor;
+        return self;
+    }
+}
+
+class Square(Rectangle) {
+    def init(self, side) {
+        super.init(side, side);
+        self.label = "square";
+    }
+
+    def side(self) {
+        return self.width;
+    }
+
+    def describe(self) {
+        return super.describe() + ", side=" + str(self.side());
+    }
+}
+
+class RightTriangle(Shape) {
+    def init(self, base, height, hypotenuse) {
+        super.init("triangle");
+        self.base = base;
+        self.height = height;
+        self.hypotenuse = hypotenuse;
+    }
+
+    def area(self) {
+        return self.base * self.height / 2;
+    }
+
+    def perimeter(self) {
+        return self.base + self.height + self.hypotenuse;
+    }
+
+    def scale(self, factor) {
+        self.base = self.base * factor;
+        self.height = self.height * factor;
+        self.hypotenuse = self.hypotenuse * factor;
+        return self;
+    }
+}
+
+def total_area(shapes) {
+    total = 0;
+    for shape in shapes {
+        total = total + shape.area();
+    }
+    return total;
+}
+
+def descriptions(shapes) {
+    result = [];
+    for shape in shapes {
+        result = result + [shape.describe()];
+    }
+    return result;
+}
+
+const RECTANGLE = Rectangle(3, 4);
+const SQUARE = Square(5);
+const TRIANGLE = RightTriangle(3, 4, 5);
+const SHAPES = [RECTANGLE, SQUARE, TRIANGLE];
+const SAVED_AREA = RECTANGLE.area;
+
+print(TITLE);
+print(Shape("base").describe());
+for description in descriptions(SHAPES) {
+    print(description);
+}
+print("total:", total_area(SHAPES));
+RECTANGLE.scale(2);
+SQUARE.scale(3);
+TRIANGLE.scale(2);
+print("scaled:", RECTANGLE.area(), SQUARE.area(), TRIANGLE.area());
+print("perimeters:", RECTANGLE.perimeter(), SQUARE.perimeter(), TRIANGLE.perimeter());
+print("saved method:", SAVED_AREA());
+print("square:", SQUARE.describe());
+print("total scaled:", total_area(SHAPES));
+print("empty:", total_area([]), descriptions([]));
+print("chain:", Rectangle(2, 3).scale(2).scale(2).area());
+print("identity:", SHAPES[0] == RECTANGLE, Rectangle(3, 4) == Rectangle(3, 4));

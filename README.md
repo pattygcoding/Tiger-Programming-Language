@@ -69,36 +69,48 @@ For PowerShell, set `GOOS` to `wasip1` and `GOARCH` to `wasm` as above, build, t
 ## Language
 
 ```tg
-const MAX_RUNS = 5;
-
-def factorial(n) {
-    if n <= 1 {
-        return 1;
+class Scoreboard {
+    def init(self, name) {
+        self.name = name;
+        self.points = 0;
     }
-    return n * factorial(n - 1);
+    def add(self, points) {
+        self.points = self.points + points;
+        return self.name + ": " + str(self.points);
+    }
 }
 
-for item in [1, 2, 3, 4, 5] {
-    print("factorial(" + str(item) + ") = " + str(factorial(item)));
+class DoubleScore(Scoreboard) {
+    def add(self, points) { return super.add(points * 2); }
+}
+
+const score = DoubleScore("Tigers").add;
+const rounds = [{"won": true, "points": 3}, {"won": true, "points": 4}];
+for round in rounds {
+    if round["won"] {
+        print(score(round["points"]));
+    }
 }
 ```
 
-- Assignments, constant declarations, returns, and expression statements end in `;`. Newlines never substitute for semicolons.
-- Functions, `if`/`elif`/`else`, `while`, and `for` use `{ ... }`, never colon-and-indent syntax. As in the specification's examples, a closing block brace does not require a semicolon; an optional one is accepted.
-- Assignment updates the nearest existing binding; a new name belongs to the current block. New names do not escape functions, branches, or loop iterations. Each loop iteration gets a new block scope. Loop variables and parameters are local bindings. Closures retain lexical environments and support recursion.
-- `const` declares a binding in the current scope and rejects reassignment, including from nested scopes. Explicit declarations and parameters may shadow outer bindings. Constants prevent rebinding, not mutation of a referenced list or dictionary. Duplicate declarations in the same scope are errors.
-- Values: finite 64-bit floating-point numbers, single- or double-quoted strings, `true`, `false`, `null`, lists, dictionaries, and functions. Numbers follow float64 precision, not Python's arbitrary-precision integers.
-- Arithmetic: `+ - * / %`; `%` follows the divisor's sign. Comparisons: `== != < <= > >=`. Boolean operators: `and or not`, with short-circuit operand-returning `and`/`or`. Comparison chains are not Python-style chains; write `a < b and b < c`.
-- `+` adds numbers or concatenates two strings or two lists. Mixed-type arithmetic is an error; use `str` for conversion. List/dictionary equality is structural, with cycle protection.
-- Falsey values: `false`, `null`, zero, and empty strings/lists/dictionaries. All other values are truthy.
-- Lists and strings support integer indexing, including negative indices. String indexing and `len` count Unicode code points. Lists and dictionaries support indexed assignment; strings are immutable.
-- Dictionary keys may be strings, numbers, or booleans; these are distinct key types. Dictionaries preserve insertion order. Repeated keys replace the value without changing order. Missing keys and invalid indices are errors.
-- `for` iterates a snapshot of list elements, string code points, or dictionary keys. `in` tests list membership, dictionary keys, or substrings.
-- Built-ins: `print(...values)` writes space-separated values and a newline; `str(value)` converts to text; `len(value)` returns the length of a string, list, or dictionary. Built-in bindings are constant.
-- Comments start with `#` or `//`. String escapes: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`. Whitespace outside strings is stylistic.
-- Bare `return;` and functions without a return produce `null`. A return outside a function is a syntax error.
+Output:
 
-The runtime defaults to 1,000,000 evaluation steps and a depth limit of 512. Embedded callers may set `Evaluator.MaxSteps` (`0` disables the step limit). The browser additionally caps output at 1 MiB. These limits catch common runaway programs; they are not a security or memory-isolation guarantee for hostile code.
+```text
+Tigers: 6
+Tigers: 14
+```
+
+Explore the [Tiger tutorial and language reference](docs/README.md) for step-by-step lessons, runnable examples, and detailed semantics.
+
+## Regression Benchmarks
+
+Run all fifteen reference-output programs, including five OOP workloads:
+
+```sh
+go test ./benchmarks -count=1 -v
+```
+
+`make benchmarks` runs the same checks; `go test ./...` includes them too. See [benchmarks/README.md](benchmarks/README.md) for coverage and filtering commands.
 
 ## Layout
 
@@ -115,6 +127,8 @@ pkg/evaluator/  Interpreter and built-ins
 pkg/compiler/   Standalone executable builder
 web/            Browser editor and worker
 examples/       Runnable .tg programs
+docs/           Tutorial and language reference with tested examples
+benchmarks/     100-200-line reference-output regression programs
 bundle.go       Embedded runtime sources for standalone builds
 ```
 

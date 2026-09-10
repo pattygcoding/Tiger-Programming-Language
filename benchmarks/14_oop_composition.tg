@@ -1,0 +1,125 @@
+const TITLE = "Object composition and recursive projects";
+
+class Task {
+    def init(self, title, hours) {
+        self.title = title;
+        self.hours = hours;
+        self.done = false;
+    }
+
+    def complete(self) {
+        self.done = true;
+        return self;
+    }
+
+    def reopen(self) {
+        self.done = false;
+        return self;
+    }
+
+    def estimate(self) {
+        if self.done {
+            return 0;
+        }
+        return self.hours;
+    }
+
+    def describe(self) {
+        if self.done {
+            return self.title + ":done";
+        }
+        return self.title + ":" + str(self.hours);
+    }
+}
+
+class Project {
+    def init(self, name) {
+        self.name = name;
+        self.tasks = [];
+        self.projects = [];
+    }
+
+    def add_task(self, task) {
+        self.tasks = self.tasks + [task];
+        return self;
+    }
+
+    def add_project(self, project) {
+        self.projects = self.projects + [project];
+        return self;
+    }
+
+    def estimate(self) {
+        total = 0;
+        for task in self.tasks {
+            total = total + task.estimate();
+        }
+        for project in self.projects {
+            total = total + project.estimate();
+        }
+        return total;
+    }
+
+    def find(self, title) {
+        for task in self.tasks {
+            if task.title == title {
+                return task;
+            }
+        }
+        for project in self.projects {
+            found = project.find(title);
+            if found != null {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    def report(self) {
+        result = [];
+        for task in self.tasks {
+            result = result + [task.describe()];
+        }
+        for project in self.projects {
+            result = result + project.report();
+        }
+        return result;
+    }
+
+    def complete_all(self) {
+        for task in self.tasks {
+            task.complete();
+        }
+        for project in self.projects {
+            project.complete_all();
+        }
+    }
+}
+
+const DESIGN = Task("Design", 3);
+const BUILD = Task("Build", 5);
+const UNIT = Task("Unit", 2);
+const INTEGRATION = Task("Integration", 4);
+const QA = Project("QA").add_task(UNIT).add_task(INTEGRATION);
+const APP = Project("App").add_task(DESIGN).add_task(BUILD).add_project(QA);
+const EMPTY = Project("Empty");
+
+print(TITLE);
+print("initial:", APP.estimate(), QA.estimate());
+BUILD.complete();
+print("after build:", APP.estimate());
+APP.find("Integration").complete();
+print("after integration:", APP.estimate(), QA.estimate());
+print("report:", APP.report());
+print("identity:", APP.find("Unit") == UNIT);
+print("missing:", APP.find("Missing"));
+APP.tasks[0].hours = 4;
+print("shared field:", DESIGN.hours, APP.estimate());
+const LOOKUP = APP.find;
+print("bound lookup:", LOOKUP("Design").title);
+APP.complete_all();
+print("complete:", APP.estimate(), APP.report());
+LOOKUP("Build").reopen();
+print("reopened:", BUILD.done, APP.estimate());
+print("empty:", EMPTY.estimate(), EMPTY.report(), EMPTY.find("Unit"));
+print("independent:", len(EMPTY.tasks), len(QA.tasks), len(APP.projects));

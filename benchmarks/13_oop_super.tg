@@ -1,0 +1,126 @@
+const TITLE = "Lexical super and inherited constructors";
+
+class Root {
+    def init(self, name) {
+        self.name = name;
+        self.trail = ["root"];
+    }
+
+    def label(self) {
+        return "root:" + self.name;
+    }
+
+    def level(self) {
+        return 1;
+    }
+
+    def describe(self) {
+        return self.label() + "@" + str(self.level());
+    }
+
+    def rename(self, name) {
+        self.name = name;
+        return self;
+    }
+}
+
+class Middle(Root) {
+    def init(self, name) {
+        super.init(name);
+        self.trail = self.trail + ["middle"];
+    }
+
+    def label(self) {
+        return super.label() + "/middle";
+    }
+
+    def level(self) {
+        return super.level() + 1;
+    }
+
+    def root_callback(self) {
+        def later() {
+            return super.label();
+        }
+        return later;
+    }
+
+    def root_method(self) {
+        return super.label;
+    }
+}
+
+class Leaf(Middle) {
+    def init(self, name) {
+        super.init(name);
+        self.trail = self.trail + ["leaf"];
+    }
+
+    def label(self) {
+        return super.label() + "/leaf";
+    }
+
+    def level(self) {
+        return super.level() + 1;
+    }
+
+    def parent_label(self) {
+        return super.label();
+    }
+}
+
+class Inherited(Leaf) {
+}
+
+class Final(Inherited) {
+    def label(self) {
+        return super.label() + "/final";
+    }
+
+    def level(self) {
+        return super.level() + 1;
+    }
+}
+
+def descriptions(objects) {
+    result = [];
+    for item in objects {
+        result = result + [item.describe()];
+    }
+    return result;
+}
+
+def make_local(prefix) {
+    class Local(Root) {
+        def label(self) {
+            return prefix + super.label();
+        }
+    }
+    return Local;
+}
+
+const BASE = Root("A");
+const MID = Middle("B");
+const LEAF = Leaf("C");
+const INHERITED = Inherited("D");
+const FINAL = Final("E");
+const CALLBACK = FINAL.root_callback();
+const ROOT_METHOD = FINAL.root_method();
+const LOCAL = make_local("local/");
+
+print(TITLE);
+for description in descriptions([BASE, MID, LEAF, INHERITED, FINAL]) {
+    print(description);
+}
+print("trails:", BASE.trail, MID.trail, FINAL.trail);
+print("parent:", FINAL.parent_label());
+print("callback:", CALLBACK(), ROOT_METHOD());
+FINAL.rename("Renamed");
+print("renamed:", CALLBACK(), ROOT_METHOD(), FINAL.describe());
+print("independent:", LEAF.name, INHERITED.name);
+print("local:", LOCAL("X").describe());
+const ROOT_ALIAS = Root;
+Root = 7;
+print("stable parent:", FINAL.label(), ROOT_ALIAS("Z").label());
+print("inherited init:", Final("Fresh").trail);
+print("bound equality:", ROOT_METHOD == FINAL.root_method());
