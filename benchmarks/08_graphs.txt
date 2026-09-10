@@ -1,0 +1,14 @@
+Graph traversal
+bfs: ["A", "B", "C", "D", "E", "F"]
+dfs: ["A", "B", "D", "F", "C", "E"]
+distances: {"A": 0, "B": 1, "C": 1, "D": 2, "E": 2, "F": 3}
+shortest: ["A", "B", "D", "F"]
+unreachable: []
+self: ["C"]
+isolated: ["G"] {"G": 0}
+edges: 7
+degrees: {"A": 2, "B": 1, "C": 2, "D": 1, "E": 1, "F": 0, "G": 0}
+dag paths: 3 0
+cycle bfs: ["X", "Y", "Z"]
+cycle dfs: ["X", "Y", "Z"]
+cycle distances: {"X": 0, "Y": 1, "Z": 2}

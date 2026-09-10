@@ -1,0 +1,13 @@
+Dynamic programming
+fibonacci: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
+base: [0] [0, 1]
+combinations: 10 0
+empty coins: 1 0
+minimum: 2 -1 0
+grid: 10 1 0
+knapsack: 12 8
+empty bag: 0 0
+increasing: 4
+decreasing: 1
+duplicates: 1 0
+unchanged: [2, 3, 4, 5] [3, 4, 5, 8]

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiger Playground</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <a class="brand" href="./">Tiger<span>.tg</span></a>
+    <span class="environment">Go / WebAssembly</span>
+    <span id="status" role="status">Loading runtime</span>
+  </header>
+  <main>
+    <section class="source-pane" aria-label="Source editor">
+      <div class="toolbar">
+        <label for="example">Source</label>
+        <select id="example" aria-label="Example program">
+          <option value="demo">demo.tg</option>
+          <option value="collections">collections.tg</option>
+        </select>
+        <div class="actions">
+          <button id="reset" title="Reset selected example">Reset</button>
+          <button id="download" title="Download source as a .tg file">Download</button>
+        </div>
+      </div>
+      <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Tiger source code">const MAX_RUNS = 5;
+
+def factorial(n) {
+    if n &lt;= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+print("Running Tiger demo:");
+
+i = 1;
+while i &lt;= MAX_RUNS {
+    val = factorial(i);
+    print("factorial(" + str(i) + ") = " + str(val));
+    i = i + 1;
+}</textarea>
+      <div class="editor-footer">
+        <span id="position">Ln 1, Col 1</span>
+        <button id="stop" disabled>Stop</button>
+        <button id="run" class="primary" disabled>Run</button>
+      </div>
+    </section>
+    <section class="output-pane" aria-label="Program output">
+      <div class="toolbar">
+        <h1>Output</h1>
+        <span id="timing"></span>
+        <button id="clear" title="Clear output">Clear</button>
+      </div>
+      <pre id="output" tabindex="0" aria-label="Standard output"></pre>
+      <pre id="error" role="alert" hidden></pre>
+    </section>
+  </main>
+  <footer><span>TIGER LANGUAGE</span><span>Browser runtime</span></footer>
+  <script src="app.js" defer></script>
+</body>
+</html>

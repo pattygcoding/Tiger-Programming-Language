@@ -1,0 +1,146 @@
+const TITLE = "Text processing";
+const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
+
+def reverse(text) {
+    result = "";
+    position = len(text) - 1;
+    while position >= 0 {
+        result = result + text[position];
+        position = position - 1;
+    }
+    return result;
+}
+
+def words(text) {
+    result = [];
+    current = "";
+    for character in text {
+        if character == " " or character == "\t" or character == "\n" {
+            if len(current) > 0 {
+                result = result + [current];
+                current = "";
+            }
+        } else {
+            current = current + character;
+        }
+    }
+    if len(current) > 0 {
+        result = result + [current];
+    }
+    return result;
+}
+
+def join(parts, separator) {
+    result = "";
+    position = 0;
+    for part in parts {
+        if position > 0 {
+            result = result + separator;
+        }
+        result = result + part;
+        position = position + 1;
+    }
+    return result;
+}
+
+def frequencies(text) {
+    counts = {};
+    for word in words(text) {
+        if word in counts {
+            counts[word] = counts[word] + 1;
+        } else {
+            counts[word] = 1;
+        }
+    }
+    return counts;
+}
+
+def unique_characters(text) {
+    result = "";
+    seen = {};
+    for character in text {
+        if not character in seen {
+            seen[character] = true;
+            result = result + character;
+        }
+    }
+    return result;
+}
+
+def shift_character(character, distance) {
+    position = 0;
+    while position < len(ALPHABET) {
+        if ALPHABET[position] == character {
+            return ALPHABET[(position + distance) % len(ALPHABET)];
+        }
+        position = position + 1;
+    }
+    return character;
+}
+
+def caesar(text, distance) {
+    result = "";
+    for character in text {
+        result = result + shift_character(character, distance);
+    }
+    return result;
+}
+
+def run_length(text) {
+    if len(text) == 0 {
+        return "";
+    }
+    result = "";
+    previous = text[0];
+    count = 1;
+    position = 1;
+    while position < len(text) {
+        if text[position] == previous {
+            count = count + 1;
+        } else {
+            result = result + previous + str(count);
+            previous = text[position];
+            count = 1;
+        }
+        position = position + 1;
+    }
+    return result + previous + str(count);
+}
+
+def starts_with(text, prefix) {
+    if len(prefix) > len(text) {
+        return false;
+    }
+    position = 0;
+    while position < len(prefix) {
+        if text[position] != prefix[position] {
+            return false;
+        }
+        position = position + 1;
+    }
+    return true;
+}
+
+def repeat(text, count) {
+    result = "";
+    position = 0;
+    while position < count {
+        result = result + text;
+        position = position + 1;
+    }
+    return result;
+}
+
+print(TITLE);
+print("reverse:", reverse("Tiger 123"));
+print("words:", words("  red\tblue\nred  green "));
+print("join:", join(["one", "two", "three"], "|"));
+print("counts:", frequencies("red blue red green blue red"));
+print("unique:", unique_characters("mississippi"));
+print("cipher:", caesar("tiger zoo!", 3));
+print("decipher:", caesar("wljhu crr!", -3));
+print("runs:", run_length("aaabbcaaa"), run_length("x"));
+print("prefix:", starts_with("tiger", "tig"), starts_with("tiger", "tiny"), starts_with("", ""));
+print("repeat:", repeat("ab", 4));
+print("empty:", words(" \t\n"), len(join([], ",")), len(run_length("")), len(repeat("x", 0)));
+print("membership:", "ger" in "tiger", "xyz" in "tiger");

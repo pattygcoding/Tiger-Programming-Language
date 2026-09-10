@@ -1,0 +1,123 @@
+const TITLE = "Recursive algorithms";
+
+def fibonacci(number) {
+    if number <= 1 {
+        return number;
+    }
+    return fibonacci(number - 1) + fibonacci(number - 2);
+}
+
+def tribonacci(number) {
+    if number < 2 {
+        return 0;
+    }
+    if number == 2 {
+        return 1;
+    }
+    return tribonacci(number - 1) + tribonacci(number - 2) + tribonacci(number - 3);
+}
+
+def recursive_sum(values, position) {
+    if position == len(values) {
+        return 0;
+    }
+    return values[position] + recursive_sum(values, position + 1);
+}
+
+def reverse_from(text, position) {
+    if position < 0 {
+        return "";
+    }
+    return text[position] + reverse_from(text, position - 1);
+}
+
+def reverse(text) {
+    return reverse_from(text, len(text) - 1);
+}
+
+def palindrome_between(text, left, right) {
+    if left >= right {
+        return true;
+    }
+    if text[left] != text[right] {
+        return false;
+    }
+    return palindrome_between(text, left + 1, right - 1);
+}
+
+def palindrome(text) {
+    return palindrome_between(text, 0, len(text) - 1);
+}
+
+def fast_power(base, exponent) {
+    if exponent == 0 {
+        return 1;
+    }
+    if exponent % 2 == 1 {
+        return base * fast_power(base, exponent - 1);
+    }
+    half = fast_power(base, exponent / 2);
+    return half * half;
+}
+
+def choose(total, selected) {
+    if selected == 0 or selected == total {
+        return 1;
+    }
+    if selected < 0 or selected > total {
+        return 0;
+    }
+    return choose(total - 1, selected - 1) + choose(total - 1, selected);
+}
+
+def collatz_steps(number) {
+    if number == 1 {
+        return 0;
+    }
+    if number % 2 == 0 {
+        return 1 + collatz_steps(number / 2);
+    }
+    return 1 + collatz_steps(number * 3 + 1);
+}
+
+def hanoi_moves(disks) {
+    if disks == 0 {
+        return 0;
+    }
+    return hanoi_moves(disks - 1) * 2 + 1;
+}
+
+def tree_size(node) {
+    total = 1;
+    for child in node["children"] {
+        total = total + tree_size(child);
+    }
+    return total;
+}
+
+def tree_depth(node) {
+    deepest = 0;
+    for child in node["children"] {
+        candidate = tree_depth(child);
+        if candidate > deepest {
+            deepest = candidate;
+        }
+    }
+    return deepest + 1;
+}
+
+const LEAF = {"children": []};
+const TREE = {"children": [LEAF, {"children": [LEAF, LEAF]}]};
+
+print(TITLE);
+print("fibonacci:", fibonacci(0), fibonacci(1), fibonacci(10));
+print("tribonacci:", tribonacci(2), tribonacci(5), tribonacci(8));
+print("sum:", recursive_sum([5, -2, 7, 10], 0), recursive_sum([], 0));
+print("reverse:", reverse("tiger"), reverse("level"), len(reverse("")));
+print("palindrome:", palindrome(""), palindrome("level"), palindrome("tiger"));
+print("powers:", fast_power(2, 12), fast_power(3, 5), fast_power(7, 0));
+print("choose:", choose(6, 3), choose(8, 2), choose(4, 7));
+print("collatz:", collatz_steps(1), collatz_steps(6), collatz_steps(7));
+print("hanoi:", hanoi_moves(0), hanoi_moves(4), hanoi_moves(6));
+print("tree:", tree_size(TREE), tree_depth(TREE));
+print("leaf:", tree_size(LEAF), tree_depth(LEAF));

@@ -1,0 +1,13 @@
+Text processing
+reverse: 321 regiT
+words: ["red", "blue", "red", "green"]
+join: one|two|three
+counts: {"red": 3, "blue": 2, "green": 1}
+unique: misp
+cipher: wljhu crr!
+decipher: tiger zoo!
+runs: a3b2c1a3 x1
+prefix: true false true
+repeat: abababab
+empty: [] 0 0 0
+membership: true false

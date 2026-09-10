@@ -1,0 +1,15 @@
+Inventory transactions
+initial: 66 23
+purchase: true false
+restock: true false
+order: true
+atomic failure: false
+quantities: {"apple": 5, "pear": 7, "plum": 4}
+remaining: 51 16
+low stock: ["apple", "plum"]
+copy: 17 53
+discounted: 36
+original: {"apple": 5, "pear": 7, "plum": 4} 51
+invalid: false false
+empty order: true
+empty catalog: 0 0 []

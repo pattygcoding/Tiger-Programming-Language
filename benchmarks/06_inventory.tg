@@ -1,0 +1,120 @@
+const TITLE = "Inventory transactions";
+
+def create_catalog() {
+    return {
+        "apple": {"quantity": 10, "price": 3},
+        "pear": {"quantity": 5, "price": 4},
+        "plum": {"quantity": 8, "price": 2}
+    };
+}
+
+def inventory_value(catalog) {
+    total = 0;
+    for name in catalog {
+        item = catalog[name];
+        total = total + item["quantity"] * item["price"];
+    }
+    return total;
+}
+
+def purchase(catalog, name, quantity) {
+    if not name in catalog or quantity < 0 {
+        return false;
+    }
+    item = catalog[name];
+    if item["quantity"] < quantity {
+        return false;
+    }
+    item["quantity"] = item["quantity"] - quantity;
+    return true;
+}
+
+def restock(catalog, name, quantity) {
+    if not name in catalog or quantity < 0 {
+        return false;
+    }
+    catalog[name]["quantity"] = catalog[name]["quantity"] + quantity;
+    return true;
+}
+
+def apply_order(catalog, order) {
+    for name in order {
+        if not name in catalog {
+            return false;
+        }
+        if order[name] < 0 or order[name] > catalog[name]["quantity"] {
+            return false;
+        }
+    }
+    for name in order {
+        catalog[name]["quantity"] = catalog[name]["quantity"] - order[name];
+    }
+    return true;
+}
+
+def quantities(catalog) {
+    result = {};
+    for name in catalog {
+        result[name] = catalog[name]["quantity"];
+    }
+    return result;
+}
+
+def low_stock(catalog, threshold) {
+    result = [];
+    for name in catalog {
+        if catalog[name]["quantity"] <= threshold {
+            result = result + [name];
+        }
+    }
+    return result;
+}
+
+def copy_catalog(catalog) {
+    result = {};
+    for name in catalog {
+        result[name] = {
+            "quantity": catalog[name]["quantity"],
+            "price": catalog[name]["price"]
+        };
+    }
+    return result;
+}
+
+def discount(catalog, reduction) {
+    for name in catalog {
+        revised = catalog[name]["price"] - reduction;
+        if revised < 0 {
+            revised = 0;
+        }
+        catalog[name]["price"] = revised;
+    }
+}
+
+def total_units(catalog) {
+    total = 0;
+    for name in catalog {
+        total = total + catalog[name]["quantity"];
+    }
+    return total;
+}
+
+const STOCK = create_catalog();
+print(TITLE);
+print("initial:", inventory_value(STOCK), total_units(STOCK));
+print("purchase:", purchase(STOCK, "apple", 3), purchase(STOCK, "pear", 6));
+print("restock:", restock(STOCK, "pear", 2), restock(STOCK, "unknown", 1));
+print("order:", apply_order(STOCK, {"apple": 2, "plum": 4}));
+print("atomic failure:", apply_order(STOCK, {"apple": 1, "pear": 99}));
+print("quantities:", quantities(STOCK));
+print("remaining:", inventory_value(STOCK), total_units(STOCK));
+print("low stock:", low_stock(STOCK, 5));
+const COPY = copy_catalog(STOCK);
+restock(COPY, "plum", 1);
+print("copy:", total_units(COPY), inventory_value(COPY));
+discount(COPY, 1);
+print("discounted:", inventory_value(COPY));
+print("original:", quantities(STOCK), inventory_value(STOCK));
+print("invalid:", purchase(STOCK, "apple", -1), apply_order(STOCK, {"missing": 1}));
+print("empty order:", apply_order(STOCK, {}));
+print("empty catalog:", inventory_value({}), total_units({}), low_stock({}, 5));
