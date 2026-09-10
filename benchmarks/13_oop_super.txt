@@ -1,0 +1,15 @@
+Lexical super and inherited constructors
+root:A@1
+root:B/middle@2
+root:C/middle/leaf@3
+root:D/middle/leaf@3
+root:E/middle/leaf/final@4
+trails: ["root"] ["root", "middle"] ["root", "middle", "leaf"]
+parent: root:E/middle
+callback: root:E root:E
+renamed: root:Renamed root:Renamed root:Renamed/middle/leaf/final@4
+independent: C D
+local: local/root:X@1
+stable parent: root:Renamed/middle/leaf/final root:Z
+inherited init: ["root", "middle", "leaf"]
+bound equality: true

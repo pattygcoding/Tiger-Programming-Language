@@ -1,0 +1,37 @@
+# Base class definition
+class Animal {
+    def init(self, name, species) {
+        self.name = name;
+        self.species = species;
+    }
+
+    def speak(self) {
+        return self.name + " makes a generic sound.";
+    }
+
+    def describe(self) {
+        return self.name + " is a " + self.species + ".";
+    }
+}
+
+# Derived class with inheritance
+class Dog(Animal) {
+    def init(self, name, breed) {
+        super.init(name, "Canine");
+        self.breed = breed;
+    }
+
+    def speak(self) {
+        return self.name + " barks!";
+    }
+
+    def fetch(self, item) {
+        return self.name + " fetches the " + item + ".";
+    }
+}
+
+# Instantiation and usage
+const pet = Dog("Rex", "German Shepherd");
+print(pet.describe());
+print(pet.speak());
+print(pet.fetch("ball"));

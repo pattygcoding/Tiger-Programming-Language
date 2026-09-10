@@ -1,0 +1,132 @@
+const TITLE = "Bound methods and callbacks";
+
+class Counter {
+    def init(self, initial) {
+        self.value = initial;
+    }
+
+    def add(self, amount) {
+        self.value = self.value + amount;
+        return self.value;
+    }
+
+    def callback(self, factor) {
+        def later(amount) {
+            return self.add(amount * factor);
+        }
+        return later;
+    }
+
+    def reset(self) {
+        self.value = 0;
+    }
+}
+
+class LoggedCounter(Counter) {
+    def init(self, initial) {
+        super.init(initial);
+        self.history = [];
+    }
+
+    def add(self, amount) {
+        result = super.add(amount);
+        self.history = self.history + [result];
+        return result;
+    }
+
+    def silent_callback(self) {
+        return super.add;
+    }
+}
+
+class Dispatcher {
+    def init(self) {
+        self.listeners = [];
+    }
+
+    def subscribe(self, handler) {
+        self.listeners = self.listeners + [handler];
+        return self;
+    }
+
+    def emit(self, value) {
+        results = [];
+        for handler in self.listeners {
+            results = results + [handler(value)];
+        }
+        return results;
+    }
+}
+
+class Adder {
+    def init(self, offset) {
+        self.offset = offset;
+    }
+
+    def transform(self, value) {
+        return value + self.offset;
+    }
+}
+
+class Multiplier {
+    def init(self, factor) {
+        self.factor = factor;
+    }
+
+    def transform(self, value) {
+        return value * self.factor;
+    }
+}
+
+class Pipeline {
+    def init(self, stages) {
+        self.stages = stages;
+    }
+
+    def apply(self, value) {
+        result = value;
+        for stage in self.stages {
+            result = stage.transform(result);
+        }
+        return result;
+    }
+
+    def map(self, values) {
+        results = [];
+        for value in values {
+            results = results + [self.apply(value)];
+        }
+        return results;
+    }
+}
+
+def identity(value) {
+    return value;
+}
+
+const FIRST = LoggedCounter(0);
+const SECOND = Counter(10);
+const EVENTS = Dispatcher().subscribe(FIRST.add).subscribe(SECOND.add);
+const SAVED = FIRST.add;
+const CALLBACK = FIRST.callback(2);
+const SILENT = FIRST.silent_callback();
+const PIPELINE = Pipeline([Adder(3), Multiplier(2)]);
+
+print(TITLE);
+print("event one:", EVENTS.emit(2));
+print("event two:", EVENTS.emit(3));
+print("saved:", SAVED(4), FIRST.history);
+print("closure:", CALLBACK(3), FIRST.history);
+print("silent:", SILENT(1), FIRST.history);
+FIRST.operation = SECOND.add;
+print("stored receiver:", FIRST.operation(5), FIRST.value, SECOND.value);
+FIRST.transform = identity;
+print("function field:", FIRST.transform(7));
+print("pipeline:", PIPELINE.map([1, 2, 3]));
+const APPLY = PIPELINE.apply;
+print("bound pipeline:", APPLY(4));
+PIPELINE.stages[0].offset = 5;
+print("updated pipeline:", APPLY(4));
+print("equality:", SAVED == FIRST.add, SAVED == SECOND.add);
+print("empty:", Dispatcher().emit(1), PIPELINE.map([]));
+print("reset:", SECOND.reset(), SECOND.value, FIRST.value);

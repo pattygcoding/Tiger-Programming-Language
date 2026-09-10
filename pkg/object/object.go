@@ -146,6 +146,14 @@ func format(value Value, seen map[Value]bool, nested bool) string {
 		return "{" + strings.Join(parts, ", ") + "}"
 	case *Function:
 		return "<function " + typed.Declaration.Name + ">"
+	case *Class:
+		return "<class " + typed.Name + ">"
+	case *Instance:
+		return "<" + typed.Class.Name + " instance>"
+	case *BoundMethod:
+		return "<bound method " + typed.Method.Owner.Name + "." + typed.Method.Function.Declaration.Name + ">"
+	case *Super:
+		return "<super>"
 	case *Builtin:
 		return "<builtin " + typed.Name + ">"
 	case *ReturnValue:
@@ -169,6 +177,9 @@ func equal(left, right Value, seen map[[2]Value]bool) bool {
 	}
 	seen[pair] = true
 	switch typed := left.(type) {
+	case *BoundMethod:
+		other := right.(*BoundMethod)
+		return typed.Method == other.Method && typed.Receiver == other.Receiver
 	case *List:
 		other := right.(*List)
 		if len(typed.Elements) != len(other.Elements) {

@@ -1,0 +1,14 @@
+Bound methods and callbacks
+event one: [2, 12]
+event two: [5, 15]
+saved: 9 [2, 5, 9]
+closure: 15 [2, 5, 9, 15]
+silent: 16 [2, 5, 9, 15]
+stored receiver: 20 16 20
+function field: 7
+pipeline: [8, 10, 12]
+bound pipeline: 14
+updated pipeline: 18
+equality: true false
+empty: [] []
+reset: null 0 16

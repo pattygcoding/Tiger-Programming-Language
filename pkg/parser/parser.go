@@ -73,6 +73,8 @@ func (parse *parser) enter() {
 func (parse *parser) statement() ast.Stmt {
 	base := ast.Base{Token: parse.current()}
 	switch {
+	case parse.match("class"):
+		return parse.class(base)
 	case parse.match("const"):
 		name := parse.expect(lexer.Ident)
 		parse.expect("=")
@@ -137,7 +139,7 @@ func (parse *parser) statement() ast.Stmt {
 		value := parse.expression(0)
 		if parse.match("=") {
 			switch value.(type) {
-			case *ast.Identifier, *ast.Index:
+			case *ast.Identifier, *ast.Index, *ast.Property:
 			default:
 				panic(syntaxError{value.Position().Errorf("invalid assignment target")})
 			}
@@ -148,6 +150,40 @@ func (parse *parser) statement() ast.Stmt {
 		parse.expect(";")
 		return &ast.ExpressionStmt{Base: base, Value: value}
 	}
+}
+
+func (parse *parser) class(base ast.Base) ast.Stmt {
+	parse.enter()
+	defer func() { parse.depth-- }()
+	name := parse.expect(lexer.Ident)
+	declaration := &ast.Class{Base: base, Name: name.Text}
+	if parse.match("(") {
+		parent := parse.expect(lexer.Ident)
+		if parent.Text == name.Text {
+			panic(syntaxError{parent.Errorf("a class cannot inherit from itself")})
+		}
+		declaration.Parent = &ast.Identifier{Base: ast.Base{Token: parent}, Name: parent.Text}
+		parse.expect(")")
+	}
+	parse.expect("{")
+	seen := map[string]bool{}
+	for !parse.at("}") && !parse.at(lexer.EOF) {
+		if !parse.at("def") {
+			panic(syntaxError{parse.current().Errorf("class bodies may only contain method definitions")})
+		}
+		method := parse.statement().(*ast.Function)
+		if len(method.Parameters) == 0 || method.Parameters[0] != "self" {
+			panic(syntaxError{method.Position().Errorf("method %q must declare self as its first parameter", method.Name)})
+		}
+		if seen[method.Name] {
+			panic(syntaxError{method.Position().Errorf("duplicate method %q", method.Name)})
+		}
+		seen[method.Name] = true
+		declaration.Methods = append(declaration.Methods, method)
+	}
+	parse.expect("}")
+	parse.match(";")
+	return declaration
 }
 
 func (parse *parser) block() []ast.Stmt {
@@ -175,7 +211,7 @@ func precedence(kind lexer.Kind) int {
 		return 4
 	case "*", "/", "%":
 		return 5
-	case "(", "[":
+	case "(", "[", ".":
 		return 7
 	}
 	return 0
@@ -199,6 +235,10 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		left = &ast.Literal{Base: base}
 	case lexer.Ident:
 		left = &ast.Identifier{Base: base, Name: token.Text}
+	case "super":
+		parse.expect(".")
+		member := parse.expect(lexer.Ident)
+		left = &ast.Property{Base: ast.Base{Token: member}, Receiver: &ast.Super{Base: base}, Name: member.Text}
 	case "-", "+", "not":
 		binding := 6
 		if token.Kind == "not" {
@@ -231,6 +271,9 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		operator := parse.take()
 		base = ast.Base{Token: operator}
 		switch operator.Kind {
+		case ".":
+			member := parse.expect(lexer.Ident)
+			left = &ast.Property{Base: ast.Base{Token: member}, Receiver: left, Name: member.Text}
 		case "(":
 			left = &ast.Call{Base: base, Function: left, Arguments: parse.expressions(")")}
 		case "[":

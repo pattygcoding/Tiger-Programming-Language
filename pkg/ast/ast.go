@@ -57,6 +57,14 @@ type Index struct {
 	Key        Expr
 }
 
+type Property struct {
+	Base
+	Receiver Expr
+	Name     string
+}
+
+type Super struct{ Base }
+
 type List struct {
 	Base
 	Elements []Expr
@@ -86,6 +94,13 @@ type Function struct {
 	Name       string
 	Parameters []string
 	Body       []Stmt
+}
+
+type Class struct {
+	Base
+	Name    string
+	Parent  *Identifier
+	Methods []*Function
 }
 
 type Return struct {
@@ -123,11 +138,14 @@ func (*Unary) expression()         {}
 func (*Binary) expression()        {}
 func (*Call) expression()          {}
 func (*Index) expression()         {}
+func (*Property) expression()      {}
+func (*Super) expression()         {}
 func (*List) expression()          {}
 func (*Dict) expression()          {}
 func (*ExpressionStmt) statement() {}
 func (*Assign) statement()         {}
 func (*Function) statement()       {}
+func (*Class) statement()          {}
 func (*Return) statement()         {}
 func (*If) statement()             {}
 func (*While) statement()          {}

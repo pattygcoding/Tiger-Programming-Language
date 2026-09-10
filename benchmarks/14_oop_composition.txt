@@ -1,0 +1,13 @@
+Object composition and recursive projects
+initial: 14 6
+after build: 9
+after integration: 5 2
+report: ["Design:3", "Build:done", "Unit:2", "Integration:done"]
+identity: true
+missing: null
+shared field: 4 6
+bound lookup: Design
+complete: 0 ["Design:done", "Build:done", "Unit:done", "Integration:done"]
+reopened: false 5
+empty: 0 [] null
+independent: 0 2 1
