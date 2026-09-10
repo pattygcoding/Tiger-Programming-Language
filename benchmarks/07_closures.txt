@@ -1,0 +1,13 @@
+Closures and higher-order functions
+counters: 2 4 9 8 6
+map: [2, 4, 6, 8]
+compose: 16 0
+filter: [2, 4, 6]
+reduce: 10 24
+deposit: 125
+withdraw: 85 false
+balances: 85 7
+invalid: false false
+loop captures: 10 15 20
+empty: [] [] 9
+function identity: true false

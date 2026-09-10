@@ -1,0 +1,121 @@
+const TITLE = "Language semantics";
+const ANSWER = 42;
+
+def read_answer() {
+    return ANSWER;
+}
+
+def parameter_shadow(ANSWER) {
+    ANSWER = ANSWER + 1;
+    return ANSWER;
+}
+
+def classify(number) {
+    if number < 0 {
+        return "negative";
+    } elif number == 0 {
+        return "zero";
+    } elif number < 10 {
+        return "small";
+    } else {
+        return "large";
+    }
+}
+
+def truth_values(values) {
+    result = [];
+    for value in values {
+        if value {
+            result = result + [true];
+        } else {
+            result = result + [false];
+        }
+    }
+    return result;
+}
+
+def touch(state) {
+    state["calls"] = state["calls"] + 1;
+    return state["calls"];
+}
+
+def find_even(values) {
+    for value in values {
+        if value % 2 == 0 {
+            while true {
+                return value;
+            }
+        }
+    }
+    return null;
+}
+
+def bare_return() {
+    return;
+}
+
+def implicit_return() {
+    local = 1;
+    local = local + 1;
+}
+
+def count_pairs(limit) {
+    counts = {"less": 0, "equal": 0, "greater": 0};
+    row_index = 0;
+    while row_index < limit {
+        column_index = 0;
+        while column_index < limit {
+            if row_index < column_index {
+                counts["less"] = counts["less"] + 1;
+            } elif row_index == column_index {
+                counts["equal"] = counts["equal"] + 1;
+            } else {
+                counts["greater"] = counts["greater"] + 1;
+            }
+            column_index = column_index + 1;
+        }
+        row_index = row_index + 1;
+    }
+    return counts;
+}
+
+def loop_constants(values) {
+    total = 0;
+    for value in values {
+        const DOUBLED = value * 2;
+        if DOUBLED > 2 {
+            total = total + DOUBLED;
+        }
+    }
+    return total;
+}
+
+print(TITLE);
+if true {
+    const ANSWER = 7;
+    print("lexical scope:", ANSWER, read_answer());
+}
+print("parameter:", parameter_shadow(9), ANSWER);
+print("branches:", classify(-1), classify(0), classify(5), classify(12));
+print("falsey:", truth_values([false, null, 0, "", [], {}]));
+print("truthy:", truth_values([true, -1, "0", [0], {"x": false}, read_answer]));
+const STATE = {"calls": 0};
+print("short circuit:", 0 and touch(STATE), "ready" or touch(STATE));
+print("evaluated:", true and touch(STATE), false or touch(STATE), STATE["calls"]);
+print("returns:", find_even([1, 3, 6, 8]), find_even([1, 3]), bare_return(), implicit_return());
+print("pairs:", count_pairs(4));
+print("loop constants:", loop_constants([1, 2, 3]));
+const KEYS = {1: "number", "1": "string", true: "boolean"};
+print("typed keys:", KEYS[1], KEYS["1"], KEYS[true], len(KEYS));
+const ORIGINAL = [[1], [2]];
+const SHALLOW = ORIGINAL + [];
+SHALLOW[0][0] = 9;
+SHALLOW[1] = [8];
+print("shared elements:", ORIGINAL, SHALLOW);
+const CYCLIC = [null];
+CYCLIC[0] = CYCLIC;
+const OTHER_CYCLE = [null];
+OTHER_CYCLE[0] = OTHER_CYCLE;
+print("cycles:", CYCLIC, CYCLIC == OTHER_CYCLE);
+print("equality:", [1, {"x": [2]}] == [1, {"x": [2]}], true == 1, null == null);
+print("comments:", "# literal", "// literal");

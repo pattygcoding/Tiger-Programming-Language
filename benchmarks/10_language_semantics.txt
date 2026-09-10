@@ -1,0 +1,16 @@
+Language semantics
+lexical scope: 7 42
+parameter: 10 42
+branches: negative zero small large
+falsey: [false, false, false, false, false, false]
+truthy: [true, true, true, true, true, true]
+short circuit: 0 ready
+evaluated: 1 2 2
+returns: 6 null null null
+pairs: {"less": 6, "equal": 4, "greater": 6}
+loop constants: 10
+typed keys: number string boolean 3
+shared elements: [[9], [2]] [[9], [8]]
+cycles: [[...]] true
+equality: true false true
+comments: # literal // literal

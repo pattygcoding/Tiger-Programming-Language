@@ -1,23 +1,12 @@
 # Build artifacts
 *.exe
 tiger-cli*
+/bin/
+/web/tiger.wasm
+/web/wasm_exec.js
 
-# Note: main.wasm and wasm_exec.js are needed for the web demo to work
-# Note: go.mod and go.sum are needed for Go module dependencies
-
-# Test files
-*.tg
-test*.tg
-simple*.tg
-advanced*.tg
-comprehensive-test.tg
+setup
 
 # Development artifacts
 .vscode/
 
-# Rust artifacts (legacy)
-rust/Cargo.lock
-rust/pkg-rust/
-rust/target/
-rust/debug.log
-rust/*.log

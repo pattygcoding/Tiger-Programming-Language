@@ -1,0 +1,133 @@
+const TITLE = "Graph traversal";
+const GRAPH = {
+    "A": ["B", "C"],
+    "B": ["D"],
+    "C": ["D", "E"],
+    "D": ["F"],
+    "E": ["F"],
+    "F": [],
+    "G": []
+};
+
+def breadth_first(graph, start) {
+    queue = [start];
+    seen = {};
+    seen[start] = true;
+    position = 0;
+    while position < len(queue) {
+        current = queue[position];
+        for neighbor in graph[current] {
+            if not neighbor in seen {
+                seen[neighbor] = true;
+                queue = queue + [neighbor];
+            }
+        }
+        position = position + 1;
+    }
+    return queue;
+}
+
+def distances(graph, start) {
+    queue = [start];
+    result = {};
+    result[start] = 0;
+    position = 0;
+    while position < len(queue) {
+        current = queue[position];
+        for neighbor in graph[current] {
+            if not neighbor in result {
+                result[neighbor] = result[current] + 1;
+                queue = queue + [neighbor];
+            }
+        }
+        position = position + 1;
+    }
+    return result;
+}
+
+def visit(graph, current, state) {
+    if current in state["seen"] {
+        return;
+    }
+    state["seen"][current] = true;
+    state["order"] = state["order"] + [current];
+    for neighbor in graph[current] {
+        visit(graph, neighbor, state);
+    }
+}
+
+def depth_first(graph, start) {
+    state = {"seen": {}, "order": []};
+    visit(graph, start, state);
+    return state["order"];
+}
+
+def shortest_path(graph, start, target) {
+    queue = [start];
+    parents = {};
+    parents[start] = null;
+    position = 0;
+    while position < len(queue) {
+        current = queue[position];
+        if current == target {
+            result = [];
+            cursor = target;
+            while cursor != null {
+                result = [cursor] + result;
+                cursor = parents[cursor];
+            }
+            return result;
+        }
+        for neighbor in graph[current] {
+            if not neighbor in parents {
+                parents[neighbor] = current;
+                queue = queue + [neighbor];
+            }
+        }
+        position = position + 1;
+    }
+    return [];
+}
+
+def edge_count(graph) {
+    total = 0;
+    for vertex in graph {
+        total = total + len(graph[vertex]);
+    }
+    return total;
+}
+
+def degrees(graph) {
+    result = {};
+    for vertex in graph {
+        result[vertex] = len(graph[vertex]);
+    }
+    return result;
+}
+
+def dag_paths(graph, start, target) {
+    if start == target {
+        return 1;
+    }
+    total = 0;
+    for neighbor in graph[start] {
+        total = total + dag_paths(graph, neighbor, target);
+    }
+    return total;
+}
+
+const CYCLE = {"X": ["Y"], "Y": ["Z"], "Z": ["X"]};
+print(TITLE);
+print("bfs:", breadth_first(GRAPH, "A"));
+print("dfs:", depth_first(GRAPH, "A"));
+print("distances:", distances(GRAPH, "A"));
+print("shortest:", shortest_path(GRAPH, "A", "F"));
+print("unreachable:", shortest_path(GRAPH, "A", "G"));
+print("self:", shortest_path(GRAPH, "C", "C"));
+print("isolated:", breadth_first(GRAPH, "G"), distances(GRAPH, "G"));
+print("edges:", edge_count(GRAPH));
+print("degrees:", degrees(GRAPH));
+print("dag paths:", dag_paths(GRAPH, "A", "F"), dag_paths(GRAPH, "A", "G"));
+print("cycle bfs:", breadth_first(CYCLE, "X"));
+print("cycle dfs:", depth_first(CYCLE, "X"));
+print("cycle distances:", distances(CYCLE, "X"));

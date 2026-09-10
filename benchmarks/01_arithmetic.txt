@@ -1,0 +1,14 @@
+Arithmetic and number theory
+absolute: 17 0 9
+powers: 1024 81 1
+gcd: 6 6 7
+lcm: 36 0
+triangular: 55 5050
+squares: 55 385
+clamp: 0 5 10
+digits: 15 18 0
+factorial: 1 120 40320
+prime: false true true false
+precedence: 14 20 4
+remainders: 3 -3 -2
+fractions: 3.5 3.75 102

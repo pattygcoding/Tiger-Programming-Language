@@ -1,0 +1,12 @@
+Recursive algorithms
+fibonacci: 0 1 55
+tribonacci: 1 4 24
+sum: 20 0
+reverse: regit level 0
+palindrome: true true false
+powers: 4096 243 1
+choose: 20 28 0
+collatz: 0 8 16
+hanoi: 0 15 63
+tree: 5 3
+leaf: 1 1

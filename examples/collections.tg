@@ -1,0 +1,20 @@
+# Lists, dictionaries, constants, and scoped iteration.
+const config = {"port": 8080, "host": "localhost"};
+items = [1, 2, "apple", true];
+
+for item in items {
+    print(item);
+}
+
+for key in config {
+    print(key + " = " + str(config[key]));
+}
+
+// Conditional blocks do not use colons.
+if config["port"] > 1024 {
+    print("Unprivileged port");
+} elif config["port"] == 1024 {
+    print("Boundary port");
+} else {
+    print("Privileged port");
+}

@@ -1,0 +1,135 @@
+const TITLE = "Dynamic programming";
+
+def filled(size, value) {
+    result = [];
+    position = 0;
+    while position < size {
+        result = result + [value];
+        position = position + 1;
+    }
+    return result;
+}
+
+def fibonacci_table(limit) {
+    if limit == 0 {
+        return [0];
+    }
+    result = [0, 1];
+    position = 2;
+    while position <= limit {
+        result = result + [result[position - 1] + result[position - 2]];
+        position = position + 1;
+    }
+    return result;
+}
+
+def coin_combinations(coins, amount) {
+    ways = filled(amount + 1, 0);
+    ways[0] = 1;
+    for coin in coins {
+        subtotal = coin;
+        while subtotal <= amount {
+            ways[subtotal] = ways[subtotal] + ways[subtotal - coin];
+            subtotal = subtotal + 1;
+        }
+    }
+    return ways[amount];
+}
+
+def minimum_coins(coins, amount) {
+    unreachable = amount + 1;
+    best = filled(amount + 1, unreachable);
+    best[0] = 0;
+    subtotal = 1;
+    while subtotal <= amount {
+        for coin in coins {
+            if coin <= subtotal {
+                candidate = best[subtotal - coin] + 1;
+                if candidate < best[subtotal] {
+                    best[subtotal] = candidate;
+                }
+            }
+        }
+        subtotal = subtotal + 1;
+    }
+    if best[amount] == unreachable {
+        return -1;
+    }
+    return best[amount];
+}
+
+def grid_paths(rows, columns) {
+    if rows == 0 or columns == 0 {
+        return 0;
+    }
+    counts = filled(columns, 1);
+    row_index = 1;
+    while row_index < rows {
+        column_index = 1;
+        while column_index < columns {
+            counts[column_index] = counts[column_index] + counts[column_index - 1];
+            column_index = column_index + 1;
+        }
+        row_index = row_index + 1;
+    }
+    return counts[-1];
+}
+
+def knapsack(weights, values, capacity) {
+    best = filled(capacity + 1, 0);
+    item_index = 0;
+    while item_index < len(weights) {
+        available = capacity;
+        while available >= weights[item_index] {
+            candidate = best[available - weights[item_index]] + values[item_index];
+            if candidate > best[available] {
+                best[available] = candidate;
+            }
+            available = available - 1;
+        }
+        item_index = item_index + 1;
+    }
+    return best[capacity];
+}
+
+def increasing_length(values) {
+    if len(values) == 0 {
+        return 0;
+    }
+    lengths = filled(len(values), 1);
+    longest = 1;
+    position = 1;
+    while position < len(values) {
+        previous = 0;
+        while previous < position {
+            if values[previous] < values[position] {
+                candidate = lengths[previous] + 1;
+                if candidate > lengths[position] {
+                    lengths[position] = candidate;
+                }
+            }
+            previous = previous + 1;
+        }
+        if lengths[position] > longest {
+            longest = lengths[position];
+        }
+        position = position + 1;
+    }
+    return longest;
+}
+
+const WEIGHTS = [2, 3, 4, 5];
+const VALUES = [3, 4, 5, 8];
+print(TITLE);
+print("fibonacci:", fibonacci_table(10));
+print("base:", fibonacci_table(0), fibonacci_table(1));
+print("combinations:", coin_combinations([1, 2, 5], 10), coin_combinations([2], 3));
+print("empty coins:", coin_combinations([], 0), coin_combinations([], 5));
+print("minimum:", minimum_coins([1, 3, 4], 6), minimum_coins([2], 3), minimum_coins([], 0));
+print("grid:", grid_paths(3, 4), grid_paths(1, 1), grid_paths(0, 4));
+print("knapsack:", knapsack(WEIGHTS, VALUES, 8), knapsack(WEIGHTS, VALUES, 5));
+print("empty bag:", knapsack([], [], 10), knapsack(WEIGHTS, VALUES, 0));
+print("increasing:", increasing_length([3, 1, 2, 5, 4, 7]));
+print("decreasing:", increasing_length([9, 7, 5, 3]));
+print("duplicates:", increasing_length([2, 2, 2]), increasing_length([]));
+print("unchanged:", WEIGHTS, VALUES);

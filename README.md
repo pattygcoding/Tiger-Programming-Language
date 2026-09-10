@@ -1,493 +1,121 @@
-# 🐯 Tiger Programming Language
+# Tiger Programming Language
 
-A modern, Python-like programming language with C-style syntax, built in Go and running both as a CLI tool and in the browser via WebAssembly.
+Tiger is a dynamically typed language implemented in Go 1.22+. It uses Python-like expressions, explicit brace-delimited lexical scopes, and mandatory semicolons on simple statements. Source files use `.tg`.
 
-## 🚀 Features
+The project includes a position-aware lexer, Pratt parser, typed AST, tree-walking interpreter, native CLI, standalone executable builder, browser playground, and WASI entry point. It has no third-party Go dependencies.
 
-- **Variables & Constants**: `let x = 10;` and `const PI = 3.14;`
-- **Functions**: `func name(params) { ... }`
-- **Classes/Objects**: Basic OOP support
-- **Control Flow**: `if/else`, `while`, `for` loops with `{}` blocks
-- **Comments**: `//` single-line and `/* */` multi-line
-- **WASM Ready**: Runs in browsers via WebAssembly
-- **CLI Tool**: Downloadable binary for local development
+## Native CLI
 
-## 🔧 Prerequisites
+Run these commands from the repository root:
 
-### All Platforms
-- **Go 1.18+**: Download from [golang.org](https://golang.org/dl/)
-- **Git**: For cloning the repository
-
-### Additional Windows Requirements
-- **PowerShell 5.1+** or **PowerShell Core 7+** (recommended)
-- **Python 3.x** (optional, for development server): Download from [python.org](https://python.org/downloads/)
-
-### Additional Unix/Linux/macOS Requirements  
-- **Make**: Usually pre-installed or available via package manager
-- **Python 3.x** (for development server): Usually pre-installed or `apt install python3` / `brew install python3`
-
-## ⚠️ Windows Setup Notes
-
-If you're on Windows and having trouble:
-
-1. **PowerShell Execution Policy**: You may need to enable script execution:
-   ```powershell
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-   ```
-
-2. **Go Environment**: Ensure Go is in your PATH by running `go version`
-
-3. **WASM Files**: The scripts automatically handle copying `wasm_exec.js` from your Go installation
-
-4. **Web Server**: If Python isn't available, you can use any static file server like:
-   - `npx serve .` (if you have Node.js)
-   - Any other HTTP server of your choice
-
-## 📦 Quick Start
-
-### Option 1: Build from Source (Unix/Linux/macOS)
-
-```bash
-# Clone the repository
-git clone https://github.com/pattygcoding/Tiger-Programming-Language.git
-cd Tiger-Programming-Language
-
-# Build everything
-make build
-
-# Run a Tiger file
-./tiger-cli run myfile.tg
-
-# Start interactive REPL
-./tiger-cli repl
+```sh
+go test ./...
+go build -o bin/tiger ./cmd/tiger
+./bin/tiger run examples/demo.tg
+./bin/tiger build examples/demo.tg -o bin/demo
+./bin/demo
 ```
 
-### Option 2: Build from Source (Windows PowerShell)
+On Windows PowerShell:
 
 ```powershell
-# Clone the repository
-git clone https://github.com/pattygcoding/Tiger-Programming-Language.git
-cd Tiger-Programming-Language
-
-# Build everything
-.\build.ps1 build
-
-# Run a Tiger file
-.\tiger-cli.exe run myfile.tg
-
-# Start interactive REPL
-.\tiger-cli.exe repl
+go build -o bin/tiger.exe ./cmd/tiger
+.\bin\tiger.exe run examples/demo.tg
+.\bin\tiger.exe build examples/demo.tg -o bin/demo.exe
+.\bin\demo.exe
 ```
 
-### Option 3: Build from Source (Windows Command Prompt)
+`tiger build <file.tg>` defaults to an executable named after the input in the current directory (`demo.exe` on Windows, `demo` elsewhere). `-o` can appear before or after the input. Building requires Go 1.22+ on `PATH`. It validates syntax, embeds the script and interpreter sources in a temporary Go module, and invokes `go build`. The resulting executable needs neither Go, Tiger, this repository, nor the original script. This is a bundled interpreter, not an optimizing native-code compiler; runtime errors still occur when the executable runs.
 
-```cmd
-# Clone the repository
-git clone https://github.com/pattygcoding/Tiger-Programming-Language.git
-cd Tiger-Programming-Language
+Exit codes: `0` success, `1` file/syntax/runtime/build error, `2` invalid CLI arguments. Language diagnostics include `file:line:column`.
 
-# Build everything
-build.bat build
+## Browser Playground
 
-# Run a Tiger file
-tiger-cli.exe run myfile.tg
-
-# Start interactive REPL
-tiger-cli.exe repl
+```sh
+go run ./cmd/web
 ```
 
-### Option 4: WebAssembly in Browser
+Open `http://127.0.0.1:8080`. Use `-addr 127.0.0.1:8081` to choose a different port. The helper builds Wasm and copies `wasm_exec.js` from the installed Go toolchain before serving the playground and examples. No Node.js or external CDN is needed.
 
-**Unix/Linux/macOS:**
-1. Build the WASM version: `make wasm`
-2. Start a web server: `make serve`
-3. Open `tiger_go.html` in your browser
+The editor supports Run, Stop, Reset, example selection, source download, and local source persistence. Ctrl+Enter (Cmd+Enter on macOS) runs the current source. Programs execute in a Web Worker; stopping a program terminates that worker and creates a fresh runtime. Each run has a fresh environment.
 
-**Windows PowerShell:**
-1. Build the WASM version: `.\build.ps1 wasm`
-2. Start a web server: `.\build.ps1 serve`
-3. Open `tiger_go.html` in your browser
+Build browser artifacts without starting a server:
 
-**Windows Command Prompt:**
-1. Build the WASM version: `build.bat wasm`
-2. Start a web server: `build.bat serve`
-3. Open `tiger_go.html` in your browser
-
-## 🛠️ Build Commands
-
-### Unix/Linux/macOS (Make)
-
-| Command | Description |
-|---------|-------------|
-| `make all` | Build CLI and WASM versions |
-| `make cli` | Build CLI binary only |
-| `make wasm` | Build WebAssembly version only |
-| `make build` | Build everything including wasm_exec.js |
-| `make serve` | Start development server |
-| `make clean` | Clean build artifacts |
-| `make test` | Run tests |
-| `make build-all` | Build for all platforms |
-
-### Windows PowerShell
-
-| Command | Description |
-|---------|-------------|
-| `.\build.ps1 all` | Build CLI and WASM versions |
-| `.\build.ps1 cli` | Build CLI binary only |
-| `.\build.ps1 wasm` | Build WebAssembly version only |
-| `.\build.ps1 build` | Build everything including wasm_exec.js |
-| `.\build.ps1 serve` | Start development server |
-| `.\build.ps1 clean` | Clean build artifacts |
-| `.\build.ps1 test` | Run tests |
-| `.\build.ps1 build-all` | Build for all platforms |
-
-### Windows Command Prompt
-
-| Command | Description |
-|---------|-------------|
-| `build.bat all` | Build CLI and WASM versions |
-| `build.bat cli` | Build CLI binary only |
-| `build.bat wasm` | Build WebAssembly version only |
-| `build.bat build` | Build everything including wasm_exec.js |
-| `build.bat serve` | Start development server |
-| `build.bat clean` | Clean build artifacts |
-| `build.bat test` | Run tests |
-
-## 📝 Language Syntax
-
-### Variables and Constants
-
-```tiger
-// Variables (mutable)
-let name = "Tiger";
-let age = 5;
-let height = 1.85;
-let active = true;
-
-// Constants (immutable)
-const PI = 3.14159;
-const GREETING = "Hello World";
+```sh
+go run ./cmd/web -build-only
 ```
 
-### Functions
+The underlying Wasm build command on POSIX shells is:
 
-```tiger
-// Function definition
-func greet(name) {
-    print "Hello";
-    print name;
-}
-
-// Function with multiple parameters
-func add(a, b) {
-    let result = a + b;
-    print result;
-    return result;
-}
-
-// Function calls
-greet("Tiger");
-add(5, 3);
+```sh
+GOOS=js GOARCH=wasm go build -o web/tiger.wasm ./cmd/wasm
 ```
 
-### Control Flow
+In PowerShell, set `$env:GOOS = "js"` and `$env:GOARCH = "wasm"` before the build, then remove them with `Remove-Item Env:GOOS, Env:GOARCH`. Always pair the generated Wasm with `wasm_exec.js` from the same Go toolchain (`lib/wasm` on newer Go releases, `misc/wasm` on older ones). The helper handles this automatically.
 
-```tiger
-// If-else statements (braces required)
-if x > 10 {
-    print "x is greater than 10";
-} else {
-    print "x is 10 or less";
-}
+For static deployment, publish the contents of `web/` along with an `examples/` subdirectory containing the Tiger examples. Serve over HTTP(S), not `file://`. `tigerRun(source)` returns `{output, error}` inside the Wasm worker. Generated Wasm and Go support files are ignored by Git.
 
-// While loops
-let counter = 0;
-while counter < 5 {
-    print counter;
-    counter = counter + 1;
-}
+## WASI
 
-// For loops
-for (let i = 0; i < 3; i = i + 1) {
-    print "Iteration";
-    print i;
-}
+Browser Wasm (`GOOS=js`) and WASI (`GOOS=wasip1`) have different host APIs. A separate entry point supports WASI preview 1:
+
+```sh
+GOOS=wasip1 GOARCH=wasm go build -o bin/tiger-wasi.wasm ./cmd/wasi
+wasmtime run --dir . bin/tiger-wasi.wasm examples/demo.tg
 ```
 
-### Classes (Basic OOP)
+For PowerShell, set `GOOS` to `wasip1` and `GOARCH` to `wasm` as above, build, then remove the environment overrides. The WASI host must grant read access to the source file. The Go helper and browser runner do not require a WASI host.
 
-```tiger
-// Class definition
-class Person {
-    func greet(name) {
-        print "Hello";
-        print name;
+## Language
+
+```tg
+const MAX_RUNS = 5;
+
+def factorial(n) {
+    if n <= 1 {
+        return 1;
     }
-    
-    func age() {
-        return 25;
-    }
+    return n * factorial(n - 1);
 }
 
-// Class usage (basic implementation)
-let person = Person;
-```
-
-### Data Types
-
-| Type | Example | Description |
-|------|---------|-------------|
-| String | `"Hello"` | Text values |
-| Integer | `42` | Whole numbers |
-| Float | `3.14` | Decimal numbers |
-| Boolean | `true`, `false` | Boolean values |
-
-### Comments
-
-```tiger
-// Single-line comment
-
-/*
-Multi-line comment
-Can span multiple lines
-*/
-
-let x = 10; // Inline comment
-```
-
-## 🎮 Interactive Examples
-
-### Example 1: Basic Variables
-```tiger
-const GREETING = "Welcome to Tiger!";
-let user = "Developer";
-let version = 1.0;
-
-print GREETING;
-print "User:";
-print user;
-print "Version:";
-print version;
-```
-
-### Example 2: Functions and Logic
-```tiger
-func calculateArea(radius) {
-    const PI = 3.14159;
-    let area = PI * radius * radius;
-    print "Area:";
-    print area;
-    return area;
-}
-
-let r = 5;
-if r > 0 {
-    calculateArea(r);
-} else {
-    print "Invalid radius";
+for item in [1, 2, 3, 4, 5] {
+    print("factorial(" + str(item) + ") = " + str(factorial(item)));
 }
 ```
 
-### Example 3: Loops and Counters
-```tiger
-print "Counting down:";
-let count = 5;
-while count > 0 {
-    print count;
-    count = count - 1;
-}
-print "Blast off!";
+- Assignments, constant declarations, returns, and expression statements end in `;`. Newlines never substitute for semicolons.
+- Functions, `if`/`elif`/`else`, `while`, and `for` use `{ ... }`, never colon-and-indent syntax. As in the specification's examples, a closing block brace does not require a semicolon; an optional one is accepted.
+- Assignment updates the nearest existing binding; a new name belongs to the current block. New names do not escape functions, branches, or loop iterations. Each loop iteration gets a new block scope. Loop variables and parameters are local bindings. Closures retain lexical environments and support recursion.
+- `const` declares a binding in the current scope and rejects reassignment, including from nested scopes. Explicit declarations and parameters may shadow outer bindings. Constants prevent rebinding, not mutation of a referenced list or dictionary. Duplicate declarations in the same scope are errors.
+- Values: finite 64-bit floating-point numbers, single- or double-quoted strings, `true`, `false`, `null`, lists, dictionaries, and functions. Numbers follow float64 precision, not Python's arbitrary-precision integers.
+- Arithmetic: `+ - * / %`; `%` follows the divisor's sign. Comparisons: `== != < <= > >=`. Boolean operators: `and or not`, with short-circuit operand-returning `and`/`or`. Comparison chains are not Python-style chains; write `a < b and b < c`.
+- `+` adds numbers or concatenates two strings or two lists. Mixed-type arithmetic is an error; use `str` for conversion. List/dictionary equality is structural, with cycle protection.
+- Falsey values: `false`, `null`, zero, and empty strings/lists/dictionaries. All other values are truthy.
+- Lists and strings support integer indexing, including negative indices. String indexing and `len` count Unicode code points. Lists and dictionaries support indexed assignment; strings are immutable.
+- Dictionary keys may be strings, numbers, or booleans; these are distinct key types. Dictionaries preserve insertion order. Repeated keys replace the value without changing order. Missing keys and invalid indices are errors.
+- `for` iterates a snapshot of list elements, string code points, or dictionary keys. `in` tests list membership, dictionary keys, or substrings.
+- Built-ins: `print(...values)` writes space-separated values and a newline; `str(value)` converts to text; `len(value)` returns the length of a string, list, or dictionary. Built-in bindings are constant.
+- Comments start with `#` or `//`. String escapes: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`. Whitespace outside strings is stylistic.
+- Bare `return;` and functions without a return produce `null`. A return outside a function is a syntax error.
+
+The runtime defaults to 1,000,000 evaluation steps and a depth limit of 512. Embedded callers may set `Evaluator.MaxSteps` (`0` disables the step limit). The browser additionally caps output at 1 MiB. These limits catch common runaway programs; they are not a security or memory-isolation guarantee for hostile code.
+
+## Layout
+
+```text
+cmd/tiger/       Native CLI
+cmd/wasm/        Browser syscall/js bridge
+cmd/wasi/        WASI interpreter
+cmd/web/         Cross-platform Wasm build and HTTP helper
+pkg/lexer/      Tokens and scanning
+pkg/parser/     Pratt parser and syntax validation
+pkg/ast/        AST declarations
+pkg/object/     Runtime values and lexical environments
+pkg/evaluator/  Interpreter and built-ins
+pkg/compiler/   Standalone executable builder
+web/            Browser editor and worker
+examples/       Runnable .tg programs
+bundle.go       Embedded runtime sources for standalone builds
 ```
 
-## 🌐 WebAssembly Integration
-
-### Testing WASM Locally
-
-The Tiger language compiles to WebAssembly and can run directly in browsers. The main WebAssembly entry point is `go/main_wasm.go` (not a JavaScript file).
-
-**Quick WASM Test:**
-1. Build: `make build` (Unix) or `.\build.ps1 build` (Windows)
-2. Serve: `make serve` (Unix) or `.\build.ps1 serve` (Windows)  
-3. Open: http://localhost:8000/tiger_go.html
-
-### Embedding in Your Website
-
-1. Include the WASM files in your web directory:
-   ```
-   main.wasm          # Compiled Tiger interpreter
-   wasm_exec.js       # Go's WebAssembly support library
-   ```
-
-2. Add Tiger to your HTML:
-   ```html
-   <script src="wasm_exec.js"></script>
-   <script>
-       const go = new Go();
-       WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
-           .then((result) => {
-               go.run(result.instance);
-           })
-           .catch((error) => {
-               console.error("Failed to load Tiger WASM:", error);
-           });
-
-       function runTiger(code) {
-           return evalTiger(code);
-       }
-   </script>
-   ```
-
-3. Execute Tiger code from JavaScript:
-   ```javascript
-   // Wait for WASM to load, then:
-   const result = evalTiger('let x = 42; print x;');
-   console.log(result);
-   ```
-
-### WASM Troubleshooting
-
-**Common Issues:**
-- **"evalTiger is not defined"**: WASM hasn't finished loading yet
-- **"Failed to fetch main.wasm"**: File not found - run build first
-- **CORS errors**: Use a proper web server, don't open HTML file directly
-
-**Build Steps:**
-1. **Unix/Linux/macOS**: `make build`
-2. **Windows PowerShell**: `.\build.ps1 build`  
-3. **Windows Command Prompt**: `build.bat build`
-
-This generates:
-- `main.wasm` - The compiled Tiger interpreter
-- `wasm_exec.js` - Go's WebAssembly runtime (copied from Go installation)
-
-## 🖥️ CLI Usage
-
-### Unix/Linux/macOS
-```bash
-# Run a Tiger file
-./tiger-cli run program.tg
-
-# Start interactive REPL
-./tiger-cli repl
-```
-
-### Windows
-```cmd
-# Run a Tiger file
-tiger-cli.exe run program.tg
-
-# Start interactive REPL
-tiger-cli.exe repl
-```
-
-### REPL Commands
-```
->>> let x = 10
->>> print x
-10
->>> func hello() { print "Hello Tiger!"; }
->>> hello()
-Hello Tiger!
->>> exit
-```
-
-## 🏗️ Development
-
-### Project Structure
-```
-/
-├── go/              # Go source code
-│   ├── main_cli.go  # CLI entry point
-│   ├── main_wasm.go # WASM entry point (compiles to main.wasm)
-│   ├── lexer/       # Lexical analysis
-│   ├── parser/      # Syntax analysis
-│   ├── ast/         # Abstract Syntax Tree
-│   └── eval/        # Interpreter/evaluator
-├── tiger_go.html    # WASM demo page
-├── build.ps1        # PowerShell build script
-├── build.bat        # Windows batch build script
-├── Makefile         # Unix/Linux/macOS build system
-└── README.md
-```
-
-### Development Workflow
-
-**Unix/Linux/macOS:**
-```bash
-make deps          # Install dependencies
-make test          # Run tests  
-make build         # Build everything
-make serve         # Start dev server
-```
-
-**Windows PowerShell:**
-```powershell
-.\build.ps1 deps       # Install dependencies
-.\build.ps1 test       # Run tests
-.\build.ps1 build      # Build everything  
-.\build.ps1 serve      # Start dev server
-```
-
-**Windows Command Prompt:**
-```cmd
-build.bat test         # Run tests
-build.bat build        # Build everything
-build.bat serve        # Start dev server
-```
-
-## 🎯 Language Design Goals
-
-- **Simplicity**: Easy to learn Python-like syntax
-- **Familiarity**: C-style blocks with `{}` and `;`
-- **Modern**: Built-in constants, proper scoping
-- **Portable**: Runs everywhere (CLI + Web)
-- **Extensible**: Clean codebase for easy feature addition
-
-## 🔧 Troubleshooting
-
-### Windows Issues
-
-**Problem: "execution of scripts is disabled on this system"**
-```powershell
-# Solution: Enable script execution (run as Administrator)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-**Problem: "go: command not found" or "Go is not installed"**
-1. Install Go from [golang.org/dl/](https://golang.org/dl/)
-2. Restart your terminal/PowerShell
-3. Verify with: `go version`
-
-**Problem: "Could not find wasm_exec.js in Go installation"**
-- Your Go installation may be incomplete
-- Try reinstalling Go
-- Or manually copy `wasm_exec.js` from your Go installation's `lib/wasm/` or `misc/wasm/` directory
-
-### General Issues
-
-**Problem: "Failed to load Tiger WASM" in browser**
-1. Make sure you built the project: `.\build.ps1 build` (Windows) or `make build` (Unix)
-2. Start a proper web server, don't open HTML files directly
-3. Check browser console for specific error messages
-
-**Problem: WebAssembly not working**
-1. Ensure both `main.wasm` and `wasm_exec.js` are present
-2. Check that files are served from a web server (not `file://` URLs)
-3. Clear browser cache and try again
-
-**Problem: Build fails**
-1. Ensure Go 1.18+ is installed: `go version`
-2. Run dependency installation: `go mod tidy`
-3. Check that you're in the correct directory with `go.mod` file
-
-### Getting Help
-
-If you're still having issues:
-1. Check that Go is properly installed and in PATH
-2. Try building a simple Go program to verify your Go installation
-3. Make sure you're running commands from the project root directory
-4. Check file permissions on Unix systems
-
----
-
-Built with ❤️ using Go and WebAssembly
+`make build`, `make run`, `make test`, `make wasm`, and `make web` wrap the commands above. `make wasi` uses POSIX environment-variable syntax. Direct Go commands work without Make.

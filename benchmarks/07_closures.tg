@@ -1,0 +1,124 @@
+const TITLE = "Closures and higher-order functions";
+
+def make_counter(start, step) {
+    value = start;
+    def next() {
+        value = value + step;
+        return value;
+    }
+    return next;
+}
+
+def make_multiplier(factor) {
+    def multiply(value) {
+        return value * factor;
+    }
+    return multiply;
+}
+
+def make_adder(offset) {
+    def add(value) {
+        return value + offset;
+    }
+    return add;
+}
+
+def compose(outer, inner) {
+    def combined(value) {
+        return outer(inner(value));
+    }
+    return combined;
+}
+
+def map_values(values, transform) {
+    result = [];
+    for value in values {
+        result = result + [transform(value)];
+    }
+    return result;
+}
+
+def filter_values(values, predicate) {
+    result = [];
+    for value in values {
+        if predicate(value) {
+            result = result + [value];
+        }
+    }
+    return result;
+}
+
+def reduce_values(values, combine, initial) {
+    result = initial;
+    for value in values {
+        result = combine(result, value);
+    }
+    return result;
+}
+
+def sum_pair(left, right) {
+    return left + right;
+}
+
+def product_pair(left, right) {
+    return left * right;
+}
+
+def is_even(value) {
+    return value % 2 == 0;
+}
+
+def make_account(opening) {
+    balance = opening;
+    def deposit(amount) {
+        if amount < 0 {
+            return false;
+        }
+        balance = balance + amount;
+        return balance;
+    }
+    def withdraw(amount) {
+        if amount < 0 or amount > balance {
+            return false;
+        }
+        balance = balance - amount;
+        return balance;
+    }
+    def current() {
+        return balance;
+    }
+    return {"deposit": deposit, "withdraw": withdraw, "balance": current};
+}
+
+def make_transforms(factors) {
+    result = [];
+    for factor in factors {
+        def transform(value) {
+            return value * factor;
+        }
+        result = result + [transform];
+    }
+    return result;
+}
+
+const FIRST = make_counter(0, 2);
+const SECOND = make_counter(10, -1);
+const DOUBLE = make_multiplier(2);
+const PIPELINE = compose(DOUBLE, make_adder(3));
+const ACCOUNT = make_account(100);
+const OTHER = make_account(7);
+const TRANSFORMS = make_transforms([2, 3, 4]);
+
+print(TITLE);
+print("counters:", FIRST(), FIRST(), SECOND(), SECOND(), FIRST());
+print("map:", map_values([1, 2, 3, 4], DOUBLE));
+print("compose:", PIPELINE(5), PIPELINE(-3));
+print("filter:", filter_values([1, 2, 3, 4, 5, 6], is_even));
+print("reduce:", reduce_values([1, 2, 3, 4], sum_pair, 0), reduce_values([1, 2, 3, 4], product_pair, 1));
+print("deposit:", ACCOUNT["deposit"](25));
+print("withdraw:", ACCOUNT["withdraw"](40), ACCOUNT["withdraw"](1000));
+print("balances:", ACCOUNT["balance"](), OTHER["balance"]());
+print("invalid:", ACCOUNT["deposit"](-5), ACCOUNT["withdraw"](-1));
+print("loop captures:", TRANSFORMS[0](5), TRANSFORMS[1](5), TRANSFORMS[2](5));
+print("empty:", map_values([], DOUBLE), filter_values([], is_even), reduce_values([], sum_pair, 9));
+print("function identity:", DOUBLE == DOUBLE, DOUBLE == make_multiplier(2));
