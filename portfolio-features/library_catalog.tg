@@ -1,0 +1,88 @@
+const TITLE = "Library catalog";
+
+class Book {
+    def init(self, title, author, pages) {
+        self.title = title;
+        self.author = author;
+        self.pages = pages;
+        self.checked_out = false;
+    }
+
+    def borrow(self) {
+        if self.checked_out {
+            return false;
+        }
+        self.checked_out = true;
+        return true;
+    }
+
+    def return_book(self) {
+        self.checked_out = false;
+        return self.title;
+    }
+
+    def describe(self) {
+        state = "available";
+        if self.checked_out {
+            state = "checked out";
+        }
+        return self.title + " by " + self.author + " (" + str(self.pages) + ", " + state + ")";
+    }
+}
+
+class ReferenceBook(Book) {
+    def borrow(self) {
+        return false;
+    }
+
+    def describe(self) {
+        return super.describe() + " [reference]";
+    }
+}
+
+def available(books) {
+    result = [];
+    for book in books {
+        if not book.checked_out {
+            result = result + [book.title];
+        }
+    }
+    return result;
+}
+
+def page_total(books) {
+    total = 0;
+    for book in books {
+        total = total + book.pages;
+    }
+    return total;
+}
+
+def checked_out(books) {
+    result = [];
+    for book in books {
+        if book.checked_out {
+            result = result + [book.title];
+        }
+    }
+    return result;
+}
+
+const TIGER = Book("Tiger", "Mara", 240);
+const MAPS = ReferenceBook("Atlas", "Ivo", 320);
+const POEMS = Book("Night Lines", "Sora", 96);
+const BOOKS = [TIGER, MAPS, POEMS];
+const DESCRIBE_TIGER = TIGER.describe;
+print(TITLE);
+for book in BOOKS {
+    print(book.describe());
+}
+print("borrow Tiger:", TIGER.borrow());
+print("borrow Tiger again:", TIGER.borrow());
+print("borrow Atlas:", MAPS.borrow());
+print("available:", available(BOOKS));
+print("checked out:", checked_out(BOOKS));
+print("pages:", page_total(BOOKS));
+print("saved method:", DESCRIBE_TIGER());
+print("return:", TIGER.return_book());
+print("available:", available(BOOKS));

@@ -1,0 +1,86 @@
+const TITLE = "Graph routes";
+
+const NETWORK = {
+    "home": ["park", "station"],
+    "park": ["home", "museum", "cafe"],
+    "station": ["home", "museum"],
+    "museum": ["park", "station", "cafe"],
+    "cafe": ["park", "museum"]
+};
+
+def contains(values, wanted) {
+    for value in values {
+        if value == wanted {
+            return true;
+        }
+    }
+    return false;
+}
+
+def path_to(previous, start, target) {
+    path = [target];
+    current = target;
+    while current != start {
+        current = previous[current];
+        path = [current] + path;
+    }
+    return path;
+}
+
+def shortest_path(graph, start, target) {
+    queue = [start];
+    visited = {start: true};
+    previous = {};
+    while len(queue) > 0 {
+        current = queue[0];
+        remaining = [];
+        index = 1;
+        while index < len(queue) {
+            remaining = remaining + [queue[index]];
+            index = index + 1;
+        }
+        queue = remaining;
+        if current == target {
+            return path_to(previous, start, target);
+        }
+        for neighbor in graph[current] {
+            if not neighbor in visited {
+                visited[neighbor] = true;
+                previous[neighbor] = current;
+                queue = queue + [neighbor];
+            }
+        }
+    }
+    return [];
+}
+
+def edge_count(graph) {
+    total = 0;
+    for place in graph {
+        total = total + len(graph[place]);
+    }
+    return total / 2;
+}
+
+def route_description(path) {
+    result = "";
+    for place in path {
+        if result != "" {
+            result = result + " -> ";
+        }
+        result = result + place;
+    }
+    return result;
+}
+
+const TO_CAFE = shortest_path(NETWORK, "home", "cafe");
+const TO_MUSEUM = shortest_path(NETWORK, "station", "museum");
+print(TITLE);
+print("places:", len(NETWORK));
+print("roads:", edge_count(NETWORK));
+print("home to cafe:", TO_CAFE);
+print("route:", route_description(TO_CAFE));
+print("station to museum:", TO_MUSEUM);
+print("park neighbors:", NETWORK["park"]);
+print("direct road:", contains(NETWORK["home"], "park"));
+print("self route:", shortest_path(NETWORK, "home", "home"));

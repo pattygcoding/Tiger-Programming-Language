@@ -1,0 +1,89 @@
+const TITLE = "Number laboratory";
+
+def gcd(left, right) {
+    while right != 0 {
+        remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    return left;
+}
+
+def factorial(value) {
+    result = 1;
+    while value > 1 {
+        result = result * value;
+        value = value - 1;
+    }
+    return result;
+}
+
+def fibonacci(count) {
+    values = [];
+    first = 0;
+    second = 1;
+    while len(values) < count {
+        values = values + [first];
+        next = first + second;
+        first = second;
+        second = next;
+    }
+    return values;
+}
+
+def is_prime(value) {
+    if value < 2 {
+        return false;
+    }
+    divisor = 2;
+    while divisor * divisor <= value {
+        if value % divisor == 0 {
+            return false;
+        }
+        divisor = divisor + 1;
+    }
+    return true;
+}
+
+def primes(limit) {
+    result = [];
+    candidate = 0;
+    while candidate <= limit {
+        if is_prime(candidate) {
+            result = result + [candidate];
+        }
+        candidate = candidate + 1;
+    }
+    return result;
+}
+
+def summary(values) {
+    total = 0;
+    for value in values {
+        total = total + value;
+    }
+    return {"count": len(values), "total": total, "average": total / len(values)};
+}
+
+def squares(values) {
+    result = [];
+    for value in values {
+        result = result + [value * value];
+    }
+    return result;
+}
+
+const FIBONACCI = fibonacci(10);
+const PRIMES = primes(30);
+const FIB_SUMMARY = summary(FIBONACCI);
+print(TITLE);
+print("gcd:", gcd(84, 30));
+print("factorial:", factorial(6));
+print("fibonacci:", FIBONACCI);
+print("primes:", PRIMES);
+print("prime squares:", squares([2, 3, 5, 7]));
+print("prime test:", is_prime(29), is_prime(30));
+print("fib total:", FIB_SUMMARY["total"]);
+print("fib average:", FIB_SUMMARY["average"]);
+print("comparisons:", 3 < 4, 5 >= 5, 7 != 8);
+print("math:", 17 / 2, 17 % 2, -5 + 12);

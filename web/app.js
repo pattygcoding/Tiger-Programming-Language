@@ -1,3 +1,5 @@
+import { attachHighlighting } from "./highlight.mjs";
+
 const source = document.querySelector("#source");
 const output = document.querySelector("#output");
 const errorOutput = document.querySelector("#error");
@@ -14,6 +16,8 @@ let loadVersion = 0;
 try {
   source.value = localStorage.getItem("tiger-source") ?? source.value;
 } catch {}
+
+const refreshHighlighting = attachHighlighting(source, document.querySelector("#source-highlight"));
 
 function showError(message) {
   errorOutput.textContent = message;
@@ -84,6 +88,7 @@ async function loadExample() {
     const text = await response.text();
     if (version !== loadVersion) return;
     source.value = text;
+    refreshHighlighting();
     remember();
     position();
     showError("");
@@ -99,6 +104,7 @@ source.addEventListener("keydown", (event) => {
   if (event.key === "Tab") {
     event.preventDefault();
     source.setRangeText("    ", source.selectionStart, source.selectionEnd, "end");
+    refreshHighlighting();
     loadVersion++;
     remember();
     position();

@@ -1,0 +1,84 @@
+const TITLE = "Rule engine";
+
+class Rule {
+    def init(self, name, limit) {
+        self.name = name;
+        self.limit = limit;
+    }
+
+    def applies(self, order) {
+        return order["total"] >= self.limit;
+    }
+
+    def discount(self, order) {
+        return 0;
+    }
+}
+
+class PercentRule(Rule) {
+    def init(self, name, limit, percent) {
+        super.init(name, limit);
+        self.percent = percent;
+    }
+
+    def discount(self, order) {
+        if self.applies(order) {
+            return order["total"] * self.percent / 100;
+        }
+        return 0;
+    }
+}
+
+class FixedRule(Rule) {
+    def init(self, name, limit, amount) {
+        super.init(name, limit);
+        self.amount = amount;
+    }
+
+    def discount(self, order) {
+        if self.applies(order) {
+            return self.amount;
+        }
+        return 0;
+    }
+}
+
+def best_discount(order, rules) {
+    best = {"name": "none", "amount": 0};
+    for rule in rules {
+        amount = rule.discount(order);
+        if amount > best["amount"] {
+            best = {"name": rule.name, "amount": amount};
+        }
+    }
+    return best;
+}
+
+def checkout(order, rules) {
+    choice = best_discount(order, rules);
+    return {"subtotal": order["total"], "rule": choice["name"], "discount": choice["amount"], "due": order["total"] - choice["amount"]};
+}
+
+def applicable_names(order, rules) {
+    result = [];
+    for rule in rules {
+        if rule.applies(order) {
+            result = result + [rule.name];
+        }
+    }
+    return result;
+}
+
+const RULES = [PercentRule("spring", 30, 10), PercentRule("bulk", 80, 15), FixedRule("welcome", 20, 4)];
+const SMALL = {"customer": "Ana", "total": 18};
+const MEDIUM = {"customer": "Bo", "total": 45};
+const LARGE = {"customer": "Cy", "total": 120};
+print(TITLE);
+for order in [SMALL, MEDIUM, LARGE] {
+    result = checkout(order, RULES);
+    print(order["customer"], result);
+}
+print("rule count:", len(RULES));
+print("first rule:", RULES[0].name, RULES[0].limit);
+print("large eligible:", applicable_names(LARGE, RULES));
+print("no discount:", best_discount(SMALL, RULES));

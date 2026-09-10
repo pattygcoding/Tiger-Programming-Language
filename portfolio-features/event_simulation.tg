@@ -1,0 +1,89 @@
+const TITLE = "Event simulation";
+
+def make_clock() {
+    tick = 0;
+    def now() {
+        tick = tick + 1;
+        return tick;
+    }
+    return now;
+}
+
+class EventLog {
+    def init(self) {
+        self.events = [];
+    }
+
+    def record(self, time, actor, action) {
+        event = {"time": time, "actor": actor, "action": action};
+        self.events = self.events + [event];
+        return event;
+    }
+
+    def by_actor(self, actor) {
+        result = [];
+        for event in self.events {
+            if event["actor"] == actor {
+                result = result + [event];
+            }
+        }
+        return result;
+    }
+
+    def count(self) {
+        return len(self.events);
+    }
+}
+
+class Worker {
+    def init(self, name, log, clock) {
+        self.name = name;
+        self.log = log;
+        self.clock = clock;
+        self.completed = 0;
+    }
+
+    def do_work(self, action) {
+        self.completed = self.completed + 1;
+        return self.log.record(self.clock(), self.name, action);
+    }
+}
+
+def actions(events) {
+    result = [];
+    for event in events {
+        result = result + [event["action"]];
+    }
+    return result;
+}
+
+def action_counts(events) {
+    counts = {};
+    for event in events {
+        action = event["action"];
+        if action in counts {
+            counts[action] = counts[action] + 1;
+        } else {
+            counts[action] = 1;
+        }
+    }
+    return counts;
+}
+
+const CLOCK = make_clock();
+const LOG = EventLog();
+const ADA = Worker("Ada", LOG, CLOCK);
+const LEE = Worker("Lee", LOG, CLOCK);
+print(TITLE);
+print(ADA.do_work("compile"));
+print(LEE.do_work("review"));
+print(ADA.do_work("test"));
+print(LEE.do_work("deploy"));
+print("events:", LOG.count());
+print("Ada actions:", actions(LOG.by_actor("Ada")));
+print("Lee actions:", actions(LOG.by_actor("Lee")));
+print("completed:", ADA.completed, LEE.completed);
+print("action counts:", action_counts(LOG.events));
+for event in LOG.events {
+    print("event", event["time"], event["actor"], event["action"]);
+}
