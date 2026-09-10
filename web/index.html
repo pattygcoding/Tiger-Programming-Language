@@ -26,7 +26,9 @@
           <button id="download" title="Download source as a .tg file">Download</button>
         </div>
       </div>
-      <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Tiger source code">const MAX_RUNS = 5;
+      <div class="editor">
+        <pre id="source-highlight" aria-hidden="true"><code></code></pre>
+        <textarea id="source" wrap="off" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" aria-label="Tiger source code">const MAX_RUNS = 5;
 
 def factorial(n) {
     if n &lt;= 1 {
@@ -43,6 +45,7 @@ while i &lt;= MAX_RUNS {
     print("factorial(" + str(i) + ") = " + str(val));
     i = i + 1;
 }</textarea>
+  </div>
       <div class="editor-footer">
         <span id="position">Ln 1, Col 1</span>
         <button id="stop" disabled>Stop</button>
@@ -60,6 +63,6 @@ while i &lt;= MAX_RUNS {
     </section>
   </main>
   <footer><span>TIGER LANGUAGE</span><span>Browser runtime</span></footer>
-  <script src="app.js" defer></script>
+  <script src="app.js" type="module"></script>
 </body>
 </html>

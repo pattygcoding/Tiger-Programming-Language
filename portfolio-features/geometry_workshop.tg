@@ -1,0 +1,92 @@
+const TITLE = "Geometry workshop";
+
+class Shape {
+    def init(self, name) {
+        self.name = name;
+    }
+
+    def area(self) {
+        return 0;
+    }
+
+    def describe(self) {
+        return self.name + " area=" + str(self.area());
+    }
+}
+
+class Rectangle(Shape) {
+    def init(self, width, height) {
+        super.init("rectangle");
+        self.width = width;
+        self.height = height;
+    }
+
+    def area(self) {
+        return self.width * self.height;
+    }
+
+    def scale(self, factor) {
+        self.width = self.width * factor;
+        self.height = self.height * factor;
+        return self;
+    }
+}
+
+class Square(Rectangle) {
+    def init(self, side) {
+        super.init(side, side);
+        self.name = "square";
+    }
+
+    def side(self) {
+        return self.width;
+    }
+
+    def describe(self) {
+        return super.describe() + " side=" + str(self.side());
+    }
+}
+
+class Triangle(Shape) {
+    def init(self, base, height) {
+        super.init("triangle");
+        self.base = base;
+        self.height = height;
+    }
+
+    def area(self) {
+        return self.base * self.height / 2;
+    }
+
+    def scale(self, factor) {
+        self.base = self.base * factor;
+        self.height = self.height * factor;
+        return self;
+    }
+}
+
+def total_area(shapes) {
+    total = 0;
+    for shape in shapes {
+        total = total + shape.area();
+    }
+    return total;
+}
+
+const RECTANGLE = Rectangle(3, 4);
+const SQUARE = Square(5);
+const TRIANGLE = Triangle(8, 3);
+const SHAPES = [RECTANGLE, SQUARE, TRIANGLE];
+print(TITLE);
+for shape in SHAPES {
+    print(shape.describe());
+}
+print("total:", total_area(SHAPES));
+RECTANGLE.scale(2);
+SQUARE.scale(3);
+TRIANGLE.scale(2);
+print("scaled rectangle:", RECTANGLE.describe());
+print("scaled square:", SQUARE.describe());
+print("scaled triangle:", TRIANGLE.describe());
+print("updated total:", total_area(SHAPES));
+print("chain:", Rectangle(2, 3).scale(2).area());

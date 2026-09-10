@@ -1,0 +1,89 @@
+const TITLE = "Task board";
+
+const TASKS = [
+    {"title": "outline", "owner": "Mina", "points": 3, "done": true},
+    {"title": "parser", "owner": "Jules", "points": 8, "done": false},
+    {"title": "tests", "owner": "Mina", "points": 5, "done": false},
+    {"title": "release", "owner": "Sam", "points": 2, "done": true}
+];
+
+def completed(tasks) {
+    result = [];
+    for task in tasks {
+        if task["done"] {
+            result = result + [task];
+        }
+    }
+    return result;
+}
+
+def points_for(tasks, owner) {
+    total = 0;
+    for task in tasks {
+        if task["owner"] == owner {
+            total = total + task["points"];
+        }
+    }
+    return total;
+}
+
+def status(task) {
+    if task["done"] {
+        return "done";
+    }
+    return "open";
+}
+
+def owners(tasks) {
+    result = {};
+    for task in tasks {
+        owner = task["owner"];
+        if owner in result {
+            result[owner] = result[owner] + 1;
+        } else {
+            result[owner] = 1;
+        }
+    }
+    return result;
+}
+
+def highest_priority(tasks) {
+    winner = tasks[0];
+    for task in tasks {
+        if task["points"] > winner["points"] and not task["done"] {
+            winner = task;
+        }
+    }
+    return winner;
+}
+
+def open_points(tasks) {
+    total = 0;
+    for task in tasks {
+        if not task["done"] {
+            total = total + task["points"];
+        }
+    }
+    return total;
+}
+
+print(TITLE);
+print("items:", len(TASKS));
+for task in TASKS {
+    print(task["title"], "-", task["owner"], status(task), task["points"]);
+}
+const DONE = completed(TASKS);
+print("completed:", len(DONE));
+print("Mina points:", points_for(TASKS, "Mina"));
+print("Jules points:", points_for(TASKS, "Jules"));
+const COUNTS = owners(TASKS);
+for owner in COUNTS {
+    print("owner:", owner, COUNTS[owner]);
+}
+const PRIORITY = highest_priority(TASKS);
+print("next:", PRIORITY["title"], PRIORITY["points"]);
+TASKS[1]["done"] = true;
+print("after update:", len(completed(TASKS)));
+print("open points:", open_points(TASKS));
+print("known owner:", "Sam" in COUNTS);
+print("missing owner:", "Noah" in COUNTS);

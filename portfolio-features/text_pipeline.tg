@@ -1,0 +1,94 @@
+const TITLE = "Text pipeline";
+const MESSAGE = "tiger builds small language tools";
+
+def split_words(text) {
+    words = [];
+    current = "";
+    index = 0;
+    while index < len(text) {
+        character = text[index];
+        if character == " " {
+            if current != "" {
+                words = words + [current];
+                current = "";
+            }
+        } else {
+            current = current + character;
+        }
+        index = index + 1;
+    }
+    if current != "" {
+        words = words + [current];
+    }
+    return words;
+}
+
+def reverse(text) {
+    result = "";
+    index = len(text) - 1;
+    while index >= 0 {
+        result = result + text[index];
+        index = index - 1;
+    }
+    return result;
+}
+
+def join(words, separator) {
+    result = "";
+    first = true;
+    for word in words {
+        if not first {
+            result = result + separator;
+        }
+        result = result + word;
+        first = false;
+    }
+    return result;
+}
+
+def initials(words) {
+    result = "";
+    for word in words {
+        result = result + word[0];
+    }
+    return result;
+}
+
+def frequencies(words) {
+    counts = {};
+    for word in words {
+        if word in counts {
+            counts[word] = counts[word] + 1;
+        } else {
+            counts[word] = 1;
+        }
+    }
+    return counts;
+}
+
+def longest(words) {
+    winner = "";
+    for word in words {
+        if len(word) > len(winner) {
+            winner = word;
+        }
+    }
+    return winner;
+}
+
+const WORDS = split_words(MESSAGE);
+print(TITLE);
+print("source:", MESSAGE);
+print("words:", WORDS);
+print("count:", len(WORDS));
+print("initials:", initials(WORDS));
+print("longest:", longest(WORDS));
+print("joined:", join(WORDS, " | "));
+print("reverse:", reverse("Tiger"));
+const COUNTS = frequencies(WORDS + ["tiger"]);
+for word in COUNTS {
+    print("frequency:", word, COUNTS[word]);
+}
+print("contains:", "tools" in WORDS, "code" in WORDS);
+print("lookup:", WORDS[0], WORDS[-1]);
+print("empty:", split_words(""), join([], ","));

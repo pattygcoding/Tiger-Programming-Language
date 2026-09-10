@@ -29,7 +29,25 @@ button { cursor: pointer; }
 button:hover:not(:disabled) { background: #eaf0ec; border-color: #99aba0; }
 button:disabled { cursor: default; opacity: .45; }
 button:focus-visible, select:focus-visible, textarea:focus-visible, pre:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-textarea { resize: none; border: 0; width: 100%; flex: 1; min-height: 420px; padding: 24px; font: 14px/1.8 "Cascadia Code", "SFMono-Regular", Consolas, monospace; color: #244a3b; background: #fff; tab-size: 4; }
+.editor { position: relative; flex: 1; min-height: 420px; background: #fff; }
+#source, #source-highlight { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; padding: 24px; font: 14px/1.8 "Cascadia Code", "SFMono-Regular", Consolas, monospace; font-variant-ligatures: none; letter-spacing: 0; tab-size: 4; white-space: pre; overflow-wrap: normal; word-break: normal; text-align: left; }
+#source { z-index: 1; resize: none; overflow: auto; color: var(--ink); background: transparent; caret-color: var(--ink); }
+#source.highlighted { color: transparent; -webkit-text-fill-color: transparent; }
+#source::selection { background: #bedce780; }
+#source-highlight { overflow: hidden; pointer-events: none; color: var(--ink); }
+#source-highlight code { font: inherit; }
+.token-keyword { color: #99304f; }
+.token-string { color: #17674c; }
+.token-comment { color: #66716b; }
+.token-number, .token-literal { color: #94520c; }
+.token-builtin { color: #086d88; }
+.token-identifier { color: #202523; }
+.token-operator { color: #8b3c66; }
+.token-punctuation { color: #52635d; }
+@media (forced-colors: active) {
+  #source.highlighted { color: CanvasText; -webkit-text-fill-color: CanvasText; caret-color: CanvasText; }
+  #source-highlight { visibility: hidden; }
+}
 .editor-footer { min-height: 60px; padding: 12px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
 #position { font-size: 11px; color: var(--muted); margin-right: auto; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 80px; }
@@ -50,7 +68,8 @@ footer { height: 42px; padding: 0 24px; display: flex; justify-content: space-be
   .toolbar label { display: none; }
   .actions { gap: 6px; }
   button, select { padding: 6px 8px; }
-  textarea { height: 440px; min-height: 320px; flex: auto; padding: 16px; font-size: 12px; }
+  .editor { height: 440px; min-height: 320px; flex: auto; }
+  #source, #source-highlight { padding: 16px; font-size: 12px; }
   .editor-footer { padding: 10px 12px; }
   pre { padding: 16px; }
   #output { max-height: 420px; }

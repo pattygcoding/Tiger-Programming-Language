@@ -1,0 +1,89 @@
+const TITLE = "Inventory report";
+
+const INVENTORY = {
+    "tea": {"price": 4.5, "stock": 12, "reorder": 5},
+    "coffee": {"price": 8, "stock": 3, "reorder": 6},
+    "cocoa": {"price": 6.25, "stock": 7, "reorder": 4}
+};
+
+def inventory_value(items) {
+    total = 0;
+    for name in items {
+        item = items[name];
+        total = total + item["price"] * item["stock"];
+    }
+    return total;
+}
+
+def reorder_list(items) {
+    result = [];
+    for name in items {
+        item = items[name];
+        if item["stock"] <= item["reorder"] {
+            result = result + [name];
+        }
+    }
+    return result;
+}
+
+def sell(items, name, amount) {
+    if not name in items {
+        return false;
+    }
+    item = items[name];
+    if amount > item["stock"] or amount < 0 {
+        return false;
+    }
+    item["stock"] = item["stock"] - amount;
+    return item["price"] * amount;
+}
+
+def report(items) {
+    for name in items {
+        item = items[name];
+        print(name, "stock=", item["stock"], "price=", item["price"]);
+    }
+}
+
+def restock(items, name, amount) {
+    if not name in items or amount < 0 {
+        return false;
+    }
+    items[name]["stock"] = items[name]["stock"] + amount;
+    return items[name]["stock"];
+}
+
+def stock_count(items) {
+    total = 0;
+    for name in items {
+        total = total + items[name]["stock"];
+    }
+    return total;
+}
+
+def price_band(items, minimum) {
+    result = [];
+    for name in items {
+        if items[name]["price"] >= minimum {
+            result = result + [name];
+        }
+    }
+    return result;
+}
+
+print(TITLE);
+report(INVENTORY);
+print("value:", inventory_value(INVENTORY));
+print("reorder:", reorder_list(INVENTORY));
+print("sale tea:", sell(INVENTORY, "tea", 4));
+print("sale coffee:", sell(INVENTORY, "coffee", 9));
+print("missing:", sell(INVENTORY, "water", 1));
+print("restock coffee:", restock(INVENTORY, "coffee", 10));
+print("bad restock:", restock(INVENTORY, "tea", -2));
+print("value after:", inventory_value(INVENTORY));
+print("reorder after:", reorder_list(INVENTORY));
+print("stock count:", stock_count(INVENTORY));
+print("premium:", price_band(INVENTORY, 6));
+INVENTORY["water"] = {"price": 1.5, "stock": 20, "reorder": 8};
+print("new item:", "water" in INVENTORY, len(INVENTORY));
+report(INVENTORY);
