@@ -22,6 +22,14 @@ type Stmt interface {
 
 type Program struct{ Statements []Stmt }
 
+type Import struct {
+	Base
+	Path string
+	Name string
+}
+
+func (*Import) statement() {}
+
 type Literal struct {
 	Base
 	Value any

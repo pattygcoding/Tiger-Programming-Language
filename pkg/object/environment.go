@@ -9,8 +9,23 @@ type binding struct {
 
 type Environment struct {
 	AccessClass *Class
+	SourcePath  string
 	parent      *Environment
 	bindings    map[string]binding
+}
+
+func (env *Environment) ModulePath() string {
+	for current := env; current != nil; current = current.parent {
+		if current.SourcePath != "" {
+			return current.SourcePath
+		}
+	}
+	return ""
+}
+
+func (env *Environment) GetOwn(name string) (Value, bool) {
+	value, exists := env.bindings[name]
+	return value.value, exists
 }
 
 func (env *Environment) ClassContext() *Class {

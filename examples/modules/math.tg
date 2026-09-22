@@ -1,0 +1,9 @@
+const PI = 3.14159;
+
+function square(value) {
+    return value * value;
+}
+
+function circle_area(radius) {
+    return PI * square(radius);
+}

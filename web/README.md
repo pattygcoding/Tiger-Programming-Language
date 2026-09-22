@@ -13,7 +13,7 @@ built-in names can be shadowed and are still colored as built-ins.
 
 | Category | Grammar |
 | --- | --- |
-| Keywords | `const var function class super this public private protected return if elif else while for cfor in and or not break continue switch case default try catch throw` |
+| Keywords | `const var function class super this public private protected return if elif else while for cfor in and or not break continue switch case default try catch throw import as` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
 | Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\\`, `\"`, `\'` |
@@ -63,6 +63,8 @@ Input and scrolling synchronize automatically. Call the returned refresh
 function after programmatic changes such as `value` assignment or `setRangeText`.
 The playground already does this for example loading, Reset, and Tab insertion.
 Local storage, downloads, and Wasm execution use only the original textarea value.
+
+The worker accepts `tigerRun(source, filename)`; the optional filename controls relative imports. The editor persists its source path alongside source text. Imports load same-origin `.tg` URLs synchronously inside the worker, leaving the page responsive and stoppable. Deploy imported module directories with the examples. Editor downloads contain only the entry source, not its dependencies. See [module semantics](../docs/modules.md).
 
 Both layers share padding, font, line height, tab width, and disabled ligatures.
 Lines do not wrap. A resize observer matches the mirror to the textarea's client

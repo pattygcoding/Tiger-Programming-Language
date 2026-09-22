@@ -99,7 +99,7 @@ These safeguards are not a memory limit, a wall-clock deadline, or a security gu
 
 ## Current Language Boundaries
 
-Tiger borrows ideas from Python but is not a Python compatibility layer. In addition to the restrictions documented in each lesson, it has no modules/imports, packages in Tiger source, file or network I/O built-ins, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or keyword arguments. Numbers are float64, not arbitrary-precision integers.
+Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md), but has no package manager, general file or network I/O built-ins, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or keyword arguments. Numbers are float64, not arbitrary-precision integers.
 
 There is no exponentiation, `+=`, or other compound assignment. `++`/`--`, `break`, `continue`, `switch`, loop `else`, and C-style `cfor` are supported. `//` is a comment marker, not integer division. Classes support one parent, explicit `this`, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
 

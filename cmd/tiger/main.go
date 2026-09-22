@@ -49,17 +49,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "input must be a .tg file")
 		return 2
 	}
+	if args[0] == "run" {
+		if err := evaluator.RunFile(filename, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
 	source, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
-	}
-	if args[0] == "run" {
-		if err := evaluator.Run(string(source), stdout); err != nil {
-			fmt.Fprintf(stderr, "%s:%v\n", filename, err)
-			return 1
-		}
-		return 0
 	}
 	if output == "" {
 		output = strings.TrimSuffix(filepath.Base(filename), ".tg")

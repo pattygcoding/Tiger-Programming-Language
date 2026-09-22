@@ -3,6 +3,7 @@ const keywords = new Set([
   "while", "for", "in", "and", "or", "not",
   "cfor", "break", "continue", "switch", "case", "default",
   "this", "public", "private", "protected", "try", "catch", "throw",
+  "import", "as",
 ]);
 const literals = new Set(["true", "false", "null"]);
 const builtins = new Set(["print", "str", "len", "range"]);

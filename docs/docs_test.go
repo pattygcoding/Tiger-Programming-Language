@@ -75,7 +75,7 @@ func TestDocumentationExamples(t *testing.T) {
 				}
 				expected := blocks[index+1]
 				var output bytes.Buffer
-				err := evaluator.Run(block.content, &output)
+				err := evaluator.RunWithLoader(block.content, filepath.Join(filepath.Dir(path), "documentation.tg"), evaluator.FileLoader{}, &output)
 				if expected.language == "error" {
 					message := strings.TrimSpace(expected.content)
 					if message == "" || err == nil || !strings.Contains(err.Error(), message) {

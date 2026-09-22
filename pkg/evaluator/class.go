@@ -36,6 +36,11 @@ func memberAccess(node ast.Node, class *object.Class, name string, env *object.E
 
 func property(node *ast.Property, receiver object.Value, env *object.Environment) object.Value {
 	switch typed := receiver.(type) {
+	case *object.Module:
+		if value, exists := typed.Env.GetOwn(node.Name); exists {
+			return value
+		}
+		fail(node, "module %q has no export %q", typed.Name, node.Name)
 	case *object.Instance:
 		memberAccess(node, typed.Class, node.Name, env, false)
 		if field, exists := typed.Fields[node.Name]; exists {

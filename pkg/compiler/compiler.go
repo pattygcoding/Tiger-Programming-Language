@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -9,12 +10,16 @@ import (
 	"strconv"
 	"strings"
 	"tiger"
-	"tiger/pkg/parser"
 )
 
 func Build(source, filename, output string) error {
-	if _, err := parser.Parse(source); err != nil {
-		return fmt.Errorf("%s:%w", filename, err)
+	modules, entry, err := collectModules(source, filename)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(modules)
+	if err != nil {
+		return err
 	}
 	goTool, err := exec.LookPath("go")
 	if err != nil {
@@ -51,13 +56,19 @@ func Build(source, filename, output string) error {
 	}
 	main := `package main
 import (
+	"encoding/json"
     "fmt"
     "os"
     "tiger/pkg/evaluator"
 )
 func main() {
-    if err := evaluator.Run(` + strconv.Quote(source) + `, os.Stdout); err != nil {
-        fmt.Fprintf(os.Stderr, "%s:%v\n", ` + strconv.Quote(filename) + `, err)
+	var modules evaluator.BundleLoader
+	if err := json.Unmarshal([]byte(` + strconv.Quote(string(encoded)) + `), &modules); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := evaluator.RunWithLoader(modules.Sources[` + strconv.Quote(entry) + `], ` + strconv.Quote(entry) + `, modules, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
         os.Exit(1)
     }
 }

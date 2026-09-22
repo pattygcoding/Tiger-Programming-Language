@@ -68,6 +68,8 @@ For PowerShell, set `GOOS` to `wasip1` and `GOARCH` to `wasm` as above, build, t
 
 ## Language
 
+Import other Tiger files with `import "modules/math.tg" as math;`, then call `math.square(9)`. Imports resolve relative to the importing file and execute once per run in an isolated namespace. Standalone builds bundle their dependencies. See [Importing Tiger Files](docs/modules.md) and the [imports example](examples/imports.tg).
+
 Formatted strings support Python-style interpolation: `print(f"Hello, {name}! Count: {len(items)}");`. Use `{{` and `}}` for literal braces. See [Strings](docs/strings.md) for details and supported syntax.
 
 Functions and methods use `function`. Declare variables with `const` for immutable bindings or `var` for mutable bindings; later assignments update an existing binding and cannot introduce a new name. `const` prevents rebinding, not mutation of a referenced collection or instance. Parameters and `for name in ...` headers declare their own local bindings. Comments use `//` or `/* ... */`; legacy `def` definitions and `#` comments are no longer supported.

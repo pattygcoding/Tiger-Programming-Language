@@ -74,6 +74,22 @@ func TestDeclarations(t *testing.T) {
 	}
 }
 
+func TestImports(t *testing.T) {
+	program, err := Parse(`import "lib/math.tg" as math; print(math.square(3));`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := program.Statements[0].(*ast.Import)
+	if declaration.Path != "lib/math.tg" || declaration.Name != "math" {
+		t.Fatalf("unexpected import: %#v", declaration)
+	}
+	for _, source := range []string{`import "math.tg";`, `import math as math;`, `import "math.tg" as;`, `import f"math.tg" as math;`, `import "math.tg" as math`} {
+		if _, err := Parse(source); err == nil {
+			t.Errorf("expected syntax error: %s", source)
+		}
+	}
+}
+
 func TestControlSyntax(t *testing.T) {
 	for _, source := range []string{
 		`cfor (var count = 0; count < 3; ++count) { if count == 1 { continue; } } else { print("done"); }`,

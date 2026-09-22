@@ -81,7 +81,7 @@ len does not accept number
 
 ## What Is Not Built In
 
-There is no `input`, `int`, `float`, `type`, `isinstance`, `sum`, `sorted`, file API, import system, or standard-library module loader. Build helper functions from loops, collections, and functions. See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
+There is no `input`, `int`, `float`, `type`, `isinstance`, `sum`, `sorted`, general file API, or standard library. Share helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
 
 ## range(stop), range(start, stop), range(start, stop, step)
 

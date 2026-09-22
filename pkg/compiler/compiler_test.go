@@ -27,6 +27,44 @@ const counter = Counter(); cfor (var index = 0; index < 3; index++) { print(f"{c
 try { throw range(3); } catch (error) { print(error); }`, "1\n2\n3\n[0, 1, 2]\n")
 }
 
+func TestStandaloneImports(t *testing.T) {
+	if testing.Short() {
+		t.Skip("standalone integration build")
+	}
+	directory := t.TempDir()
+	sources := filepath.Join(directory, "sources")
+	if err := os.MkdirAll(filepath.Join(sources, "lib"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	entry := `import "lib/math.tg" as math; print(math.calculate(9));`
+	for name, source := range map[string]string{
+		"main.tg":       entry,
+		"lib/math.tg":   `function calculate(value) { import "factor.tg" as factor; return value * factor.amount; }`,
+		"lib/factor.tg": `const amount = 3;`,
+	} {
+		if err := os.WriteFile(filepath.Join(sources, name), []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := filepath.Join(directory, "standalone")
+	if runtime.GOOS == "windows" {
+		output += ".exe"
+	}
+	if err := Build(entry, filepath.Join(sources, "main.tg"), output); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(sources); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(output)
+	command.Dir = directory
+	command.Env = append(os.Environ(), "PATH=")
+	actual, err := command.CombinedOutput()
+	if err != nil || string(actual) != "27\n" {
+		t.Fatalf("output=%q err=%v", actual, err)
+	}
+}
+
 func testStandalone(t *testing.T, source, expected string) {
 	t.Helper()
 	if testing.Short() {

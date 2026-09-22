@@ -23,9 +23,13 @@ type Token struct {
 	Line   int
 	Column int
 	Parts  []Token
+	Source string
 }
 
 func (token Token) Errorf(format string, args ...any) error {
+	if token.Source != "" {
+		return fmt.Errorf("%s:%d:%d: %s", token.Source, token.Line, token.Column, fmt.Sprintf(format, args...))
+	}
 	return fmt.Errorf("%d:%d: %s", token.Line, token.Column, fmt.Sprintf(format, args...))
 }
 
@@ -93,7 +97,7 @@ func (scan *scanner) tokens(interpolation bool, depth int) ([]Token, error) {
 			token.Text = string(scan.source[start:scan.pos])
 			token.Kind = Ident
 			switch token.Text {
-			case "const", "var", "function", "class", "super", "this", "public", "private", "protected", "return", "if", "elif", "else", "while", "for", "cfor", "in", "true", "false", "null", "and", "or", "not", "break", "continue", "switch", "case", "default", "try", "catch", "throw":
+			case "const", "var", "function", "class", "super", "this", "public", "private", "protected", "return", "if", "elif", "else", "while", "for", "cfor", "in", "true", "false", "null", "and", "or", "not", "break", "continue", "switch", "case", "default", "try", "catch", "throw", "import", "as":
 				token.Kind = Kind(token.Text)
 			}
 		case current >= '0' && current <= '9':
