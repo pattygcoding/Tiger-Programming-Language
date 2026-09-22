@@ -25,7 +25,7 @@ Output:
 
 Use `function`, a required parenthesized parameter list, and a braced body. Parameters are positional, and the number of arguments must match exactly. Duplicate parameter names are syntax errors. There are no default arguments, keyword arguments, variadic user functions, or anonymous/lambda expressions.
 
-Arguments are evaluated left to right. Parameters are local mutable bindings. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
+Arguments are evaluated left to right. Parameters are local mutable bindings. User-defined functions accept positional arguments only; keyword argument syntax is reserved for supported built-ins such as `print(..., end="")`. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
 
 ## Recursion
 

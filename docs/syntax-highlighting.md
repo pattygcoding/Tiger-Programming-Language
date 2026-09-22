@@ -17,7 +17,7 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 | Literal values | `true false null` | `constant.language.tiger` |
 | Built-in calls | `print str len range` | `support.function.tiger` |
 | Arithmetic / update | `+ - * / % ++ --` | `keyword.operator.arithmetic.tiger` |
-| Assignment / comparison | `= == != < <= > >=` | `keyword.operator.tiger` |
+| Assignment / comparison | `= += -= *= %= == != < <= > >=` | `keyword.operator.tiger` |
 | Delimiters | `( ) [ ] { } , ; : .` | `punctuation.tiger` |
 | Numbers | Decimal digits, optional fractional digits, optional `e`/`E` exponent with optional sign | `constant.numeric.tiger` |
 | Strings | Single or double quoted, one line | `string.quoted.single.tiger` / `string.quoted.double.tiger` |
@@ -27,9 +27,9 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 | Block comments | `/*` through the next `*/`, including newlines; no nesting | `comment.block.tiger` |
 | Identifiers | Unicode letter or `_`, followed by letters, decimal digits, or `_` | `variable.other.tiger` |
 
-Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `==`, `!=`, `<=`, and `>=` before their single-character prefixes. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
+Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, and `>=` before their single-character prefixes. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
 
-`range` is a built-in binding, not a reserved keyword. `init` is a conventional constructor name, not a keyword. `self`, `def`, `number`, `string`, `bool`, `int`, and `float` are ordinary identifiers. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, `+=`, `&&`, `||`, or standalone `!` operators. F-string format specifications and conversions are not supported.
+`range` is a built-in binding, not a reserved keyword. `init` is a conventional constructor name, not a keyword. `self`, `def`, `number`, `string`, `bool`, `int`, and `float` are ordinary identifiers. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, `&&`, `||`, or standalone `!` operators. F-string format specifications and conversions are not supported.
 
 Within f-strings, highlight literal text as string, interpolation delimiters as punctuation, and embedded expressions using normal Tiger token rules. Track nested dictionary braces, quoted strings, comments, and nested f-strings so their braces do not prematurely close an interpolation. Doubled literal braces are string text. The `f`/`F` prefix must directly precede the opening quote.
 

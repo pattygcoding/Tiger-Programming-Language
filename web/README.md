@@ -16,7 +16,7 @@ built-in names can be shadowed and are still colored as built-ins.
 | Keywords | `const var function class super this public private protected return if elif else while for cfor in and or not break continue switch case default try catch throw import as` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
-| Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\\`, `\"`, `\'` |
+| Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\\`, `\"`, `\'` are highlighted separately |
 | Formatted strings | `f`/`F` directly before either quote; string text, `{expression}` tokens, and `{{`/`}}` literal braces |
 | Comments | `//` through the end of the line; `/* ... */` across one or more lines, without nesting |
 | Symbolic operators | `= == != < <= > >= + - * / % ++ --` |

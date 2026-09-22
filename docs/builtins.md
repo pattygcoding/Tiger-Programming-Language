@@ -4,15 +4,17 @@
 
 Tiger provides four built-ins: `print`, `str`, `len`, and `range`. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them.
 
-## print(...values)
+## print(...values, end="\n")
 
-Accepts zero or more arguments of any value type. Formats each argument, joins them with a single space, and writes a newline. It returns `null`. There are no keyword arguments for separators or line endings.
+Accepts zero or more positional arguments of any value type. Formats each argument, joins them with a single space, and writes the string supplied by the optional `end` keyword argument. `end` defaults to a newline and must be a string. It returns `null`.
 
 ```tg
 print("score", 12, true, null);
 print(["one", "two"], {"ready": true});
 const result = print("written");
 print(result);
+print("loading", end="");
+print("...", end=" done\n");
 ```
 
 Output:
@@ -22,9 +24,10 @@ score 12 true null
 ["one", "two"] {"ready": true}
 written
 null
+loading... done
 ```
 
-Zero arguments produce a blank line. A failure writing to the configured output writer becomes a positioned runtime error.
+Zero arguments produce a blank line unless `end` is changed. `print` accepts no other keyword arguments. A failure writing to the configured output writer becomes a positioned runtime error.
 
 ## str(value)
 
@@ -68,6 +71,17 @@ Output:
 ```
 
 Instances do not acquire a custom length, even if they define a method named `len`.
+
+Lists and strings also provide equivalent zero-argument `size()` and `length()` methods:
+
+```tg
+const items = [1, 2, 3];
+print(items.size(), items.length(), "Tiger".size(), "Tiger".length());
+```
+
+```text
+3 3 5 5
+```
 
 **Expected error:**
 

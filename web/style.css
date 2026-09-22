@@ -38,6 +38,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, pre:focus-vi
 #source-highlight code { font: inherit; }
 .token-keyword { color: #99304f; }
 .token-string { color: #17674c; }
+.token-escape { color: #b04478; font-weight: 600; }
 .token-comment { color: #66716b; }
 .token-number, .token-literal { color: #94520c; }
 .token-builtin { color: #086d88; }

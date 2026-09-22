@@ -61,7 +61,7 @@ F-strings are ordinary string-valued expressions, not just a special `print` fea
 
 ```tg
 const text = "Tiger";
-print(len(text), text[0], text[-1]);
+print(len(text), text.size(), text.length(), text[0], text[-1]);
 var reversed = "";
 for character in text {
     reversed = character + reversed;
@@ -73,12 +73,12 @@ print("ger" in text, "GER" in text);
 Output:
 
 ```text
-5 T r
+5 5 5 T r
 regiT
 true false
 ```
 
-Indexing starts at zero. Negative indices count backward from the end; `-1` is the last character. `len`, indexing, and iteration operate on Unicode code points, not UTF-8 bytes or user-perceived grapheme clusters. A combining accent can therefore count separately from the letter it follows.
+Indexing starts at zero. Negative indices count backward from the end; `-1` is the last character. `len(text)`, `text.size()`, `text.length()`, indexing, and iteration operate on Unicode code points, not UTF-8 bytes or user-perceived grapheme clusters. A combining accent can therefore count separately from the letter it follows.
 
 The index must be an integer-valued number and must be in range. Slicing is not implemented. String membership is case-sensitive substring matching, and ordering is lexicographic.
 

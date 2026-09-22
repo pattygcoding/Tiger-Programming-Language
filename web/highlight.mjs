@@ -7,15 +7,39 @@ const keywords = new Set([
 ]);
 const literals = new Set(["true", "false", "null"]);
 const builtins = new Set(["print", "str", "len", "range"]);
-const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|[=!<>]=|\+\+|--|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
+const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|[=!<>+*%\-]=|\+\+|--|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
 
 export function tokenize(source) {
   const result = [];
   let position = 0;
+  const escapes = new Set(["n", "r", "t", "\\", '"', "'"]);
+
+  function stringLiteral() {
+    const quote = source[position++];
+    let start = position - 1;
+    while (position < source.length && source[position] !== quote) {
+      if (source[position] === "\\" && position + 1 < source.length && escapes.has(source[position + 1])) {
+        if (position > start) result.push({ text: source.slice(start, position), kind: "string" });
+        result.push({ text: source.slice(position, position + 2), kind: "escape" });
+        position += 2;
+        start = position;
+      } else if (source[position] === "\n" || source[position] === "\r") {
+        break;
+      } else {
+        position++;
+      }
+    }
+    if (position < source.length && source[position] === quote) position++;
+    if (position > start) result.push({ text: source.slice(start, position), kind: "string" });
+  }
 
   function consume(depth = 0) {
     if (depth < 512 && /^[fF]["']/.test(source.slice(position, position + 2))) {
       formatted(depth + 1);
+      return;
+    }
+    if (source[position] === '"' || source[position] === "'") {
+      stringLiteral();
       return;
     }
     tokenPattern.lastIndex = position;
@@ -45,8 +69,15 @@ export function tokenize(source) {
       const char = source[position];
       if (char === "\n" || char === "\r") break;
       if (char === "\\") {
-        position++;
-        if (position < source.length && !/[\r\n]/.test(source[position])) position++;
+        if (position + 1 < source.length && escapes.has(source[position + 1])) {
+          if (position > start) result.push({ text: source.slice(start, position), kind: "string" });
+          result.push({ text: source.slice(position, position + 2), kind: "escape" });
+          position += 2;
+          start = position;
+        } else {
+          position++;
+          if (position < source.length && !/[\r\n]/.test(source[position])) position++;
+        }
       } else if (char === quote) {
         position++;
         break;
