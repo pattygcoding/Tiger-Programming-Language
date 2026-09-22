@@ -167,10 +167,14 @@ func (scan *scanner) tokens(interpolation bool, depth int) ([]Token, error) {
 					return nil, token.Errorf("expected '=' after '!'; use 'not' for negation")
 				}
 			case '+', '-':
-				if scan.peek(0) == current {
+				if scan.peek(0) == current || scan.peek(0) == '=' {
 					token.Text += string(scan.advance())
 				}
-			case '*', '/', '%', '(', ')', '[', ']', '{', '}', ':', ',', ';', '.':
+			case '*', '%':
+				if scan.peek(0) == '=' {
+					token.Text += string(scan.advance())
+				}
+			case '/', '(', ')', '[', ']', '{', '}', ':', ',', ';', '.':
 			default:
 				return nil, token.Errorf("unexpected character %q", current)
 			}

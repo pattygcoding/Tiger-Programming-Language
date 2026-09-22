@@ -11,17 +11,17 @@ var items = [1, "apple", true];
 items[0] = 9;
 items = items + ["last"];
 print(items);
-print(items[-1], len(items), "apple" in items);
+print(items[-1], len(items), items.size(), items.length(), "apple" in items);
 ```
 
 Output:
 
 ```text
 [9, "apple", true, "last"]
-last 4 true
+last 4 4 4 true
 ```
 
-Indexed assignment replaces an existing element. It cannot grow a list. Concatenation with `+` creates a new outer list; use `items = items + [value]` to add one element. There are no `append`/`pop` methods, slices, or comprehensions. Out-of-range and fractional indices are errors.
+Indexed assignment replaces an existing element. It cannot grow a list. Concatenation with `+` creates a new outer list; use `items += [value]` to add one element. `size()` and `length()` are aliases for `len(items)`. There are no `append`/`pop` methods, slices, or comprehensions. Out-of-range and fractional indices are errors.
 
 ## Dictionaries
 

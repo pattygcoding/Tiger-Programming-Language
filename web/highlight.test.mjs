@@ -26,7 +26,7 @@ test("identifiers include Unicode and do not invent type keywords", () => {
 
 test("decimal and exponent numbers, operators, and punctuation", () => {
   assert.deepEqual(tokens("12 3.5 1e2 2E-3 4e+" ).map(({ kind }) => kind), Array(5).fill("number"));
-  for (const text of "= == != < <= > >= + - * / % ++ --".split(" ")) {
+  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ --".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "operator" }]);
   }
   for (const text of "()[]{}:;,.") {
@@ -35,9 +35,19 @@ test("decimal and exponent numbers, operators, and punctuation", () => {
 });
 
 test("strings protect comment markers and handle escapes", () => {
-  for (const text of ['"# // /* true */"', "'hello'", String.raw`"a\"b\\c\n\r\t"`, String.raw`'it\'s'`]) {
+  for (const text of ['"# // /* true */"', "'hello'"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "string" }]);
   }
+  assert.deepEqual(tokens(String.raw`"a\"b\\c\n\r\t"`), [
+    { text: '"a', kind: "string" }, { text: '\\"', kind: "escape" },
+    { text: "b", kind: "string" }, { text: "\\\\", kind: "escape" },
+    { text: "c", kind: "string" }, { text: "\\n", kind: "escape" },
+    { text: "\\r", kind: "escape" }, { text: "\\t", kind: "escape" },
+    { text: '"', kind: "string" },
+  ]);
+  assert.deepEqual(tokens(String.raw`'it\'s'`), [
+    { text: "'it", kind: "string" }, { text: "\\'", kind: "escape" }, { text: "s'", kind: "string" },
+  ]);
   assert.deepEqual(tokens('// "hello"\n// true'), [
     { text: '// "hello"', kind: "comment" },
     { text: "// true", kind: "comment" },

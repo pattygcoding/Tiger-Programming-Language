@@ -12,8 +12,8 @@ function gcd(left, right) {
 function factorial(value) {
     var result = 1;
     while value > 1 {
-        result = result * value;
-        value = value - 1;
+        result *= value;
+        value -= 1;
     }
     return result;
 }
@@ -22,8 +22,8 @@ function fibonacci(count) {
     var values = [];
     var first = 0;
     var second = 1;
-    while len(values) < count {
-        values = values + [first];
+    while values.length() < count {
+        values += [first];
         const next = first + second;
         first = second;
         second = next;
@@ -40,7 +40,7 @@ function is_prime(value) {
         if value % divisor == 0 {
             return false;
         }
-        divisor = divisor + 1;
+        divisor += 1;
     }
     return true;
 }
@@ -50,9 +50,9 @@ function primes(limit) {
     var candidate = 0;
     while candidate <= limit {
         if is_prime(candidate) {
-            result = result + [candidate];
+            result += [candidate];
         }
-        candidate = candidate + 1;
+        candidate += 1;
     }
     return result;
 }
@@ -60,15 +60,15 @@ function primes(limit) {
 function summary(values) {
     var total = 0;
     for value in values {
-        total = total + value;
+        total += value;
     }
-    return {"count": len(values), "total": total, "average": total / len(values)};
+    return {"count": values.size(), "total": total, "average": total / values.length()};
 }
 
 function squares(values) {
     var result = [];
     for value in values {
-        result = result + [value * value];
+        result += [value * value];
     }
     return result;
 }
@@ -76,7 +76,7 @@ function squares(values) {
 const FIBONACCI = fibonacci(10);
 const PRIMES = primes(30);
 const FIB_SUMMARY = summary(FIBONACCI);
-print(TITLE);
+print(TITLE, end="\n\n");
 print("gcd:", gcd(84, 30));
 print("factorial:", factorial(6));
 print("fibonacci:", FIBONACCI);

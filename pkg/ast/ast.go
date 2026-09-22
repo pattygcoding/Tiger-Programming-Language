@@ -69,6 +69,12 @@ type Call struct {
 	Base
 	Function  Expr
 	Arguments []Expr
+	Keywords  []KeywordArgument
+}
+
+type KeywordArgument struct {
+	Name  string
+	Value Expr
 }
 
 type Index struct {
@@ -106,6 +112,7 @@ type Assign struct {
 	Base
 	Target      Expr
 	Value       Expr
+	Operator    string
 	Constant    bool
 	Declaration bool
 }

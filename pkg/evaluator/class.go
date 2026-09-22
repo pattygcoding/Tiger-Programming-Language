@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"fmt"
 	"tiger/pkg/ast"
 	"tiger/pkg/object"
 )
@@ -36,6 +37,16 @@ func memberAccess(node ast.Node, class *object.Class, name string, env *object.E
 
 func property(node *ast.Property, receiver object.Value, env *object.Environment) object.Value {
 	switch typed := receiver.(type) {
+	case object.String:
+		if node.Name == "size" || node.Name == "length" {
+			return lengthMethod(node.Name, object.Number(len([]rune(string(typed)))))
+		}
+		fail(node, "string has no property %q", node.Name)
+	case *object.List:
+		if node.Name == "size" || node.Name == "length" {
+			return lengthMethod(node.Name, object.Number(len(typed.Elements)))
+		}
+		fail(node, "list has no property %q", node.Name)
 	case *object.Module:
 		if value, exists := typed.Env.GetOwn(node.Name); exists {
 			return value
@@ -65,24 +76,39 @@ func property(node *ast.Property, receiver object.Value, env *object.Environment
 	return object.Null{}
 }
 
-func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []object.Value, env *object.Environment) object.Value {
+func lengthMethod(name string, length object.Number) object.Value {
+	return &object.Builtin{Name: name, Call: func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
+		if len(keywords) != 0 {
+			return nil, fmt.Errorf("%s does not accept keyword arguments", name)
+		}
+		if len(arguments) != 0 {
+			return nil, fmt.Errorf("%s expects 0 arguments, got %d", name, len(arguments))
+		}
+		return length, nil
+	}}
+}
+
+func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []object.Value, keywords map[string]object.Value, env *object.Environment) object.Value {
 	switch callable := function.(type) {
 	case *object.Builtin:
-		value, err := callable.Call(arguments)
+		value, err := callable.Call(arguments, keywords)
 		check(node, err)
 		return value
 	case *object.Function:
+		rejectKeywords(node, keywords)
 		return eval.invoke(node, callable, arguments, nil)
 	case *object.BoundMethod:
+		rejectKeywords(node, keywords)
 		return eval.invoke(node, callable.Method.Function, arguments, callable)
 	case *object.Class:
+		rejectKeywords(node, keywords)
 		instance := &object.Instance{Class: callable, Fields: map[string]object.Value{}}
 		if initializer := callable.FindMethod("init"); initializer != nil {
 			accessible(node, initializer.Function.Declaration.Access, initializer.Owner, env)
 		}
 		eval.initializeFields(instance, callable)
 		if initializer := callable.FindMethod("init"); initializer != nil {
-			eval.call(node, &object.BoundMethod{Method: initializer, Receiver: instance}, arguments, env)
+			eval.call(node, &object.BoundMethod{Method: initializer, Receiver: instance}, arguments, nil, env)
 		} else if len(arguments) != 0 {
 			fail(node, "%s expects 0 arguments, got %d", callable.Name, len(arguments))
 		}
@@ -91,6 +117,12 @@ func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []ob
 		fail(node, "%s is not callable", function.Type())
 	}
 	return object.Null{}
+}
+
+func rejectKeywords(node ast.Node, keywords map[string]object.Value) {
+	if len(keywords) != 0 {
+		fail(node, "keyword arguments are only supported by built-in functions")
+	}
 }
 
 func (eval *Evaluator) invoke(node ast.Node, function *object.Function, arguments []object.Value, bound *object.BoundMethod) object.Value {

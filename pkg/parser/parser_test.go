@@ -62,7 +62,7 @@ func TestNestingLimit(t *testing.T) {
 }
 
 func TestDeclarations(t *testing.T) {
-	program, err := Parse("const limit = 3; var count = 0; count = 1;")
+	program, err := Parse("const limit = 3; var count = 0; count = 1; count += 2;")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +70,25 @@ func TestDeclarations(t *testing.T) {
 		assignment := statement.(*ast.Assign)
 		if assignment.Declaration != (index < 2) || assignment.Constant != (index == 0) {
 			t.Fatalf("incorrect declaration flags at %d: %#v", index, assignment)
+		}
+	}
+	if assignment := program.Statements[3].(*ast.Assign); assignment.Operator != "+=" {
+		t.Fatalf("incorrect compound operator: %#v", assignment)
+	}
+}
+
+func TestKeywordArguments(t *testing.T) {
+	program, err := Parse(`print("working", end="");`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := program.Statements[0].(*ast.ExpressionStmt).Value.(*ast.Call)
+	if len(call.Arguments) != 1 || len(call.Keywords) != 1 || call.Keywords[0].Name != "end" {
+		t.Fatalf("incorrect call arguments: %#v", call)
+	}
+	for _, source := range []string{`print(end="", 1);`, `print(end="", end="!");`} {
+		if _, err := Parse(source); err == nil {
+			t.Errorf("expected syntax error: %s", source)
 		}
 	}
 }

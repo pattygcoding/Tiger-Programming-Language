@@ -121,10 +121,16 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 	case *ast.ExpressionStmt:
 		eval.expression(node.Value, env)
 	case *ast.Assign:
-		value := eval.expression(node.Value, env)
 		if node.Declaration || node.Constant {
+			value := eval.expression(node.Value, env)
 			check(node, env.Define(node.Target.(*ast.Identifier).Name, value, node.Constant))
+		} else if node.Operator != "=" {
+			read, write := eval.reference(node.Target, env)
+			left := read()
+			right := eval.expression(node.Value, env)
+			write(binary(&ast.Binary{Base: node.Base, Operator: strings.TrimSuffix(node.Operator, "=")}, left, right))
 		} else {
+			value := eval.expression(node.Value, env)
 			_, write := eval.reference(node.Target, env)
 			write(value)
 		}
@@ -385,7 +391,11 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		for index, argument := range node.Arguments {
 			arguments[index] = eval.expression(argument, env)
 		}
-		return eval.call(node, function, arguments, env)
+		keywords := make(map[string]object.Value, len(node.Keywords))
+		for _, keyword := range node.Keywords {
+			keywords[keyword.Name] = eval.expression(keyword.Value, env)
+		}
+		return eval.call(node, function, arguments, keywords, env)
 	}
 	fail(expression, "unsupported expression")
 	return object.Null{}
@@ -497,23 +507,45 @@ func binary(node *ast.Binary, left, right object.Value) object.Value {
 }
 
 func (eval *Evaluator) builtins(env *object.Environment) {
-	functions := map[string]func([]object.Value) (object.Value, error){
-		"range": rangeValues,
-		"print": func(args []object.Value) (object.Value, error) {
+	functions := map[string]func([]object.Value, map[string]object.Value) (object.Value, error){
+		"range": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
+			if len(keywords) != 0 {
+				return nil, fmt.Errorf("range does not accept keyword arguments")
+			}
+			return rangeValues(args)
+		},
+		"print": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
+			ending := "\n"
+			for name, value := range keywords {
+				if name != "end" {
+					return nil, fmt.Errorf("print does not accept keyword argument %q", name)
+				}
+				text, ok := value.(object.String)
+				if !ok {
+					return nil, fmt.Errorf("print end must be a string, got %s", value.Type())
+				}
+				ending = string(text)
+			}
 			parts := make([]string, len(args))
 			for index, value := range args {
 				parts[index] = object.Format(value)
 			}
-			_, err := fmt.Fprintln(eval.Output, strings.Join(parts, " "))
+			_, err := fmt.Fprint(eval.Output, strings.Join(parts, " ")+ending)
 			return object.Null{}, err
 		},
-		"str": func(args []object.Value) (object.Value, error) {
+		"str": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
+			if len(keywords) != 0 {
+				return nil, fmt.Errorf("str does not accept keyword arguments")
+			}
 			if len(args) != 1 {
 				return nil, fmt.Errorf("str expects 1 argument, got %d", len(args))
 			}
 			return object.String(object.Format(args[0])), nil
 		},
-		"len": func(args []object.Value) (object.Value, error) {
+		"len": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
+			if len(keywords) != 0 {
+				return nil, fmt.Errorf("len does not accept keyword arguments")
+			}
 			if len(args) != 1 {
 				return nil, fmt.Errorf("len expects 1 argument, got %d", len(args))
 			}

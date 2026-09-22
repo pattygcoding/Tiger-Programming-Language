@@ -52,3 +52,19 @@ func TestBlockComments(t *testing.T) {
 		t.Fatalf("incorrect position: %#v", tokens[0])
 	}
 }
+
+func TestCompoundAssignmentTokens(t *testing.T) {
+	tokens, err := Scan("value += 1; value -= 1; value *= 2; value %= 3;")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Kind{Ident, "+=", Number, ";", Ident, "-=", Number, ";", Ident, "*=", Number, ";", Ident, "%=", Number, ";", EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("tokens: %#v", tokens)
+	}
+	for index, kind := range want {
+		if tokens[index].Kind != kind {
+			t.Fatalf("token %d: got %s, want %s", index, tokens[index].Kind, kind)
+		}
+	}
+}

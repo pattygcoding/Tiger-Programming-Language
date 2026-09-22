@@ -246,9 +246,10 @@ func (parse *parser) simpleStatement() ast.Stmt {
 		return &ast.Assign{Base: base, Target: &ast.Identifier{Base: ast.Base{Token: name}, Name: name.Text}, Value: parse.expression(0), Constant: constant, Declaration: true}
 	}
 	value := parse.expression(0)
-	if parse.match("=") {
+	if parse.at("=") || parse.at("+=") || parse.at("-=") || parse.at("*=") || parse.at("%=") {
+		operator := parse.take()
 		parse.assignmentTarget(value)
-		return &ast.Assign{Base: base, Target: value, Value: parse.expression(0)}
+		return &ast.Assign{Base: base, Target: value, Value: parse.expression(0), Operator: operator.Text}
 	}
 	return &ast.ExpressionStmt{Base: base, Value: value}
 }
@@ -436,7 +437,7 @@ func (parse *parser) expression(minimum int) ast.Expr {
 			}
 			left = &ast.Property{Base: ast.Base{Token: member}, Receiver: left, Name: member.Text}
 		case "(":
-			left = &ast.Call{Base: base, Function: left, Arguments: parse.expressions(")")}
+			left = parse.call(base, left)
 		case "[":
 			left = &ast.Index{Base: base, Collection: left, Key: parse.expression(0)}
 			parse.expect("]")
@@ -445,6 +446,36 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		}
 	}
 	return left
+}
+
+func (parse *parser) call(base ast.Base, function ast.Expr) ast.Expr {
+	call := &ast.Call{Base: base, Function: function}
+	seenKeyword := false
+	seenNames := map[string]bool{}
+	if !parse.at(")") {
+		for {
+			if parse.at(lexer.Ident) && parse.pos+1 < len(parse.tokens) && parse.tokens[parse.pos+1].Kind == "=" {
+				seenKeyword = true
+				name := parse.take()
+				parse.take()
+				if seenNames[name.Text] {
+					panic(syntaxError{name.Errorf("duplicate keyword argument %q", name.Text)})
+				}
+				seenNames[name.Text] = true
+				call.Keywords = append(call.Keywords, ast.KeywordArgument{Name: name.Text, Value: parse.expression(0)})
+			} else {
+				if seenKeyword {
+					panic(syntaxError{parse.current().Errorf("positional argument cannot follow a keyword argument")})
+				}
+				call.Arguments = append(call.Arguments, parse.expression(0))
+			}
+			if !parse.match(",") || parse.at(")") {
+				break
+			}
+		}
+	}
+	parse.expect(")")
+	return call
 }
 
 func (parse *parser) expressions(end lexer.Kind) []ast.Expr {

@@ -26,7 +26,7 @@ type Function struct {
 }
 type Builtin struct {
 	Name string
-	Call func([]Value) (Value, error)
+	Call func([]Value, map[string]Value) (Value, error)
 }
 type ReturnValue struct{ Value Value }
 

@@ -13,4 +13,7 @@ typed keys: number string boolean 3
 shared elements: [[9], [2]] [[9], [8]]
 cycles: [[...]] true
 equality: true false true
+compound: 3
+length methods: 2 18
+custom ending: same line
 comments: # literal // literal

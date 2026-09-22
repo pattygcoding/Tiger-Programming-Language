@@ -72,7 +72,9 @@ Import other Tiger files with `import "modules/math.tg" as math;`, then call `ma
 
 Formatted strings support Python-style interpolation: `print(f"Hello, {name}! Count: {len(items)}");`. Use `{{` and `}}` for literal braces. See [Strings](docs/strings.md) for details and supported syntax.
 
-Functions and methods use `function`. Declare variables with `const` for immutable bindings or `var` for mutable bindings; later assignments update an existing binding and cannot introduce a new name. `const` prevents rebinding, not mutation of a referenced collection or instance. Parameters and `for name in ...` headers declare their own local bindings. Comments use `//` or `/* ... */`; legacy `def` definitions and `#` comments are no longer supported.
+Functions and methods use `function`. Declare variables with `const` for immutable bindings or `var` for mutable bindings; later assignments update an existing binding and cannot introduce a new name. Compound `+=`, `-=`, `*=`, and `%=` assignments are supported. `const` prevents rebinding, not mutation of a referenced collection or instance. Parameters and `for name in ...` headers declare their own local bindings. Comments use `//` or `/* ... */`; legacy `def` definitions and `#` comments are no longer supported.
+
+`print` accepts an optional string ending, such as `print("working", end="");`. Lists and strings can report their length with `len(value)`, `value.size()`, or `value.length()`.
 
 Methods explicitly receive `this`, replacing `self`. Class methods and declared fields are public by default; optional `public`, `private`, and `protected` modifiers control access. Tiger also supports prefix/postfix `++`/`--`, `cfor (var index = 0; index < limit; ++index)`, `range`, loop `else`, fall-through `switch`, `break`/`continue`, and `try`/`catch`/`throw`. See the [highlighting reference](docs/syntax-highlighting.md) for editor integration, the [control-flow example](examples/control_flow.tg), and the [batch queue](portfolio-features/batch_queue.tg) and [account audit](portfolio-features/account_audit.tg) portfolio programs.
 
