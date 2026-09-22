@@ -47,12 +47,14 @@ Names start with a letter or `_`, followed by letters, digits, or `_`. Unicode l
 Reserved keywords:
 
 ```text
-and break case catch cfor class const continue default
-elif else false for function if in not null or private
+and as break case catch cfor class const continue default
+elif else false for function if import in not null or private
 protected public return super switch this throw true try var while
 ```
 
 `this` is reserved and every method uses it as the first parameter. `init` is the constructor method name, not a keyword. `print`, `str`, `len`, and `range` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
+
+`import "helpers.tg" as helpers;` declares a module alias. Import statements require semicolons; see [Importing Tiger Files](modules.md).
 
 ## Comments and Strings
 

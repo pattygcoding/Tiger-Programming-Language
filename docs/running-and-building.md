@@ -101,6 +101,8 @@ Use `GOOS=js` and `./cmd/wasm` for the browser target, or use the cross-platform
 
 Within this Go module, the simplest API is `evaluator.Run(source, writer)`. It parses and executes source, returns an error on failure, and writes `print` output to the supplied `io.Writer`. Passing `nil` discards output.
 
+Use `evaluator.RunFile(filename, writer)` for filesystem imports, or `RunWithLoader` with an explicit loader for virtual sources. The plain `Run` API does not read files. See [Importing Tiger Files](modules.md). Standalone builds bundle all literal import dependencies, including imports inside functions; WASI imports require the corresponding host filesystem access.
+
 For a configurable step budget, parse once and execute explicitly:
 
 ```go

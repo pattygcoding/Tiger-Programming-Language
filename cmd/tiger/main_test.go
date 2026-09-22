@@ -63,3 +63,22 @@ func TestExamplePrograms(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIImports(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "lib"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, source := range map[string]string{
+		"main.tg":     `import "lib/math.tg" as math; print(math.square(9));`,
+		"lib/math.tg": `function square(value) { return value * value; }`,
+	} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run", filepath.Join(directory, "main.tg")}, &stdout, &stderr); code != 0 || stdout.String() != "81\n" {
+		t.Fatalf("exit=%d output=%q error=%q", code, stdout.String(), stderr.String())
+	}
+}

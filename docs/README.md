@@ -20,6 +20,7 @@ Begin with [Getting Started](getting-started.md), then follow the lessons below 
 
 ## Reference
 
+- [Importing Tiger Files](modules.md): relative imports, namespaces, caching, and standalone dependencies.
 - [Built-ins](builtins.md): complete signatures and behavior for `print`, `str`, `len`, and `range`.
 - [Editor Highlighting](syntax-highlighting.md): keywords, operators, literals, semantic categories, and editor checks.
 - [Runtime and Errors](runtime-and-errors.md): diagnostics, evaluation limits, and unsupported features.

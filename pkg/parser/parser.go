@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"strconv"
 	"tiger/pkg/ast"
 	"tiger/pkg/lexer"
@@ -18,10 +19,25 @@ type parser struct {
 }
 
 func Parse(source string) (program *ast.Program, err error) {
+	return ParseSource(source, "")
+}
+
+func ParseSource(source, filename string) (program *ast.Program, err error) {
 	tokens, err := lexer.Scan(source)
 	if err != nil {
+		if filename != "" {
+			return nil, fmt.Errorf("%s:%w", filename, err)
+		}
 		return nil, err
 	}
+	var nameTokens func([]lexer.Token)
+	nameTokens = func(tokens []lexer.Token) {
+		for index := range tokens {
+			tokens[index].Source = filename
+			nameTokens(tokens[index].Parts)
+		}
+	}
+	nameTokens(tokens)
 	defer func() {
 		if failure := recover(); failure != nil {
 			if syntax, ok := failure.(syntaxError); ok {
@@ -75,6 +91,12 @@ func (parse *parser) enter() {
 func (parse *parser) statement() ast.Stmt {
 	base := ast.Base{Token: parse.current()}
 	switch {
+	case parse.match("import"):
+		path := parse.expect(lexer.String)
+		parse.expect("as")
+		name := parse.expect(lexer.Ident)
+		parse.expect(";")
+		return &ast.Import{Base: base, Path: path.Text, Name: name.Text}
 	case parse.match("throw"):
 		value := parse.expression(0)
 		parse.expect(";")

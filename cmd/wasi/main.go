@@ -13,12 +13,8 @@ func main() {
 		os.Exit(2)
 	}
 	filename := os.Args[1]
-	source, err := os.ReadFile(filename)
-	if err == nil {
-		err = evaluator.Run(string(source), os.Stdout)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s:%v\n", filename, err)
+	if err := evaluator.RunFile(filename, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }

@@ -26,10 +26,15 @@ type flow struct {
 }
 
 type Evaluator struct {
-	Output   io.Writer
-	MaxSteps int
-	steps    int
-	depth    int
+	Output      io.Writer
+	MaxSteps    int
+	Loader      ModuleLoader
+	SourcePath  string
+	modules     map[string]*object.Module
+	loading     map[string]bool
+	importDepth int
+	steps       int
+	depth       int
 }
 
 func New(output io.Writer) *Evaluator {
@@ -61,10 +66,17 @@ func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 		}
 	}()
 	eval.steps, eval.depth = 0, 0
+	eval.modules = map[string]*object.Module{}
+	eval.loading = map[string]bool{}
+	eval.importDepth = 0
+	if eval.SourcePath != "" {
+		eval.loading[eval.SourcePath] = true
+	}
 	if eval.Output == nil {
 		eval.Output = io.Discard
 	}
 	env := object.NewEnvironment(nil)
+	env.SourcePath = eval.SourcePath
 	eval.builtins(env)
 	eval.block(program.Statements, env)
 	return nil
@@ -99,6 +111,9 @@ func (eval *Evaluator) block(statements []ast.Stmt, env *object.Environment) *fl
 func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *flow {
 	eval.tick(statement)
 	switch node := statement.(type) {
+	case *ast.Import:
+		module := eval.importModule(node, env)
+		check(node, env.Define(node.Name, module, true))
 	case *ast.Throw:
 		panic(thrown{node: node, value: eval.expression(node.Value, env)})
 	case *ast.Try:

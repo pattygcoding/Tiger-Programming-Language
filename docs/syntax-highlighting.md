@@ -9,6 +9,7 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 | Category | Tokens or rules | Suggested scope |
 | --- | --- | --- |
 | Declarations | `const var function class` | `storage.type.tiger` |
+| Module imports | `import as` | `keyword.control.import.tiger` |
 | Access modifiers | `public private protected` | `storage.modifier.tiger` |
 | Control flow | `if elif else while for cfor return break continue switch case default try catch throw` | `keyword.control.tiger` |
 | Receiver / parent | `this super` | `variable.language.tiger` |
@@ -37,6 +38,7 @@ Within f-strings, highlight literal text as string, interpolation delimiters as 
 | Symbol | Suggested semantic token |
 | --- | --- |
 | Name declared by `class`, including parent references | `class` |
+| Import alias and resolved module references | `namespace` |
 | Name declared by `function` and resolved calls | `function` or `method` |
 | Function/method parameters and catch binding | `parameter` or `variable` |
 | `const` variable / field | `variable` / `property` with `readonly` |

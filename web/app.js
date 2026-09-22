@@ -12,9 +12,11 @@ let worker;
 let ready = false;
 let running = false;
 let loadVersion = 0;
+let sourceFilename = "examples/demo.tg";
 
 try {
   source.value = localStorage.getItem("tiger-source") ?? source.value;
+  sourceFilename = localStorage.getItem("tiger-source-path") ?? sourceFilename;
 } catch {}
 
 const refreshHighlighting = attachHighlighting(source, document.querySelector("#source-highlight"));
@@ -62,7 +64,10 @@ function startWorker(autoRun = false) {
 }
 
 function remember() {
-  try { localStorage.setItem("tiger-source", source.value); } catch {}
+  try {
+    localStorage.setItem("tiger-source", source.value);
+    localStorage.setItem("tiger-source-path", sourceFilename);
+  } catch {}
 }
 
 function position() {
@@ -77,17 +82,19 @@ function run() {
   showError("");
   timing.textContent = "";
   setState("Running", true, true);
-  worker.postMessage({ type: "run", source: source.value });
+  worker.postMessage({ type: "run", source: source.value, filename: sourceFilename });
 }
 
 async function loadExample() {
   const version = ++loadVersion;
+  const filename = `examples/${example.value}.tg`;
   try {
-    const response = await fetch(`examples/${example.value}.tg`);
+    const response = await fetch(filename);
     if (!response.ok) throw new Error("Could not load example");
     const text = await response.text();
     if (version !== loadVersion) return;
     source.value = text;
+    sourceFilename = filename;
     refreshHighlighting();
     remember();
     position();

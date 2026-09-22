@@ -30,6 +30,13 @@ type Builtin struct {
 }
 type ReturnValue struct{ Value Value }
 
+type Module struct {
+	Name string
+	Env  *Environment
+}
+
+func (*Module) Type() string { return "module" }
+
 func (Number) Type() string       { return "number" }
 func (String) Type() string       { return "string" }
 func (Bool) Type() string         { return "bool" }
@@ -146,6 +153,8 @@ func format(value Value, seen map[Value]bool, nested bool) string {
 		return "{" + strings.Join(parts, ", ") + "}"
 	case *Function:
 		return "<function " + typed.Declaration.Name + ">"
+	case *Module:
+		return "<module " + typed.Name + ">"
 	case *Class:
 		return "<class " + typed.Name + ">"
 	case *Instance:

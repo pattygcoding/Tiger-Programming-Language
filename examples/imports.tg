@@ -1,0 +1,12 @@
+import "modules/math.tg" as math;
+import "modules/math.tg" as same_math;
+
+print(f"Square of 9: {math.square(9)}");
+print(f"Circle area: {math.circle_area(2)}");
+print(f"Same module: {math == same_math}");
+
+try {
+    print(math.missing);
+} catch (error) {
+    print("Missing export caught:", "has no export" in error);
+}
