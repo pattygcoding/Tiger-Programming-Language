@@ -8,7 +8,7 @@ const NETWORK = {
     "cafe": ["park", "museum"]
 };
 
-def contains(values, wanted) {
+function contains(values, wanted) {
     for value in values {
         if value == wanted {
             return true;
@@ -17,9 +17,9 @@ def contains(values, wanted) {
     return false;
 }
 
-def path_to(previous, start, target) {
-    path = [target];
-    current = target;
+function path_to(previous, start, target) {
+    var path = [target];
+    var current = target;
     while current != start {
         current = previous[current];
         path = [current] + path;
@@ -27,14 +27,14 @@ def path_to(previous, start, target) {
     return path;
 }
 
-def shortest_path(graph, start, target) {
-    queue = [start];
-    visited = {start: true};
-    previous = {};
+function shortest_path(graph, start, target) {
+    var queue = [start];
+    const visited = {start: true};
+    const previous = {};
     while len(queue) > 0 {
-        current = queue[0];
-        remaining = [];
-        index = 1;
+        const current = queue[0];
+        var remaining = [];
+        var index = 1;
         while index < len(queue) {
             remaining = remaining + [queue[index]];
             index = index + 1;
@@ -54,16 +54,16 @@ def shortest_path(graph, start, target) {
     return [];
 }
 
-def edge_count(graph) {
-    total = 0;
+function edge_count(graph) {
+    var total = 0;
     for place in graph {
         total = total + len(graph[place]);
     }
     return total / 2;
 }
 
-def route_description(path) {
-    result = "";
+function route_description(path) {
+    var result = "";
     for place in path {
         if result != "" {
             result = result + " -> ";
@@ -83,4 +83,4 @@ print("route:", route_description(TO_CAFE));
 print("station to museum:", TO_MUSEUM);
 print("park neighbors:", NETWORK["park"]);
 print("direct road:", contains(NETWORK["home"], "park"));
-print("self route:", shortest_path(NETWORK, "home", "home"));
+print("this route:", shortest_path(NETWORK, "home", "home"));

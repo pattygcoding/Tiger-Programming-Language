@@ -30,9 +30,9 @@ The answer is 42
 ## A Small Calculation
 
 ```tg
-price = 12;
-quantity = 3;
-total = price * quantity;
+const price = 12;
+const quantity = 3;
+var total = price * quantity;
 if total >= 30 {
     total = total - 5;
 }

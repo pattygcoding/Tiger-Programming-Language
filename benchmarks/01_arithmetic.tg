@@ -1,15 +1,15 @@
 const TITLE = "Arithmetic and number theory";
 
-def absolute(value) {
+function absolute(value) {
     if value < 0 {
         return -value;
     }
     return value;
 }
 
-def power(base, exponent) {
-    result = 1;
-    remaining = exponent;
+function power(base, exponent) {
+    var result = 1;
+    var remaining = exponent;
     while remaining > 0 {
         result = result * base;
         remaining = remaining - 1;
@@ -17,27 +17,27 @@ def power(base, exponent) {
     return result;
 }
 
-def gcd(first, second) {
-    left = absolute(first);
-    right = absolute(second);
+function gcd(first, second) {
+    var left = absolute(first);
+    var right = absolute(second);
     while right != 0 {
-        remainder = left % right;
+        const remainder = left % right;
         left = right;
         right = remainder;
     }
     return left;
 }
 
-def lcm(first, second) {
+function lcm(first, second) {
     if first == 0 or second == 0 {
         return 0;
     }
     return absolute(first * second) / gcd(first, second);
 }
 
-def triangular(limit) {
-    total = 0;
-    current = 1;
+function triangular(limit) {
+    var total = 0;
+    var current = 1;
     while current <= limit {
         total = total + current;
         current = current + 1;
@@ -45,9 +45,9 @@ def triangular(limit) {
     return total;
 }
 
-def sum_squares(limit) {
-    total = 0;
-    current = 1;
+function sum_squares(limit) {
+    var total = 0;
+    var current = 1;
     while current <= limit {
         total = total + current * current;
         current = current + 1;
@@ -55,7 +55,7 @@ def sum_squares(limit) {
     return total;
 }
 
-def clamp(value, lower, upper) {
+function clamp(value, lower, upper) {
     if value < lower {
         return lower;
     } elif value > upper {
@@ -65,20 +65,20 @@ def clamp(value, lower, upper) {
     }
 }
 
-def digit_sum(value) {
-    remaining = absolute(value);
-    total = 0;
+function digit_sum(value) {
+    var remaining = absolute(value);
+    var total = 0;
     while remaining > 0 {
-        digit = remaining % 10;
+        const digit = remaining % 10;
         total = total + digit;
         remaining = (remaining - digit) / 10;
     }
     return total;
 }
 
-def factorial(limit) {
-    result = 1;
-    current = 2;
+function factorial(limit) {
+    var result = 1;
+    var current = 2;
     while current <= limit {
         result = result * current;
         current = current + 1;
@@ -86,11 +86,11 @@ def factorial(limit) {
     return result;
 }
 
-def is_prime(value) {
+function is_prime(value) {
     if value < 2 {
         return false;
     }
-    divisor = 2;
+    var divisor = 2;
     while divisor * divisor <= value {
         if value % divisor == 0 {
             return false;

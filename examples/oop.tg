@@ -1,36 +1,36 @@
-# Base class definition
+// Base class definition
 class Animal {
-    def init(self, name, species) {
-        self.name = name;
-        self.species = species;
+    function init(this, name, species) {
+        this.name = name;
+        this.species = species;
     }
 
-    def speak(self) {
-        return self.name + " makes a generic sound.";
+    function speak(this) {
+        return this.name + " makes a generic sound.";
     }
 
-    def describe(self) {
-        return self.name + " is a " + self.species + ".";
+    function describe(this) {
+        return this.name + " is a " + this.species + ".";
     }
 }
 
-# Derived class with inheritance
+// Derived class with inheritance
 class Dog(Animal) {
-    def init(self, name, breed) {
+    function init(this, name, breed) {
         super.init(name, "Canine");
-        self.breed = breed;
+        this.breed = breed;
     }
 
-    def speak(self) {
-        return self.name + " barks!";
+    function speak(this) {
+        return this.name + " barks!";
     }
 
-    def fetch(self, item) {
-        return self.name + " fetches the " + item + ".";
+    function fetch(this, item) {
+        return this.name + " fetches the " + item + ".";
     }
 }
 
-# Instantiation and usage
+// Instantiation and usage
 const pet = Dog("Rex", "German Shepherd");
 print(pet.describe());
 print(pet.speak());

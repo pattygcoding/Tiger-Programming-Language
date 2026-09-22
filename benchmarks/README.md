@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all fifteen programs and compare their output with the corresponding checked-in `.txt` files:
+Run all seventeen programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 go test ./benchmarks -count=1 -v
@@ -30,7 +30,9 @@ go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
 | `12_oop_accounts.tg` | Constructors, per-instance state, super calls, transactions |
 | `13_oop_super.tg` | Deep inheritance, lexical super, inherited constructors, local classes |
 | `14_oop_composition.tg` | Nested objects, recursive methods, shared references, fluent methods |
-| `15_oop_callbacks.tg` | Detached bound methods, captured self/super, callable fields |
+| `15_oop_callbacks.tg` | Detached bound methods, captured this/super, callable fields |
+| `16_control_flow.tg` | Prefix/postfix updates, cfor, range, loop else, switch, break/continue |
+| `17_access_exceptions.tg` | Public defaults, restricted fields/methods, this, try/catch/throw, recovery, f-string interpolation |
 
 Run only the five OOP programs:
 
@@ -38,7 +40,7 @@ Run only the five OOP programs:
 go test ./benchmarks -run 'TestPrograms/1[1-5]_' -count=1 -v
 ```
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly fifteen source files and fifteen matching output files exist. Every program executes in a fresh evaluator with the normal execution limits.
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly seventeen source files and seventeen matching output files exist. Every program executes in a fresh evaluator with the normal execution limits.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 

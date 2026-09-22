@@ -1,8 +1,8 @@
 const TITLE = "Event simulation";
 
-def make_clock() {
-    tick = 0;
-    def now() {
+function make_clock() {
+    var tick = 0;
+    function now() {
         tick = tick + 1;
         return tick;
     }
@@ -10,19 +10,19 @@ def make_clock() {
 }
 
 class EventLog {
-    def init(self) {
-        self.events = [];
+    function init(this) {
+        this.events = [];
     }
 
-    def record(self, time, actor, action) {
-        event = {"time": time, "actor": actor, "action": action};
-        self.events = self.events + [event];
+    function record(this, time, actor, action) {
+        const event = {"time": time, "actor": actor, "action": action};
+        this.events = this.events + [event];
         return event;
     }
 
-    def by_actor(self, actor) {
-        result = [];
-        for event in self.events {
+    function by_actor(this, actor) {
+        var result = [];
+        for event in this.events {
             if event["actor"] == actor {
                 result = result + [event];
             }
@@ -30,37 +30,37 @@ class EventLog {
         return result;
     }
 
-    def count(self) {
-        return len(self.events);
+    function count(this) {
+        return len(this.events);
     }
 }
 
 class Worker {
-    def init(self, name, log, clock) {
-        self.name = name;
-        self.log = log;
-        self.clock = clock;
-        self.completed = 0;
+    function init(this, name, log, clock) {
+        this.name = name;
+        this.log = log;
+        this.clock = clock;
+        this.completed = 0;
     }
 
-    def do_work(self, action) {
-        self.completed = self.completed + 1;
-        return self.log.record(self.clock(), self.name, action);
+    function do_work(this, action) {
+        this.completed = this.completed + 1;
+        return this.log.record(this.clock(), this.name, action);
     }
 }
 
-def actions(events) {
-    result = [];
+function actions(events) {
+    var result = [];
     for event in events {
         result = result + [event["action"]];
     }
     return result;
 }
 
-def action_counts(events) {
-    counts = {};
+function action_counts(events) {
+    const counts = {};
     for event in events {
-        action = event["action"];
+        const action = event["action"];
         if action in counts {
             counts[action] = counts[action] + 1;
         } else {

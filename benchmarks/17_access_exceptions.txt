@@ -1,0 +1,11 @@
+balances 16 5
+metadata USD account 3
+histories [1, 2, 3] []
+rejected negative -7
+unchanged 16 3
+private true
+protected true
+constant true
+guarded 4 caught zero
+rethrow [1, 2, 3]
+recovered 3

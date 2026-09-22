@@ -1,0 +1,11 @@
+odd sums 25 0
+locations 1 -1
+switch small three! !
+triangles 10 35
+countdown [3, 2, 1, 0]
+updates 2 4 4 2 2
+targets 10 12 2
+visited [0, 2, 3, 5]
+attempts 3
+nested 3
+ranges [2, 4, 6] [3, 1, -1]

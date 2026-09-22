@@ -1,52 +1,52 @@
 const TITLE = "Rule engine";
 
 class Rule {
-    def init(self, name, limit) {
-        self.name = name;
-        self.limit = limit;
+    function init(this, name, limit) {
+        this.name = name;
+        this.limit = limit;
     }
 
-    def applies(self, order) {
-        return order["total"] >= self.limit;
+    function applies(this, order) {
+        return order["total"] >= this.limit;
     }
 
-    def discount(self, order) {
+    function discount(this, order) {
         return 0;
     }
 }
 
 class PercentRule(Rule) {
-    def init(self, name, limit, percent) {
+    function init(this, name, limit, percent) {
         super.init(name, limit);
-        self.percent = percent;
+        this.percent = percent;
     }
 
-    def discount(self, order) {
-        if self.applies(order) {
-            return order["total"] * self.percent / 100;
+    function discount(this, order) {
+        if this.applies(order) {
+            return order["total"] * this.percent / 100;
         }
         return 0;
     }
 }
 
 class FixedRule(Rule) {
-    def init(self, name, limit, amount) {
+    function init(this, name, limit, amount) {
         super.init(name, limit);
-        self.amount = amount;
+        this.amount = amount;
     }
 
-    def discount(self, order) {
-        if self.applies(order) {
-            return self.amount;
+    function discount(this, order) {
+        if this.applies(order) {
+            return this.amount;
         }
         return 0;
     }
 }
 
-def best_discount(order, rules) {
-    best = {"name": "none", "amount": 0};
+function best_discount(order, rules) {
+    var best = {"name": "none", "amount": 0};
     for rule in rules {
-        amount = rule.discount(order);
+        const amount = rule.discount(order);
         if amount > best["amount"] {
             best = {"name": rule.name, "amount": amount};
         }
@@ -54,13 +54,13 @@ def best_discount(order, rules) {
     return best;
 }
 
-def checkout(order, rules) {
-    choice = best_discount(order, rules);
+function checkout(order, rules) {
+    const choice = best_discount(order, rules);
     return {"subtotal": order["total"], "rule": choice["name"], "discount": choice["amount"], "due": order["total"] - choice["amount"]};
 }
 
-def applicable_names(order, rules) {
-    result = [];
+function applicable_names(order, rules) {
+    var result = [];
     for rule in rules {
         if rule.applies(order) {
             result = result + [rule.name];
@@ -75,7 +75,7 @@ const MEDIUM = {"customer": "Bo", "total": 45};
 const LARGE = {"customer": "Cy", "total": 120};
 print(TITLE);
 for order in [SMALL, MEDIUM, LARGE] {
-    result = checkout(order, RULES);
+    const result = checkout(order, RULES);
     print(order["customer"], result);
 }
 print("rule count:", len(RULES));

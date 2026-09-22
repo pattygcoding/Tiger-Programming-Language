@@ -1,31 +1,31 @@
 const TITLE = "Closure studio";
 
-def make_counter(label, start) {
-    value = start;
-    def next() {
+function make_counter(label, start) {
+    var value = start;
+    function next() {
         value = value + 1;
         return label + ": " + str(value);
     }
     return next;
 }
 
-def make_converter(rate, unit) {
-    def convert(value) {
+function make_converter(rate, unit) {
+    function convert(value) {
         return str(value * rate) + " " + unit;
     }
     return convert;
 }
 
-def map_values(values, transform) {
-    result = [];
+function map_values(values, transform) {
+    var result = [];
     for value in values {
         result = result + [transform(value)];
     }
     return result;
 }
 
-def filter_values(values, predicate) {
-    result = [];
+function filter_values(values, predicate) {
+    var result = [];
     for value in values {
         if predicate(value) {
             result = result + [value];
@@ -34,37 +34,37 @@ def filter_values(values, predicate) {
     return result;
 }
 
-def reduce_values(values, combine, initial) {
-    result = initial;
+function reduce_values(values, combine, initial) {
+    var result = initial;
     for value in values {
         result = combine(result, value);
     }
     return result;
 }
 
-def make_threshold(limit) {
-    def matches(value) {
+function make_threshold(limit) {
+    function matches(value) {
         return value >= limit;
     }
     return matches;
 }
 
-def compose(first, second) {
-    def combined(value) {
+function compose(first, second) {
+    function combined(value) {
         return first(second(value));
     }
     return combined;
 }
 
-def double(value) {
+function double(value) {
     return value * 2;
 }
 
-def add_three(value) {
+function add_three(value) {
     return value + 3;
 }
 
-def add(left, right) {
+function add(left, right) {
     return left + right;
 }
 

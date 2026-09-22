@@ -6,19 +6,19 @@ const INVENTORY = {
     "cocoa": {"price": 6.25, "stock": 7, "reorder": 4}
 };
 
-def inventory_value(items) {
-    total = 0;
+function inventory_value(items) {
+    var total = 0;
     for name in items {
-        item = items[name];
+        const item = items[name];
         total = total + item["price"] * item["stock"];
     }
     return total;
 }
 
-def reorder_list(items) {
-    result = [];
+function reorder_list(items) {
+    var result = [];
     for name in items {
-        item = items[name];
+        const item = items[name];
         if item["stock"] <= item["reorder"] {
             result = result + [name];
         }
@@ -26,11 +26,11 @@ def reorder_list(items) {
     return result;
 }
 
-def sell(items, name, amount) {
+function sell(items, name, amount) {
     if not name in items {
         return false;
     }
-    item = items[name];
+    const item = items[name];
     if amount > item["stock"] or amount < 0 {
         return false;
     }
@@ -38,14 +38,14 @@ def sell(items, name, amount) {
     return item["price"] * amount;
 }
 
-def report(items) {
+function report(items) {
     for name in items {
-        item = items[name];
+        const item = items[name];
         print(name, "stock=", item["stock"], "price=", item["price"]);
     }
 }
 
-def restock(items, name, amount) {
+function restock(items, name, amount) {
     if not name in items or amount < 0 {
         return false;
     }
@@ -53,16 +53,16 @@ def restock(items, name, amount) {
     return items[name]["stock"];
 }
 
-def stock_count(items) {
-    total = 0;
+function stock_count(items) {
+    var total = 0;
     for name in items {
         total = total + items[name]["stock"];
     }
     return total;
 }
 
-def price_band(items, minimum) {
-    result = [];
+function price_band(items, minimum) {
+    var result = [];
     for name in items {
         if items[name]["price"] >= minimum {
             result = result + [name];

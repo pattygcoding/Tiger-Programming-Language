@@ -8,8 +8,18 @@ type binding struct {
 }
 
 type Environment struct {
-	parent   *Environment
-	bindings map[string]binding
+	AccessClass *Class
+	parent      *Environment
+	bindings    map[string]binding
+}
+
+func (env *Environment) ClassContext() *Class {
+	for current := env; current != nil; current = current.parent {
+		if current.AccessClass != nil {
+			return current.AccessClass
+		}
+	}
+	return nil
 }
 
 func NewEnvironment(parent *Environment) *Environment {
@@ -43,7 +53,7 @@ func (env *Environment) Get(name string) (Value, error) {
 func (env *Environment) Assign(name string, value Value) error {
 	owner := env.resolve(name)
 	if owner == nil {
-		return env.Define(name, value, false)
+		return fmt.Errorf("undefined name %q; declare it with const or var before assignment", name)
 	}
 	if owner.bindings[name].constant {
 		return fmt.Errorf("cannot reassign const %q", name)

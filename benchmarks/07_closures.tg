@@ -1,45 +1,45 @@
 const TITLE = "Closures and higher-order functions";
 
-def make_counter(start, step) {
-    value = start;
-    def next() {
+function make_counter(start, step) {
+    var value = start;
+    function next() {
         value = value + step;
         return value;
     }
     return next;
 }
 
-def make_multiplier(factor) {
-    def multiply(value) {
+function make_multiplier(factor) {
+    function multiply(value) {
         return value * factor;
     }
     return multiply;
 }
 
-def make_adder(offset) {
-    def add(value) {
+function make_adder(offset) {
+    function add(value) {
         return value + offset;
     }
     return add;
 }
 
-def compose(outer, inner) {
-    def combined(value) {
+function compose(outer, inner) {
+    function combined(value) {
         return outer(inner(value));
     }
     return combined;
 }
 
-def map_values(values, transform) {
-    result = [];
+function map_values(values, transform) {
+    var result = [];
     for value in values {
         result = result + [transform(value)];
     }
     return result;
 }
 
-def filter_values(values, predicate) {
-    result = [];
+function filter_values(values, predicate) {
+    var result = [];
     for value in values {
         if predicate(value) {
             result = result + [value];
@@ -48,52 +48,52 @@ def filter_values(values, predicate) {
     return result;
 }
 
-def reduce_values(values, combine, initial) {
-    result = initial;
+function reduce_values(values, combine, initial) {
+    var result = initial;
     for value in values {
         result = combine(result, value);
     }
     return result;
 }
 
-def sum_pair(left, right) {
+function sum_pair(left, right) {
     return left + right;
 }
 
-def product_pair(left, right) {
+function product_pair(left, right) {
     return left * right;
 }
 
-def is_even(value) {
+function is_even(value) {
     return value % 2 == 0;
 }
 
-def make_account(opening) {
-    balance = opening;
-    def deposit(amount) {
+function make_account(opening) {
+    var balance = opening;
+    function deposit(amount) {
         if amount < 0 {
             return false;
         }
         balance = balance + amount;
         return balance;
     }
-    def withdraw(amount) {
+    function withdraw(amount) {
         if amount < 0 or amount > balance {
             return false;
         }
         balance = balance - amount;
         return balance;
     }
-    def current() {
+    function current() {
         return balance;
     }
     return {"deposit": deposit, "withdraw": withdraw, "balance": current};
 }
 
-def make_transforms(factors) {
-    result = [];
+function make_transforms(factors) {
+    var result = [];
     for factor in factors {
-        def transform(value) {
+        function transform(value) {
             return value * factor;
         }
         result = result + [transform];

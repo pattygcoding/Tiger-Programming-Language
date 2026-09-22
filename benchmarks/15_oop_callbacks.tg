@@ -1,57 +1,57 @@
 const TITLE = "Bound methods and callbacks";
 
 class Counter {
-    def init(self, initial) {
-        self.value = initial;
+    function init(this, initial) {
+        this.value = initial;
     }
 
-    def add(self, amount) {
-        self.value = self.value + amount;
-        return self.value;
+    function add(this, amount) {
+        this.value = this.value + amount;
+        return this.value;
     }
 
-    def callback(self, factor) {
-        def later(amount) {
-            return self.add(amount * factor);
+    function callback(this, factor) {
+        function later(amount) {
+            return this.add(amount * factor);
         }
         return later;
     }
 
-    def reset(self) {
-        self.value = 0;
+    function reset(this) {
+        this.value = 0;
     }
 }
 
 class LoggedCounter(Counter) {
-    def init(self, initial) {
+    function init(this, initial) {
         super.init(initial);
-        self.history = [];
+        this.history = [];
     }
 
-    def add(self, amount) {
-        result = super.add(amount);
-        self.history = self.history + [result];
+    function add(this, amount) {
+        const result = super.add(amount);
+        this.history = this.history + [result];
         return result;
     }
 
-    def silent_callback(self) {
+    function silent_callback(this) {
         return super.add;
     }
 }
 
 class Dispatcher {
-    def init(self) {
-        self.listeners = [];
+    function init(this) {
+        this.listeners = [];
     }
 
-    def subscribe(self, handler) {
-        self.listeners = self.listeners + [handler];
-        return self;
+    function subscribe(this, handler) {
+        this.listeners = this.listeners + [handler];
+        return this;
     }
 
-    def emit(self, value) {
-        results = [];
-        for handler in self.listeners {
+    function emit(this, value) {
+        var results = [];
+        for handler in this.listeners {
             results = results + [handler(value)];
         }
         return results;
@@ -59,48 +59,48 @@ class Dispatcher {
 }
 
 class Adder {
-    def init(self, offset) {
-        self.offset = offset;
+    function init(this, offset) {
+        this.offset = offset;
     }
 
-    def transform(self, value) {
-        return value + self.offset;
+    function transform(this, value) {
+        return value + this.offset;
     }
 }
 
 class Multiplier {
-    def init(self, factor) {
-        self.factor = factor;
+    function init(this, factor) {
+        this.factor = factor;
     }
 
-    def transform(self, value) {
-        return value * self.factor;
+    function transform(this, value) {
+        return value * this.factor;
     }
 }
 
 class Pipeline {
-    def init(self, stages) {
-        self.stages = stages;
+    function init(this, stages) {
+        this.stages = stages;
     }
 
-    def apply(self, value) {
-        result = value;
-        for stage in self.stages {
+    function apply(this, value) {
+        var result = value;
+        for stage in this.stages {
             result = stage.transform(result);
         }
         return result;
     }
 
-    def map(self, values) {
-        results = [];
+    function map(this, values) {
+        var results = [];
         for value in values {
-            results = results + [self.apply(value)];
+            results = results + [this.apply(value)];
         }
         return results;
     }
 }
 
-def identity(value) {
+function identity(value) {
     return value;
 }
 

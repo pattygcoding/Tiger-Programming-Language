@@ -1,0 +1,116 @@
+/* Public defaults, restricted state, callbacks, and recoverable failures. */
+class Account {
+    const currency = "USD";
+    var label = "account";
+    private var balance = 0;
+    protected var operations = 0;
+    var history = [];
+
+    function init(this, amount) {
+        this.balance = amount;
+    }
+
+    private function validate(this, amount) {
+        if amount < 0 {
+            throw {"reason": "negative", "amount": amount};
+        }
+    }
+
+    public function deposit(this, amount) {
+        this.validate(amount);
+        this.balance = this.balance + amount;
+        this.operations++;
+        this.history = this.history + [amount];
+        return this.balance;
+    }
+
+    function total(this) {
+        return this.balance;
+    }
+
+    function reader(this) {
+        function read() {
+            return this.balance;
+        }
+        return read;
+    }
+}
+
+class AuditedAccount(Account) {
+    function count(this) {
+        return this.operations;
+    }
+
+    function deposit(this, amount) {
+        return super.deposit(amount);
+    }
+}
+
+const first = AuditedAccount(10);
+const second = AuditedAccount(5);
+const read = first.reader();
+for amount in range(1, 4) {
+    first.deposit(amount);
+}
+print(f"balances {read()} {second.total()}");
+print(f"metadata {first.currency} {first.label} {first.count()}");
+print(f"histories {first.history} {second.history}");
+
+try {
+    first.deposit(-7);
+} catch (error) {
+    print("rejected", error["reason"], error["amount"]);
+}
+print("unchanged", first.total(), first.count());
+
+try {
+    print(first.balance);
+} catch (error) {
+    print("private", "cannot access private" in error);
+}
+
+try {
+    first.operations++;
+} catch (error) {
+    print("protected", "cannot access protected" in error);
+}
+
+try {
+    first.currency = "EUR";
+} catch (error) {
+    print("constant", "cannot reassign const field" in error);
+}
+
+function guarded(value) {
+    try {
+        if value == 0 {
+            throw "zero";
+        }
+        return 12 / value;
+    } catch (error) {
+        return "caught " + error;
+    }
+}
+print("guarded", guarded(3), guarded(0));
+
+try {
+    try {
+        throw [1, 2];
+    } catch (inner) {
+        throw inner + [3];
+    }
+} catch (outer) {
+    print("rethrow", outer);
+}
+
+var recovered = 0;
+cfor (var index = 0; index < 3; index++) {
+    try {
+        print(1 / 0);
+    } catch (error) {
+        recovered++;
+        continue;
+    }
+} else {
+    print("recovered", recovered);
+}

@@ -12,7 +12,7 @@
 | Null | `null`; also a function's default return value |
 | List | `[1, "two", true]` |
 | Dictionary | `{"port": 8080}` |
-| Function | A `def` declaration, including a closure |
+| Function | A `function` declaration, including a closure |
 | Class | A `class` declaration |
 | Instance | Calling a class |
 | Bound method | Accessing a method through an instance |
@@ -39,7 +39,7 @@ Tiger! [1, 2, 3]
 
 `+`, `-`, `*`, `/`, and `%` accept numbers. Division always produces a number, so `7 / 2` is `3.5`. Modulo follows the divisor's sign. Division and modulo by zero are errors. Unary `+` and `-` require a number.
 
-`+` also concatenates two strings or two lists. Mixed-type arithmetic does not implicitly convert values. Use `str` when constructing text. `//` begins a comment; it is not integer division. Exponentiation, compound assignments such as `+=`, and increment operators are not implemented.
+`+` also concatenates two strings or two lists. Mixed-type arithmetic does not implicitly convert values. Use `str` when constructing text. `//` begins a comment; it is not integer division. Exponentiation and compound assignments such as `+=` are not implemented. Prefix and postfix `++`/`--` update numeric assignable targets; see [Control Flow](control-flow.md).
 
 ## Comparison and Equality
 
@@ -89,8 +89,9 @@ Highest precedence first:
 
 | Operators | Behavior |
 | --- | --- |
+| Postfix `++`, `--` | Update a target and return its old value |
 | Calls `()`, indexing `[]`, member access `.` | Chain left to right |
-| Unary `+`, `-` | Bind before multiplication |
+| Unary `+`, `-`, prefix `++`, `--` | Bind before multiplication; prefix updates return the new value |
 | `*`, `/`, `%` | Left-associative |
 | `+`, `-` | Left-associative |
 | `==`, `!=`, `<`, `<=`, `>`, `>=`, `in` | Same precedence, left-associative |

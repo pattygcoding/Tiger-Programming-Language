@@ -1,0 +1,115 @@
+/* Updates, C-style loops, ranges, loop else, and switch fallthrough. */
+function odd_sum(stop) {
+    var total = 0;
+    cfor (var index = 0; index < stop; ++index) {
+        if index % 2 == 0 {
+            continue;
+        }
+        total = total + index;
+    } else {
+        return total;
+    }
+}
+
+function locate(values, target) {
+    var position = 0;
+    for value in values {
+        if value == target {
+            break;
+        }
+        position++;
+    } else {
+        return -1;
+    }
+    return position;
+}
+
+function describe(code) {
+    var result = "";
+    switch code {
+        case 1:
+        case 2:
+            result = "small";
+            break;
+        case 3:
+            result = "three";
+        default:
+            result = result + "!";
+    }
+    return result;
+}
+
+function triangular(size) {
+    var total = 0;
+    cfor (var row = 1; row <= size; row++) {
+        cfor (var column = 1; column <= row; ++column) {
+            total = total + column;
+        }
+    }
+    return total;
+}
+
+function count_down(start) {
+    var result = [];
+    while start > 0 {
+        result = result + [start--];
+    } else {
+        result = result + [0];
+    }
+    return result;
+}
+
+print("odd sums", odd_sum(10), odd_sum(0));
+print("locations", locate([4, 7, 9], 7), locate([], 7));
+print("switch", describe(1), describe(3), describe(9));
+print("triangles", triangular(3), triangular(5));
+print("countdown", count_down(3));
+
+var value = 2;
+print("updates", value++, ++value, value--, --value, value);
+const slots = [10, 20];
+var calls = 0;
+function first() {
+    calls++;
+    return 0;
+}
+print("targets", slots[first()]++, ++slots[first()], calls);
+
+var visited = [];
+for number in range(6) {
+    switch number {
+        case 1:
+            continue;
+        case 4:
+            break;
+        default:
+            visited = visited + [number];
+    }
+}
+print("visited", visited);
+
+var attempts = 0;
+cfor (;;) {
+    if ++attempts == 3 {
+        break;
+    }
+} else {
+    print("unreachable");
+}
+print("attempts", attempts);
+
+var outer = 0;
+for row in range(3) {
+    for column in range(3) {
+        if column == 1 {
+            break;
+        }
+        outer++;
+    } else {
+        print("unreachable");
+    }
+} else {
+    print("nested", outer);
+}
+
+print("ranges", range(2, 8, 2), range(3, -2, -2));

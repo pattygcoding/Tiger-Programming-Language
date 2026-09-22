@@ -1,14 +1,14 @@
 const TITLE = "Sorting and searching";
 const SAMPLE = [5, 1, 3, 3, -2, 8, 0];
 
-def bubble_sort(values) {
-    result = values + [];
-    end = len(result) - 1;
+function bubble_sort(values) {
+    const result = values + [];
+    var end = len(result) - 1;
     while end > 0 {
-        position = 0;
+        var position = 0;
         while position < end {
             if result[position] > result[position + 1] {
-                saved = result[position];
+                const saved = result[position];
                 result[position] = result[position + 1];
                 result[position + 1] = saved;
             }
@@ -19,12 +19,12 @@ def bubble_sort(values) {
     return result;
 }
 
-def insertion_sort(values) {
-    result = values + [];
-    position = 1;
+function insertion_sort(values) {
+    const result = values + [];
+    var position = 1;
     while position < len(result) {
-        saved = result[position];
-        previous = position - 1;
+        const saved = result[position];
+        var previous = position - 1;
         while previous >= 0 and result[previous] > saved {
             result[previous + 1] = result[previous];
             previous = previous - 1;
@@ -35,19 +35,19 @@ def insertion_sort(values) {
     return result;
 }
 
-def selection_sort(values) {
-    result = values + [];
-    position = 0;
+function selection_sort(values) {
+    const result = values + [];
+    var position = 0;
     while position < len(result) {
-        smallest = position;
-        candidate = position + 1;
+        var smallest = position;
+        var candidate = position + 1;
         while candidate < len(result) {
             if result[candidate] < result[smallest] {
                 smallest = candidate;
             }
             candidate = candidate + 1;
         }
-        saved = result[position];
+        const saved = result[position];
         result[position] = result[smallest];
         result[smallest] = saved;
         position = position + 1;
@@ -55,12 +55,12 @@ def selection_sort(values) {
     return result;
 }
 
-def binary_search(values, target) {
-    lower = 0;
-    upper = len(values) - 1;
+function binary_search(values, target) {
+    var lower = 0;
+    var upper = len(values) - 1;
     while lower <= upper {
-        combined = lower + upper;
-        middle = (combined - combined % 2) / 2;
+        const combined = lower + upper;
+        const middle = (combined - combined % 2) / 2;
         if values[middle] == target {
             return middle;
         } elif values[middle] < target {
@@ -72,16 +72,16 @@ def binary_search(values, target) {
     return -1;
 }
 
-def lower_bound(values, target) {
-    position = 0;
+function lower_bound(values, target) {
+    var position = 0;
     while position < len(values) and values[position] < target {
         position = position + 1;
     }
     return position;
 }
 
-def count_value(values, target) {
-    total = 0;
+function count_value(values, target) {
+    var total = 0;
     for value in values {
         if value == target {
             total = total + 1;
@@ -90,8 +90,8 @@ def count_value(values, target) {
     return total;
 }
 
-def is_sorted(values) {
-    position = 1;
+function is_sorted(values) {
+    var position = 1;
     while position < len(values) {
         if values[position - 1] > values[position] {
             return false;
@@ -101,9 +101,9 @@ def is_sorted(values) {
     return true;
 }
 
-def reversed(values) {
-    result = [];
-    position = len(values) - 1;
+function reversed(values) {
+    var result = [];
+    var position = len(values) - 1;
     while position >= 0 {
         result = result + [values[position]];
         position = position - 1;

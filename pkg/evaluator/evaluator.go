@@ -10,7 +10,20 @@ import (
 	"tiger/pkg/parser"
 )
 
-type runtimeError struct{ err error }
+type runtimeError struct {
+	err   error
+	fatal bool
+}
+
+type thrown struct {
+	node  ast.Node
+	value object.Value
+}
+
+type flow struct {
+	kind  string
+	value object.Value
+}
 
 type Evaluator struct {
 	Output   io.Writer
@@ -37,9 +50,12 @@ func Run(source string, output io.Writer) error {
 func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 	defer func() {
 		if failure := recover(); failure != nil {
-			if runtime, ok := failure.(runtimeError); ok {
-				err = runtime.err
-			} else {
+			switch failure := failure.(type) {
+			case runtimeError:
+				err = failure.err
+			case thrown:
+				err = failure.node.Position().Errorf("uncaught throw: %s", object.Format(failure.value))
+			default:
 				panic(failure)
 			}
 		}
@@ -55,7 +71,7 @@ func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 }
 
 func fail(node ast.Node, format string, args ...any) {
-	panic(runtimeError{node.Position().Errorf(format, args...)})
+	panic(runtimeError{err: node.Position().Errorf(format, args...)})
 }
 
 func check(node ast.Node, err error) {
@@ -67,11 +83,11 @@ func check(node ast.Node, err error) {
 func (eval *Evaluator) tick(node ast.Node) {
 	eval.steps++
 	if eval.MaxSteps > 0 && eval.steps > eval.MaxSteps {
-		fail(node, "execution step limit exceeded")
+		panic(runtimeError{err: node.Position().Errorf("execution step limit exceeded"), fatal: true})
 	}
 }
 
-func (eval *Evaluator) block(statements []ast.Stmt, env *object.Environment) *object.ReturnValue {
+func (eval *Evaluator) block(statements []ast.Stmt, env *object.Environment) *flow {
 	for _, statement := range statements {
 		if result := eval.statement(statement, env); result != nil {
 			return result
@@ -80,38 +96,22 @@ func (eval *Evaluator) block(statements []ast.Stmt, env *object.Environment) *ob
 	return nil
 }
 
-func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *object.ReturnValue {
+func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *flow {
 	eval.tick(statement)
 	switch node := statement.(type) {
+	case *ast.Throw:
+		panic(thrown{node: node, value: eval.expression(node.Value, env)})
+	case *ast.Try:
+		return eval.tryStatement(node, env)
 	case *ast.ExpressionStmt:
 		eval.expression(node.Value, env)
 	case *ast.Assign:
 		value := eval.expression(node.Value, env)
-		switch target := node.Target.(type) {
-		case *ast.Identifier:
-			if node.Constant {
-				check(node, env.Define(target.Name, value, true))
-			} else {
-				check(node, env.Assign(target.Name, value))
-			}
-		case *ast.Property:
-			receiver := eval.expression(target.Receiver, env)
-			instance, ok := receiver.(*object.Instance)
-			if !ok {
-				fail(target, "cannot assign a property of %s", receiver.Type())
-			}
-			instance.Fields[target.Name] = value
-		case *ast.Index:
-			collection := eval.expression(target.Collection, env)
-			key := eval.expression(target.Key, env)
-			switch typed := collection.(type) {
-			case *object.List:
-				typed.Elements[indexAt(target, key, len(typed.Elements))] = value
-			case *object.Dict:
-				check(target, typed.Set(key, value))
-			default:
-				fail(target, "cannot assign an index of %s", collection.Type())
-			}
+		if node.Declaration || node.Constant {
+			check(node, env.Define(node.Target.(*ast.Identifier).Name, value, node.Constant))
+		} else {
+			_, write := eval.reference(node.Target, env)
+			write(value)
 		}
 	case *ast.Function:
 		check(node, env.Define(node.Name, &object.Function{Declaration: node, Env: env}, false))
@@ -126,10 +126,19 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *o
 			}
 		}
 		for _, method := range node.Methods {
+			if class.Parent != nil && class.Parent.FindField(method.Name) != nil {
+				fail(method, "cannot override inherited field %q", method.Name)
+			}
 			class.Methods[method.Name] = &object.Method{
 				Function: &object.Function{Declaration: method, Env: env},
 				Owner:    class,
 			}
+		}
+		for _, field := range node.Fields {
+			if class.Parent != nil && (class.Parent.FindField(field.Name) != nil || class.Parent.FindMethod(field.Name) != nil) {
+				fail(field, "cannot redeclare inherited member %q", field.Name)
+			}
+			class.Fields = append(class.Fields, &object.Field{Declaration: field, Owner: class, Env: env})
 		}
 		check(node, env.Define(node.Name, class, false))
 	case *ast.Return:
@@ -137,7 +146,9 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *o
 		if node.Value != nil {
 			value = eval.expression(node.Value, env)
 		}
-		return &object.ReturnValue{Value: value}
+		return &flow{kind: "return", value: value}
+	case *ast.Control:
+		return &flow{kind: node.Kind}
 	case *ast.If:
 		for _, branch := range node.Branches {
 			if object.Truthy(eval.expression(branch.Condition, env)) {
@@ -148,9 +159,15 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *o
 	case *ast.While:
 		for object.Truthy(eval.expression(node.Condition, env)) {
 			if result := eval.block(node.Body, object.NewEnvironment(env)); result != nil {
-				return result
+				if result.kind == "break" {
+					return nil
+				}
+				if result.kind == "return" {
+					return result
+				}
 			}
 		}
+		return eval.block(node.Else, object.NewEnvironment(env))
 	case *ast.For:
 		iterable := eval.expression(node.Iterable, env)
 		var values []object.Value
@@ -173,7 +190,58 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *o
 			scope := object.NewEnvironment(env)
 			check(node, scope.Define(node.Name, value, false))
 			if result := eval.block(node.Body, scope); result != nil {
-				return result
+				if result.kind == "break" {
+					return nil
+				}
+				if result.kind == "return" {
+					return result
+				}
+			}
+		}
+		return eval.block(node.Else, object.NewEnvironment(env))
+	case *ast.CFor:
+		scope := object.NewEnvironment(env)
+		if node.Initializer != nil {
+			eval.statement(node.Initializer, scope)
+		}
+		for node.Condition == nil || object.Truthy(eval.expression(node.Condition, scope)) {
+			eval.tick(node)
+			if result := eval.block(node.Body, object.NewEnvironment(scope)); result != nil {
+				if result.kind == "break" {
+					return nil
+				}
+				if result.kind == "return" {
+					return result
+				}
+			}
+			if node.Update != nil {
+				eval.statement(node.Update, scope)
+			}
+		}
+		return eval.block(node.Else, object.NewEnvironment(scope))
+	case *ast.Switch:
+		value := eval.expression(node.Value, env)
+		start, fallback := -1, -1
+		for index, branch := range node.Cases {
+			if branch.Value == nil {
+				fallback = index
+			} else if object.Equal(value, eval.expression(branch.Value, env)) {
+				start = index
+				break
+			}
+		}
+		if start < 0 {
+			start = fallback
+		}
+		if start >= 0 {
+			scope := object.NewEnvironment(env)
+			for _, branch := range node.Cases[start:] {
+				if result := eval.block(branch.Body, scope); result != nil {
+					if result.kind == "break" {
+						return nil
+					}
+					return result
+				}
 			}
 		}
 	}
@@ -185,9 +253,15 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 	eval.depth++
 	defer func() { eval.depth-- }()
 	if eval.depth > 512 {
-		fail(expression, "maximum evaluation depth exceeded")
+		panic(runtimeError{err: expression.Position().Errorf("maximum evaluation depth exceeded"), fatal: true})
 	}
 	switch node := expression.(type) {
+	case *ast.FormattedString:
+		var text strings.Builder
+		for _, part := range node.Parts {
+			text.WriteString(object.Format(eval.expression(part, env)))
+		}
+		return object.String(text.String())
 	case *ast.Literal:
 		switch value := node.Value.(type) {
 		case float64:
@@ -210,7 +284,7 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		}
 		return value
 	case *ast.Property:
-		return property(node, eval.expression(node.Receiver, env))
+		return property(node, eval.expression(node.Receiver, env), env)
 	case *ast.List:
 		list := &object.List{}
 		for _, element := range node.Elements {
@@ -238,6 +312,24 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 			return -value
 		}
 		return value
+	case *ast.Update:
+		read, write := eval.reference(node.Target, env)
+		previous, ok := read().(object.Number)
+		if !ok {
+			fail(node, "%s requires a number", node.Operator)
+		}
+		updated := previous + 1
+		if node.Operator == "--" {
+			updated = previous - 1
+		}
+		if math.IsInf(float64(updated), 0) || math.IsNaN(float64(updated)) {
+			fail(node, "non-finite numeric result")
+		}
+		write(updated)
+		if node.Prefix {
+			return updated
+		}
+		return previous
 	case *ast.Binary:
 		left := eval.expression(node.Left, env)
 		if node.Operator == "and" {
@@ -278,7 +370,7 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		for index, argument := range node.Arguments {
 			arguments[index] = eval.expression(argument, env)
 		}
-		return eval.call(node, function, arguments)
+		return eval.call(node, function, arguments, env)
 	}
 	fail(expression, "unsupported expression")
 	return object.Null{}
@@ -391,6 +483,7 @@ func binary(node *ast.Binary, left, right object.Value) object.Value {
 
 func (eval *Evaluator) builtins(env *object.Environment) {
 	functions := map[string]func([]object.Value) (object.Value, error){
+		"range": rangeValues,
 		"print": func(args []object.Value) (object.Value, error) {
 			parts := make([]string, len(args))
 			for index, value := range args {

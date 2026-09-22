@@ -1,70 +1,70 @@
 const TITLE = "Lexical super and inherited constructors";
 
 class Root {
-    def init(self, name) {
-        self.name = name;
-        self.trail = ["root"];
+    function init(this, name) {
+        this.name = name;
+        this.trail = ["root"];
     }
 
-    def label(self) {
-        return "root:" + self.name;
+    function label(this) {
+        return "root:" + this.name;
     }
 
-    def level(self) {
+    function level(this) {
         return 1;
     }
 
-    def describe(self) {
-        return self.label() + "@" + str(self.level());
+    function describe(this) {
+        return this.label() + "@" + str(this.level());
     }
 
-    def rename(self, name) {
-        self.name = name;
-        return self;
+    function rename(this, name) {
+        this.name = name;
+        return this;
     }
 }
 
 class Middle(Root) {
-    def init(self, name) {
+    function init(this, name) {
         super.init(name);
-        self.trail = self.trail + ["middle"];
+        this.trail = this.trail + ["middle"];
     }
 
-    def label(self) {
+    function label(this) {
         return super.label() + "/middle";
     }
 
-    def level(self) {
+    function level(this) {
         return super.level() + 1;
     }
 
-    def root_callback(self) {
-        def later() {
+    function root_callback(this) {
+        function later() {
             return super.label();
         }
         return later;
     }
 
-    def root_method(self) {
+    function root_method(this) {
         return super.label;
     }
 }
 
 class Leaf(Middle) {
-    def init(self, name) {
+    function init(this, name) {
         super.init(name);
-        self.trail = self.trail + ["leaf"];
+        this.trail = this.trail + ["leaf"];
     }
 
-    def label(self) {
+    function label(this) {
         return super.label() + "/leaf";
     }
 
-    def level(self) {
+    function level(this) {
         return super.level() + 1;
     }
 
-    def parent_label(self) {
+    function parent_label(this) {
         return super.label();
     }
 }
@@ -73,26 +73,26 @@ class Inherited(Leaf) {
 }
 
 class Final(Inherited) {
-    def label(self) {
+    function label(this) {
         return super.label() + "/final";
     }
 
-    def level(self) {
+    function level(this) {
         return super.level() + 1;
     }
 }
 
-def descriptions(objects) {
-    result = [];
+function descriptions(objects) {
+    var result = [];
     for item in objects {
         result = result + [item.describe()];
     }
     return result;
 }
 
-def make_local(prefix) {
+function make_local(prefix) {
     class Local(Root) {
-        def label(self) {
+        function label(this) {
             return prefix + super.label();
         }
     }

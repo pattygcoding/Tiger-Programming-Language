@@ -21,8 +21,8 @@ func TestCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 15 || len(outputs) != 15 {
-		t.Fatalf("want 15 Tiger programs and 15 expected outputs, got %d and %d", len(sources), len(outputs))
+	if len(sources) != 17 || len(outputs) != 17 {
+		t.Fatalf("want 17 Tiger programs and 17 expected outputs, got %d and %d", len(sources), len(outputs))
 	}
 	for _, output := range outputs {
 		if _, err := fixtures.ReadFile(strings.TrimSuffix(output, ".txt") + ".tg"); err != nil {

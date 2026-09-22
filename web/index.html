@@ -20,6 +20,7 @@
           <option value="demo">demo.tg</option>
           <option value="collections">collections.tg</option>
           <option value="oop">oop.tg</option>
+          <option value="control_flow">control_flow.tg</option>
         </select>
         <div class="actions">
           <button id="reset" title="Reset selected example">Reset</button>
@@ -30,7 +31,7 @@
         <pre id="source-highlight" aria-hidden="true"><code></code></pre>
         <textarea id="source" wrap="off" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" aria-label="Tiger source code">const MAX_RUNS = 5;
 
-def factorial(n) {
+function factorial(n) {
     if n &lt;= 1 {
         return 1;
     }
@@ -39,9 +40,9 @@ def factorial(n) {
 
 print("Running Tiger demo:");
 
-i = 1;
+var i = 1;
 while i &lt;= MAX_RUNS {
-    val = factorial(i);
+  const val = factorial(i);
     print("factorial(" + str(i) + ") = " + str(val));
     i = i + 1;
 }</textarea>

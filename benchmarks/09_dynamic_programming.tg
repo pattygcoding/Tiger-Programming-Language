@@ -1,8 +1,8 @@
 const TITLE = "Dynamic programming";
 
-def filled(size, value) {
-    result = [];
-    position = 0;
+function filled(size, value) {
+    var result = [];
+    var position = 0;
     while position < size {
         result = result + [value];
         position = position + 1;
@@ -10,12 +10,12 @@ def filled(size, value) {
     return result;
 }
 
-def fibonacci_table(limit) {
+function fibonacci_table(limit) {
     if limit == 0 {
         return [0];
     }
-    result = [0, 1];
-    position = 2;
+    var result = [0, 1];
+    var position = 2;
     while position <= limit {
         result = result + [result[position - 1] + result[position - 2]];
         position = position + 1;
@@ -23,11 +23,11 @@ def fibonacci_table(limit) {
     return result;
 }
 
-def coin_combinations(coins, amount) {
-    ways = filled(amount + 1, 0);
+function coin_combinations(coins, amount) {
+    const ways = filled(amount + 1, 0);
     ways[0] = 1;
     for coin in coins {
-        subtotal = coin;
+        var subtotal = coin;
         while subtotal <= amount {
             ways[subtotal] = ways[subtotal] + ways[subtotal - coin];
             subtotal = subtotal + 1;
@@ -36,15 +36,15 @@ def coin_combinations(coins, amount) {
     return ways[amount];
 }
 
-def minimum_coins(coins, amount) {
-    unreachable = amount + 1;
-    best = filled(amount + 1, unreachable);
+function minimum_coins(coins, amount) {
+    const unreachable = amount + 1;
+    const best = filled(amount + 1, unreachable);
     best[0] = 0;
-    subtotal = 1;
+    var subtotal = 1;
     while subtotal <= amount {
         for coin in coins {
             if coin <= subtotal {
-                candidate = best[subtotal - coin] + 1;
+                const candidate = best[subtotal - coin] + 1;
                 if candidate < best[subtotal] {
                     best[subtotal] = candidate;
                 }
@@ -58,14 +58,14 @@ def minimum_coins(coins, amount) {
     return best[amount];
 }
 
-def grid_paths(rows, columns) {
+function grid_paths(rows, columns) {
     if rows == 0 or columns == 0 {
         return 0;
     }
-    counts = filled(columns, 1);
-    row_index = 1;
+    const counts = filled(columns, 1);
+    var row_index = 1;
     while row_index < rows {
-        column_index = 1;
+        var column_index = 1;
         while column_index < columns {
             counts[column_index] = counts[column_index] + counts[column_index - 1];
             column_index = column_index + 1;
@@ -75,13 +75,13 @@ def grid_paths(rows, columns) {
     return counts[-1];
 }
 
-def knapsack(weights, values, capacity) {
-    best = filled(capacity + 1, 0);
-    item_index = 0;
+function knapsack(weights, values, capacity) {
+    const best = filled(capacity + 1, 0);
+    var item_index = 0;
     while item_index < len(weights) {
-        available = capacity;
+        var available = capacity;
         while available >= weights[item_index] {
-            candidate = best[available - weights[item_index]] + values[item_index];
+            const candidate = best[available - weights[item_index]] + values[item_index];
             if candidate > best[available] {
                 best[available] = candidate;
             }
@@ -92,18 +92,18 @@ def knapsack(weights, values, capacity) {
     return best[capacity];
 }
 
-def increasing_length(values) {
+function increasing_length(values) {
     if len(values) == 0 {
         return 0;
     }
-    lengths = filled(len(values), 1);
-    longest = 1;
-    position = 1;
+    const lengths = filled(len(values), 1);
+    var longest = 1;
+    var position = 1;
     while position < len(values) {
-        previous = 0;
+        var previous = 0;
         while previous < position {
             if values[previous] < values[position] {
-                candidate = lengths[previous] + 1;
+                const candidate = lengths[previous] + 1;
                 if candidate > lengths[position] {
                     lengths[position] = candidate;
                 }

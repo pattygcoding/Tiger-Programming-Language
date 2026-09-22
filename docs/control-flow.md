@@ -29,7 +29,7 @@ Conditions use [truthiness](types-and-operators.md), not just literal booleans. 
 ## While
 
 ```tg
-remaining = 3;
+var remaining = 3;
 while remaining > 0 {
     print(remaining);
     remaining = remaining - 1;
@@ -51,7 +51,7 @@ The condition is checked before each iteration, so the body can run zero times. 
 ## For
 
 ```tg
-total = 0;
+var total = 0;
 for number in [2, 4, 6] {
     total = total + number;
 }
@@ -78,10 +78,10 @@ Lists produce elements, strings produce Unicode code points, and dictionaries pr
 
 ## Early Exit with Return
 
-There is no `break` or `continue`. Put a search in a function and use `return` to exit from nested loops, or include a completion flag in a `while` condition.
+`break` exits the nearest loop or switch. `continue` skips to the next iteration of the nearest loop, including when written inside a switch. Neither can target a loop outside the current function. Use `return` to exit the entire function from nested loops.
 
 ```tg
-def first_even(values) {
+function first_even(values) {
     for value in values {
         if value % 2 == 0 {
             return value;
@@ -98,7 +98,63 @@ Output:
 8 null
 ```
 
-`return` exits the function, not just the innermost block. It is a syntax error outside a function or method. `range`, C-style counting `for` headers, loop `else`, and `switch` are not supported.
+`return` exits the function, not just the innermost block. It is a syntax error outside a function or method.
+
+## C-Style Loops and Updates
+
+```tg
+var total = 0;
+cfor (var index = 0; index < 5; ++index) {
+    if index == 2 { continue; }
+    total = total + index;
+} else { print(total); }
+var count = 1;
+print(count++, ++count, count--, --count);
+```
+
+```text
+8
+1 3 3 1
+```
+
+`cfor (initializer; condition; update)` executes the initializer once, tests before each iteration, and runs the update after the body, including after `continue`. Each clause may be empty; an omitted condition means true. `cfor (;;) { break; }` is valid. The initializer may declare a variable; the update may assign or evaluate an expression but cannot declare one. Header variables live in a loop-local scope visible to its body and `else`, not after the loop. Each iteration has a fresh child scope.
+
+Prefix `++value` and `--value` return the updated number. Postfix `value++` and `value--` return the old number. Targets may be mutable variables, fields, or list/dictionary entries; receivers and index expressions are evaluated once. Constants and nonnumeric targets fail. Unlike C's unspecified expression-order cases, Tiger evaluates operands and arguments left to right.
+
+## Range and Loop Else
+
+```tg
+for number in range(3, 0, -1) { print(number); }
+for number in range(0) { print("unreachable"); }
+else { print("empty range completed"); }
+```
+
+```text
+3
+2
+1
+empty range completed
+```
+
+`range` returns a list with an exclusive stop; see [Built-ins](builtins.md). `while`, `for`, and `cfor` accept an optional `else`. It runs on normal completion, including zero iterations, but not after a `break` that exits that loop, a `return`, or an escaping exception. `continue` does not suppress it. A `break` consumed by an inner switch or loop does not suppress an outer loop's `else`. A `for` iteration variable is not visible in its `else` block.
+
+## Switch
+
+```tg
+switch 2 {
+    case 1: print("one"); break;
+    case 2: print("two");
+    case 3: print("fallthrough"); break;
+    default: print("other");
+}
+```
+
+```text
+two
+fallthrough
+```
+
+The selector is evaluated once. Case expressions are checked in order with Tiger equality until a match; `default` is used only if no case matches. Execution falls through later cases until `break`, return, or an exception. There may be at most one `default`. Cases share one switch-local scope. `continue` inside a switch requires an enclosing loop and continues that loop.
 
 ## Try It
 

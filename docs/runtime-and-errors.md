@@ -21,7 +21,7 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | `index out of range` | List or string index exceeds bounds | Check `len` before indexing |
 | `index must be an integer` | Index is fractional or not numeric | Use an integer-valued number |
 | `dictionary key not found` | Missing dictionary entry | Check `key in dictionary` first |
-| `expects ... arguments` | Function, constructor, or method arity mismatch | Match the declared parameters; omit bound `self` |
+| `expects ... arguments` | Function, constructor, or method arity mismatch | Match the declared parameters; omit bound `this` |
 | `has no property` | Instance member does not exist | Initialize the field or check the method name |
 | `super requires a parent class` | A parent method is requested in a class without a parent | Add inheritance or remove the delegation |
 
@@ -31,7 +31,7 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 
 ```tg
 if true {
-    local = 1;
+    const local = 1;
 }
 print(local);
 ```
@@ -55,15 +55,34 @@ dictionary key not found: host
 
 ```tg
 class Invalid {
-    def run() { return 1; }
+    function run() { return 1; }
 }
 ```
 
 ```error
-must declare self as its first parameter
+must declare this as its first parameter
 ```
 
-There are no `try`, `catch`, `except`, `throw`, or user-defined exceptions. Expected invalid input should be handled with conditions and explicit return values such as `false` or `null`.
+## Try, Catch, and Throw
+
+```tg
+function require_positive(value) {
+    if value <= 0 { throw {"message": "must be positive", "value": value}; }
+    return value;
+}
+try { require_positive(-2); }
+catch (error) { print(error["message"], error["value"]); }
+try { print(1 / 0); } catch (error) { print("division by zero" in error); }
+```
+
+```text
+must be positive -2
+true
+```
+
+`throw expression;` raises any Tiger value, including `null`. `try { ... } catch (name) { ... }` catches thrown values unchanged, or ordinary runtime errors as positioned message strings. The catch binding is mutable and local. Try and catch blocks have separate scopes. Rethrow with `throw name;`; bare `throw;` is not supported. Errors in a catch propagate to an outer handler. Returns, breaks, and continues pass through try/catch normally. There is no `finally`, typed catch, or `except`.
+
+Uncaught throws stop execution and report `uncaught throw: ...` at the throw position. Parsing errors cannot be caught because parsing precedes execution. Execution-step and evaluation-depth limits cannot be caught. Output and mutations before an error are not rolled back.
 
 ## Resource Limits
 
@@ -82,6 +101,6 @@ These safeguards are not a memory limit, a wall-clock deadline, or a security gu
 
 Tiger borrows ideas from Python but is not a Python compatibility layer. In addition to the restrictions documented in each lesson, it has no modules/imports, packages in Tiger source, file or network I/O built-ins, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or keyword arguments. Numbers are float64, not arbitrary-precision integers.
 
-There is no `break`, `continue`, `switch`, C-style counting `for`, exponentiation, `+=`, or `++`. `//` is a comment marker. Classes support one parent, explicit `self`, fields, and methods; not static members, decorators, multiple parents, or operator overloading.
+There is no exponentiation, `+=`, or other compound assignment. `++`/`--`, `break`, `continue`, `switch`, loop `else`, and C-style `cfor` are supported. `//` is a comment marker, not integer division. Classes support one parent, explicit `this`, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
 
 See [Running and Building](running-and-building.md) for CLI exit codes and host-level execution choices.

@@ -1,0 +1,51 @@
+/* Restricted balances with public commands and structured error values. */
+class Wallet {
+    var owner = "";
+    private var balance = 0;
+    protected var entries = [];
+
+    function init(this, owner, opening) {
+        this.owner = owner;
+        this.balance = opening;
+    }
+
+    function spend(this, amount) {
+        if amount <= 0 or amount > this.balance {
+            throw {"owner": this.owner, "requested": amount, "available": this.balance};
+        }
+        this.balance = this.balance - amount;
+        this.entries = this.entries + [amount];
+        return this.balance;
+    }
+
+    public function total(this) {
+        return this.balance;
+    }
+}
+
+class AuditedWallet(Wallet) {
+    function report(this) {
+        print(f"{this.owner} spent {this.entries} remaining {this.total()}");
+    }
+}
+
+const wallet = AuditedWallet("Workshop", 50);
+const requests = [12, 18, 30, 5];
+var accepted = 0;
+for index in range(len(requests)) {
+    try {
+        wallet.spend(requests[index]);
+        accepted++;
+    } catch (error) {
+        print("rejected request", index, "for", error["requested"], "available", error["available"]);
+    }
+} else {
+    print(f"processed {len(requests)} accepted {accepted}");
+}
+wallet.report();
+
+try {
+    wallet.balance = 1000;
+} catch (error) {
+    print("direct balance changes blocked:", "private" in error);
+}

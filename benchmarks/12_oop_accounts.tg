@@ -1,65 +1,65 @@
 const TITLE = "Account state and inheritance";
 
 class Account {
-    def init(self, owner, opening) {
-        self.owner = owner;
-        self.balance = opening;
-        self.history = [opening];
+    function init(this, owner, opening) {
+        this.owner = owner;
+        this.balance = opening;
+        this.history = [opening];
     }
 
-    def record(self) {
-        self.history = self.history + [self.balance];
+    function record(this) {
+        this.history = this.history + [this.balance];
     }
 
-    def deposit(self, amount) {
+    function deposit(this, amount) {
         if amount < 0 {
             return false;
         }
-        self.balance = self.balance + amount;
-        self.record();
+        this.balance = this.balance + amount;
+        this.record();
         return true;
     }
 
-    def withdraw(self, amount) {
-        if amount < 0 or amount > self.balance {
+    function withdraw(this, amount) {
+        if amount < 0 or amount > this.balance {
             return false;
         }
-        self.balance = self.balance - amount;
-        self.record();
+        this.balance = this.balance - amount;
+        this.record();
         return true;
     }
 
-    def summary(self) {
-        return self.owner + "=" + str(self.balance);
+    function summary(this) {
+        return this.owner + "=" + str(this.balance);
     }
 }
 
 class Savings(Account) {
-    def init(self, owner, opening, percent) {
+    function init(this, owner, opening, percent) {
         super.init(owner, opening);
-        self.percent = percent;
+        this.percent = percent;
     }
 
-    def interest(self) {
-        amount = self.balance * self.percent / 100;
-        self.deposit(amount);
+    function interest(this) {
+        const amount = this.balance * this.percent / 100;
+        this.deposit(amount);
         return amount;
     }
 }
 
 class FeeAccount(Account) {
-    def init(self, owner, opening, fee) {
+    function init(this, owner, opening, fee) {
         super.init(owner, opening);
-        self.fee = fee;
-        self.fees_paid = 0;
+        this.fee = fee;
+        this.fees_paid = 0;
     }
 
-    def withdraw(self, amount) {
+    function withdraw(this, amount) {
         if amount < 0 {
             return false;
         }
-        if super.withdraw(amount + self.fee) {
-            self.fees_paid = self.fees_paid + self.fee;
+        if super.withdraw(amount + this.fee) {
+            this.fees_paid = this.fees_paid + this.fee;
             return true;
         }
         return false;
@@ -67,37 +67,37 @@ class FeeAccount(Account) {
 }
 
 class Bank {
-    def init(self) {
-        self.accounts = {};
+    function init(this) {
+        this.accounts = {};
     }
 
-    def add(self, account) {
-        if account.owner in self.accounts {
+    function add(this, account) {
+        if account.owner in this.accounts {
             return false;
         }
-        self.accounts[account.owner] = account;
+        this.accounts[account.owner] = account;
         return true;
     }
 
-    def total(self) {
-        total = 0;
-        for owner in self.accounts {
-            total = total + self.accounts[owner].balance;
+    function total(this) {
+        var total = 0;
+        for owner in this.accounts {
+            total = total + this.accounts[owner].balance;
         }
         return total;
     }
 
-    def transfer(self, source, destination, amount) {
-        if not source in self.accounts or not destination in self.accounts {
+    function transfer(this, source, destination, amount) {
+        if not source in this.accounts or not destination in this.accounts {
             return false;
         }
         if source == destination or amount < 0 {
             return false;
         }
-        if not self.accounts[source].withdraw(amount) {
+        if not this.accounts[source].withdraw(amount) {
             return false;
         }
-        return self.accounts[destination].deposit(amount);
+        return this.accounts[destination].deposit(amount);
     }
 }
 

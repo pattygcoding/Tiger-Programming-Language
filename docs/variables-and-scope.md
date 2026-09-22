@@ -2,12 +2,12 @@
 
 [Previous: Syntax](syntax.md) | [Guide index](README.md) | [Next: Types and Operators](types-and-operators.md)
 
-## Assignment
+## Declarations and Assignment
 
-No type declaration is needed. A mutable binding can hold values of different types over time.
+Declare a variable with `const name = value;` for an immutable binding or `var name = value;` for a mutable binding. Both require an initial value, but no type annotation. A mutable binding can hold values of different types over time.
 
 ```tg
-value = 10;
+var value = 10;
 print(value);
 value = "ten";
 print(value);
@@ -20,7 +20,17 @@ Output:
 ten
 ```
 
-Assignment searches outward through lexical scopes. It updates the nearest existing binding; if none exists, it creates a new binding in the current scope. This applies inside functions as well as ordinary blocks.
+After declaration, assignment searches outward through lexical scopes and updates the nearest existing binding. It never creates a variable. Assigning an undeclared name is a runtime error, inside functions and ordinary blocks as well as at the top level.
+
+**Expected error:**
+
+```tg
+missing = 10;
+```
+
+```error
+undefined name "missing"; declare it with const or var before assignment
+```
 
 ## Constants Protect Bindings
 
@@ -51,12 +61,12 @@ limit = 4;
 cannot reassign const "limit"
 ```
 
-`const` declares in the current scope. Declaring the same name twice in one scope is an error, even if the first binding was mutable.
+Both `const` and `var` declare in the current scope. Declaring the same name twice in one scope is an error, even if the first binding was mutable. Field and index assignments modify existing objects and do not use a declaration keyword.
 
 ## Block Scope
 
 ```tg
-total = 0;
+var total = 0;
 for amount in [2, 3] {
     const doubled = amount * 2;
     total = total + doubled;
@@ -75,16 +85,16 @@ inner: 99
 outer: 10
 ```
 
-Every branch and loop iteration gets a new scope. The loop variable is local to that iteration. New names created there do not escape the block. An explicit inner `const` declaration can shadow an outer name; an ordinary assignment instead updates the existing binding.
+Every branch and loop iteration gets a new scope. The `for name in ...` header declares a mutable loop variable local to that iteration, without a separate `var`. Names declared in a block do not escape it. An inner `const` or `var` declaration can shadow an outer name; an ordinary assignment instead updates the existing binding.
 
 ## Functions Can Update Outer State
 
 ```tg
-count = 1;
-def increment() {
+var count = 1;
+function increment() {
     count = count + 1;
 }
-def local(count) {
+function local(count) {
     count = count + 10;
     return count;
 }

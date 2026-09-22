@@ -1,6 +1,6 @@
 const TITLE = "Inventory transactions";
 
-def create_catalog() {
+function create_catalog() {
     return {
         "apple": {"quantity": 10, "price": 3},
         "pear": {"quantity": 5, "price": 4},
@@ -8,20 +8,20 @@ def create_catalog() {
     };
 }
 
-def inventory_value(catalog) {
-    total = 0;
+function inventory_value(catalog) {
+    var total = 0;
     for name in catalog {
-        item = catalog[name];
+        const item = catalog[name];
         total = total + item["quantity"] * item["price"];
     }
     return total;
 }
 
-def purchase(catalog, name, quantity) {
+function purchase(catalog, name, quantity) {
     if not name in catalog or quantity < 0 {
         return false;
     }
-    item = catalog[name];
+    const item = catalog[name];
     if item["quantity"] < quantity {
         return false;
     }
@@ -29,7 +29,7 @@ def purchase(catalog, name, quantity) {
     return true;
 }
 
-def restock(catalog, name, quantity) {
+function restock(catalog, name, quantity) {
     if not name in catalog or quantity < 0 {
         return false;
     }
@@ -37,7 +37,7 @@ def restock(catalog, name, quantity) {
     return true;
 }
 
-def apply_order(catalog, order) {
+function apply_order(catalog, order) {
     for name in order {
         if not name in catalog {
             return false;
@@ -52,16 +52,16 @@ def apply_order(catalog, order) {
     return true;
 }
 
-def quantities(catalog) {
-    result = {};
+function quantities(catalog) {
+    const result = {};
     for name in catalog {
         result[name] = catalog[name]["quantity"];
     }
     return result;
 }
 
-def low_stock(catalog, threshold) {
-    result = [];
+function low_stock(catalog, threshold) {
+    var result = [];
     for name in catalog {
         if catalog[name]["quantity"] <= threshold {
             result = result + [name];
@@ -70,8 +70,8 @@ def low_stock(catalog, threshold) {
     return result;
 }
 
-def copy_catalog(catalog) {
-    result = {};
+function copy_catalog(catalog) {
+    const result = {};
     for name in catalog {
         result[name] = {
             "quantity": catalog[name]["quantity"],
@@ -81,9 +81,9 @@ def copy_catalog(catalog) {
     return result;
 }
 
-def discount(catalog, reduction) {
+function discount(catalog, reduction) {
     for name in catalog {
-        revised = catalog[name]["price"] - reduction;
+        var revised = catalog[name]["price"] - reduction;
         if revised < 0 {
             revised = 0;
         }
@@ -91,8 +91,8 @@ def discount(catalog, reduction) {
     }
 }
 
-def total_units(catalog) {
-    total = 0;
+function total_units(catalog) {
+    var total = 0;
     for name in catalog {
         total = total + catalog[name]["quantity"];
     }

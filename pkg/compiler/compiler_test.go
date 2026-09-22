@@ -10,7 +10,7 @@ import (
 )
 
 func TestStandaloneBuild(t *testing.T) {
-	testStandalone(t, `def square(number) { return number * number; } print(square(9));`, "81\n")
+	testStandalone(t, `function square(number) { return number * number; } print(square(9));`, "81\n")
 }
 
 func TestStandaloneOOP(t *testing.T) {
@@ -19,6 +19,12 @@ func TestStandaloneOOP(t *testing.T) {
 		t.Fatal(err)
 	}
 	testStandalone(t, string(source), "Rex is a Canine.\nRex barks!\nRex fetches the ball.\n")
+}
+
+func TestStandaloneExtendedSyntax(t *testing.T) {
+	testStandalone(t, `class Counter { private var count = 0; function next(this) { return ++this.count; } }
+const counter = Counter(); cfor (var index = 0; index < 3; index++) { print(f"{counter.next()}"); }
+try { throw range(3); } catch (error) { print(error); }`, "1\n2\n3\n[0, 1, 2]\n")
 }
 
 func testStandalone(t *testing.T, source, expected string) {

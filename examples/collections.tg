@@ -1,6 +1,6 @@
-# Lists, dictionaries, constants, and scoped iteration.
+// Lists, dictionaries, constants, and scoped iteration.
 const config = {"port": 8080, "host": "localhost"};
-items = [1, 2, "apple", true];
+const items = [1, 2, "apple", true];
 
 for item in items {
     print(item);
