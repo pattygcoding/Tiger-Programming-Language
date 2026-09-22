@@ -6,7 +6,7 @@ import (
 )
 
 func TestScan(t *testing.T) {
-	tokens, err := Scan("# comment\nconst answer = 1.5e2; // comment\nprint(\"hi\\n\", 'there', true != false);")
+	tokens, err := Scan("/* comment */\nconst answer = 1.5e2; // comment\nprint(\"hi\\n\", 'there', true != false);")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,11 +25,30 @@ func TestScan(t *testing.T) {
 }
 
 func TestInvalidInput(t *testing.T) {
-	for _, source := range []string{"@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00"} {
+	for _, source := range []string{"@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00", "# old comment", "/* unfinished"} {
 		t.Run(source, func(t *testing.T) {
 			if _, err := Scan(source); err == nil || !strings.Contains(err.Error(), "1:1:") {
 				t.Fatalf("expected positioned error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestBlockComments(t *testing.T) {
+	tokens, err := Scan("/* first\nsecond */var value = 6/* inline */ / 2; // end")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Kind{"var", Ident, "=", Number, "/", Number, ";", EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("tokens: %#v", tokens)
+	}
+	for index, kind := range want {
+		if tokens[index].Kind != kind {
+			t.Fatalf("token %d: got %s, want %s", index, tokens[index].Kind, kind)
+		}
+	}
+	if tokens[0].Line != 2 || tokens[0].Column != 10 {
+		t.Fatalf("incorrect position: %#v", tokens[0])
 	}
 }

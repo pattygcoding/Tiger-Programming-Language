@@ -1,6 +1,6 @@
 const MAX_RUNS = 5;
 
-def factorial(n) {
+function factorial(n) {
     if n <= 1 {
         return 1;
     }
@@ -9,9 +9,9 @@ def factorial(n) {
 
 print("Running Tiger demo:");
 
-i = 1;
+var i = 1;
 while i <= MAX_RUNS {
-    val = factorial(i);
+    const val = factorial(i);
     print("factorial(" + str(i) + ") = " + str(val));
     i = i + 1;
 }

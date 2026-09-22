@@ -1,11 +1,11 @@
 const TITLE = "Matrix operations";
 
-def zeros(rows, columns) {
-    matrix = [];
-    row_index = 0;
+function zeros(rows, columns) {
+    var matrix = [];
+    var row_index = 0;
     while row_index < rows {
-        row = [];
-        column_index = 0;
+        var row = [];
+        var column_index = 0;
         while column_index < columns {
             row = row + [0];
             column_index = column_index + 1;
@@ -16,9 +16,9 @@ def zeros(rows, columns) {
     return matrix;
 }
 
-def identity(size) {
-    matrix = zeros(size, size);
-    diagonal = 0;
+function identity(size) {
+    const matrix = zeros(size, size);
+    var diagonal = 0;
     while diagonal < size {
         matrix[diagonal][diagonal] = 1;
         diagonal = diagonal + 1;
@@ -26,13 +26,13 @@ def identity(size) {
     return matrix;
 }
 
-def transpose(matrix) {
-    rows = len(matrix);
-    columns = len(matrix[0]);
-    result = zeros(columns, rows);
-    row_index = 0;
+function transpose(matrix) {
+    const rows = len(matrix);
+    const columns = len(matrix[0]);
+    const result = zeros(columns, rows);
+    var row_index = 0;
     while row_index < rows {
-        column_index = 0;
+        var column_index = 0;
         while column_index < columns {
             result[column_index][row_index] = matrix[row_index][column_index];
             column_index = column_index + 1;
@@ -42,11 +42,11 @@ def transpose(matrix) {
     return result;
 }
 
-def add(left, right) {
-    result = zeros(len(left), len(left[0]));
-    row_index = 0;
+function add(left, right) {
+    const result = zeros(len(left), len(left[0]));
+    var row_index = 0;
     while row_index < len(left) {
-        column_index = 0;
+        var column_index = 0;
         while column_index < len(left[0]) {
             result[row_index][column_index] = left[row_index][column_index] + right[row_index][column_index];
             column_index = column_index + 1;
@@ -56,13 +56,13 @@ def add(left, right) {
     return result;
 }
 
-def multiply(left, right) {
-    result = zeros(len(left), len(right[0]));
-    row_index = 0;
+function multiply(left, right) {
+    const result = zeros(len(left), len(right[0]));
+    var row_index = 0;
     while row_index < len(left) {
-        column_index = 0;
+        var column_index = 0;
         while column_index < len(right[0]) {
-            shared = 0;
+            var shared = 0;
             while shared < len(right) {
                 result[row_index][column_index] = result[row_index][column_index] + left[row_index][shared] * right[shared][column_index];
                 shared = shared + 1;
@@ -74,11 +74,11 @@ def multiply(left, right) {
     return result;
 }
 
-def scale(matrix, factor) {
-    result = zeros(len(matrix), len(matrix[0]));
-    row_index = 0;
+function scale(matrix, factor) {
+    const result = zeros(len(matrix), len(matrix[0]));
+    var row_index = 0;
     while row_index < len(matrix) {
-        column_index = 0;
+        var column_index = 0;
         while column_index < len(matrix[0]) {
             result[row_index][column_index] = matrix[row_index][column_index] * factor;
             column_index = column_index + 1;
@@ -88,9 +88,9 @@ def scale(matrix, factor) {
     return result;
 }
 
-def trace(matrix) {
-    total = 0;
-    diagonal = 0;
+function trace(matrix) {
+    var total = 0;
+    var diagonal = 0;
     while diagonal < len(matrix) {
         total = total + matrix[diagonal][diagonal];
         diagonal = diagonal + 1;
@@ -98,10 +98,10 @@ def trace(matrix) {
     return total;
 }
 
-def row_sums(matrix) {
-    result = [];
+function row_sums(matrix) {
+    var result = [];
     for row in matrix {
-        total = 0;
+        var total = 0;
         for value in row {
             total = total + value;
         }

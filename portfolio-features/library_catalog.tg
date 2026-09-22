@@ -1,47 +1,47 @@
 const TITLE = "Library catalog";
 
 class Book {
-    def init(self, title, author, pages) {
-        self.title = title;
-        self.author = author;
-        self.pages = pages;
-        self.checked_out = false;
+    function init(this, title, author, pages) {
+        this.title = title;
+        this.author = author;
+        this.pages = pages;
+        this.checked_out = false;
     }
 
-    def borrow(self) {
-        if self.checked_out {
+    function borrow(this) {
+        if this.checked_out {
             return false;
         }
-        self.checked_out = true;
+        this.checked_out = true;
         return true;
     }
 
-    def return_book(self) {
-        self.checked_out = false;
-        return self.title;
+    function return_book(this) {
+        this.checked_out = false;
+        return this.title;
     }
 
-    def describe(self) {
-        state = "available";
-        if self.checked_out {
+    function describe(this) {
+        var state = "available";
+        if this.checked_out {
             state = "checked out";
         }
-        return self.title + " by " + self.author + " (" + str(self.pages) + ", " + state + ")";
+        return this.title + " by " + this.author + " (" + str(this.pages) + ", " + state + ")";
     }
 }
 
 class ReferenceBook(Book) {
-    def borrow(self) {
+    function borrow(this) {
         return false;
     }
 
-    def describe(self) {
+    function describe(this) {
         return super.describe() + " [reference]";
     }
 }
 
-def available(books) {
-    result = [];
+function available(books) {
+    var result = [];
     for book in books {
         if not book.checked_out {
             result = result + [book.title];
@@ -50,16 +50,16 @@ def available(books) {
     return result;
 }
 
-def page_total(books) {
-    total = 0;
+function page_total(books) {
+    var total = 0;
     for book in books {
         total = total + book.pages;
     }
     return total;
 }
 
-def checked_out(books) {
-    result = [];
+function checked_out(books) {
+    var result = [];
     for book in books {
         if book.checked_out {
             result = result + [book.title];

@@ -5,14 +5,14 @@
 ## Define and Call
 
 ```tg
-def add(left, right) {
+function add(left, right) {
     return left + right;
 }
-def do_nothing() {
+function do_nothing() {
     return;
 }
-def no_return() {
-    local = 1;
+function no_return() {
+    const local = 1;
 }
 print(add(3, 4), do_nothing(), no_return());
 ```
@@ -23,14 +23,14 @@ Output:
 7 null null
 ```
 
-Use `def`, a required parenthesized parameter list, and a braced body. Parameters are positional, and the number of arguments must match exactly. Duplicate parameter names are syntax errors. There are no default arguments, keyword arguments, variadic user functions, or anonymous/lambda expressions.
+Use `function`, a required parenthesized parameter list, and a braced body. Parameters are positional, and the number of arguments must match exactly. Duplicate parameter names are syntax errors. There are no default arguments, keyword arguments, variadic user functions, or anonymous/lambda expressions.
 
 Arguments are evaluated left to right. Parameters are local mutable bindings. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
 
 ## Recursion
 
 ```tg
-def factorial(number) {
+function factorial(number) {
     if number <= 1 {
         return 1;
     }
@@ -50,11 +50,11 @@ A function retains its defining environment, allowing it to resolve its own name
 ## Callbacks
 
 ```tg
-def double(value) {
+function double(value) {
     return value * 2;
 }
-def map_values(values, transform) {
-    result = [];
+function map_values(values, transform) {
+    var result = [];
     for value in values {
         result = result + [transform(value)];
     }
@@ -74,9 +74,9 @@ Pass `double`, not `double(...)`, when the receiving function should call it lat
 ## Closures Retain State
 
 ```tg
-def make_counter(start) {
-    current = start;
-    def next() {
+function make_counter(start) {
+    var current = start;
+    function next() {
         current = current + 1;
         return current;
     }
@@ -95,14 +95,14 @@ Output:
 
 Each call to `make_counter` creates a new environment. Its returned function keeps that environment alive. Assignment in `next` updates the captured binding because it is the nearest existing `current`.
 
-An important consequence: if a name already exists in an outer scope, ordinary assignment updates it instead of creating private state. Choose state names deliberately. Parameters provide fresh local mutable bindings; explicit `const` declarations provide fresh local immutable bindings.
+An important consequence: ordinary assignment updates the nearest existing binding and fails if no binding exists. Declare private state with `var` or `const` in the function's scope, even if an outer name matches. Parameters provide fresh local mutable bindings; `var` and `const` provide fresh local mutable and immutable bindings, respectively.
 
 ## Per-Iteration Capture
 
 ```tg
-callbacks = [];
+var callbacks = [];
 for factor in [2, 3, 4] {
-    def multiply(value) {
+    function multiply(value) {
         return value * factor;
     }
     callbacks = callbacks + [multiply];

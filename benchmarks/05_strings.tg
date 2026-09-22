@@ -1,9 +1,9 @@
 const TITLE = "Text processing";
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
-def reverse(text) {
-    result = "";
-    position = len(text) - 1;
+function reverse(text) {
+    var result = "";
+    var position = len(text) - 1;
     while position >= 0 {
         result = result + text[position];
         position = position - 1;
@@ -11,9 +11,9 @@ def reverse(text) {
     return result;
 }
 
-def words(text) {
-    result = [];
-    current = "";
+function words(text) {
+    var result = [];
+    var current = "";
     for character in text {
         if character == " " or character == "\t" or character == "\n" {
             if len(current) > 0 {
@@ -30,9 +30,9 @@ def words(text) {
     return result;
 }
 
-def join(parts, separator) {
-    result = "";
-    position = 0;
+function join(parts, separator) {
+    var result = "";
+    var position = 0;
     for part in parts {
         if position > 0 {
             result = result + separator;
@@ -43,8 +43,8 @@ def join(parts, separator) {
     return result;
 }
 
-def frequencies(text) {
-    counts = {};
+function frequencies(text) {
+    const counts = {};
     for word in words(text) {
         if word in counts {
             counts[word] = counts[word] + 1;
@@ -55,9 +55,9 @@ def frequencies(text) {
     return counts;
 }
 
-def unique_characters(text) {
-    result = "";
-    seen = {};
+function unique_characters(text) {
+    var result = "";
+    const seen = {};
     for character in text {
         if not character in seen {
             seen[character] = true;
@@ -67,8 +67,8 @@ def unique_characters(text) {
     return result;
 }
 
-def shift_character(character, distance) {
-    position = 0;
+function shift_character(character, distance) {
+    var position = 0;
     while position < len(ALPHABET) {
         if ALPHABET[position] == character {
             return ALPHABET[(position + distance) % len(ALPHABET)];
@@ -78,22 +78,22 @@ def shift_character(character, distance) {
     return character;
 }
 
-def caesar(text, distance) {
-    result = "";
+function caesar(text, distance) {
+    var result = "";
     for character in text {
         result = result + shift_character(character, distance);
     }
     return result;
 }
 
-def run_length(text) {
+function run_length(text) {
     if len(text) == 0 {
         return "";
     }
-    result = "";
-    previous = text[0];
-    count = 1;
-    position = 1;
+    var result = "";
+    var previous = text[0];
+    var count = 1;
+    var position = 1;
     while position < len(text) {
         if text[position] == previous {
             count = count + 1;
@@ -107,11 +107,11 @@ def run_length(text) {
     return result + previous + str(count);
 }
 
-def starts_with(text, prefix) {
+function starts_with(text, prefix) {
     if len(prefix) > len(text) {
         return false;
     }
-    position = 0;
+    var position = 0;
     while position < len(prefix) {
         if text[position] != prefix[position] {
             return false;
@@ -121,9 +121,9 @@ def starts_with(text, prefix) {
     return true;
 }
 
-def repeat(text, count) {
-    result = "";
-    position = 0;
+function repeat(text, count) {
+    var result = "";
+    var position = 0;
     while position < count {
         result = result + text;
         position = position + 1;

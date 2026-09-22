@@ -1,9 +1,18 @@
 package object
 
+import "tiger/pkg/ast"
+
 type Class struct {
 	Name    string
 	Parent  *Class
 	Methods map[string]*Method
+	Fields  []*Field
+}
+
+type Field struct {
+	Declaration *ast.Field
+	Owner       *Class
+	Env         *Environment
 }
 
 type Method struct {
@@ -35,6 +44,17 @@ func (class *Class) FindMethod(name string) *Method {
 	for current := class; current != nil; current = current.Parent {
 		if method, exists := current.Methods[name]; exists {
 			return method
+		}
+	}
+	return nil
+}
+
+func (class *Class) FindField(name string) *Field {
+	for current := class; current != nil; current = current.Parent {
+		for _, field := range current.Fields {
+			if field.Declaration.Name == name {
+				return field
+			}
 		}
 	}
 	return nil

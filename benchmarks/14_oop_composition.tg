@@ -1,73 +1,73 @@
 const TITLE = "Object composition and recursive projects";
 
 class Task {
-    def init(self, title, hours) {
-        self.title = title;
-        self.hours = hours;
-        self.done = false;
+    function init(this, title, hours) {
+        this.title = title;
+        this.hours = hours;
+        this.done = false;
     }
 
-    def complete(self) {
-        self.done = true;
-        return self;
+    function complete(this) {
+        this.done = true;
+        return this;
     }
 
-    def reopen(self) {
-        self.done = false;
-        return self;
+    function reopen(this) {
+        this.done = false;
+        return this;
     }
 
-    def estimate(self) {
-        if self.done {
+    function estimate(this) {
+        if this.done {
             return 0;
         }
-        return self.hours;
+        return this.hours;
     }
 
-    def describe(self) {
-        if self.done {
-            return self.title + ":done";
+    function describe(this) {
+        if this.done {
+            return this.title + ":done";
         }
-        return self.title + ":" + str(self.hours);
+        return this.title + ":" + str(this.hours);
     }
 }
 
 class Project {
-    def init(self, name) {
-        self.name = name;
-        self.tasks = [];
-        self.projects = [];
+    function init(this, name) {
+        this.name = name;
+        this.tasks = [];
+        this.projects = [];
     }
 
-    def add_task(self, task) {
-        self.tasks = self.tasks + [task];
-        return self;
+    function add_task(this, task) {
+        this.tasks = this.tasks + [task];
+        return this;
     }
 
-    def add_project(self, project) {
-        self.projects = self.projects + [project];
-        return self;
+    function add_project(this, project) {
+        this.projects = this.projects + [project];
+        return this;
     }
 
-    def estimate(self) {
-        total = 0;
-        for task in self.tasks {
+    function estimate(this) {
+        var total = 0;
+        for task in this.tasks {
             total = total + task.estimate();
         }
-        for project in self.projects {
+        for project in this.projects {
             total = total + project.estimate();
         }
         return total;
     }
 
-    def find(self, title) {
-        for task in self.tasks {
+    function find(this, title) {
+        for task in this.tasks {
             if task.title == title {
                 return task;
             }
         }
-        for project in self.projects {
-            found = project.find(title);
+        for project in this.projects {
+            const found = project.find(title);
             if found != null {
                 return found;
             }
@@ -75,22 +75,22 @@ class Project {
         return null;
     }
 
-    def report(self) {
-        result = [];
-        for task in self.tasks {
+    function report(this) {
+        var result = [];
+        for task in this.tasks {
             result = result + [task.describe()];
         }
-        for project in self.projects {
+        for project in this.projects {
             result = result + project.report();
         }
         return result;
     }
 
-    def complete_all(self) {
-        for task in self.tasks {
+    function complete_all(this) {
+        for task in this.tasks {
             task.complete();
         }
-        for project in self.projects {
+        for project in this.projects {
             project.complete_all();
         }
     }

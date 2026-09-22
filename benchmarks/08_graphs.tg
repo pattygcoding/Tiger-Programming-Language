@@ -9,13 +9,13 @@ const GRAPH = {
     "G": []
 };
 
-def breadth_first(graph, start) {
-    queue = [start];
-    seen = {};
+function breadth_first(graph, start) {
+    var queue = [start];
+    const seen = {};
     seen[start] = true;
-    position = 0;
+    var position = 0;
     while position < len(queue) {
-        current = queue[position];
+        const current = queue[position];
         for neighbor in graph[current] {
             if not neighbor in seen {
                 seen[neighbor] = true;
@@ -27,13 +27,13 @@ def breadth_first(graph, start) {
     return queue;
 }
 
-def distances(graph, start) {
-    queue = [start];
-    result = {};
+function distances(graph, start) {
+    var queue = [start];
+    const result = {};
     result[start] = 0;
-    position = 0;
+    var position = 0;
     while position < len(queue) {
-        current = queue[position];
+        const current = queue[position];
         for neighbor in graph[current] {
             if not neighbor in result {
                 result[neighbor] = result[current] + 1;
@@ -45,7 +45,7 @@ def distances(graph, start) {
     return result;
 }
 
-def visit(graph, current, state) {
+function visit(graph, current, state) {
     if current in state["seen"] {
         return;
     }
@@ -56,22 +56,22 @@ def visit(graph, current, state) {
     }
 }
 
-def depth_first(graph, start) {
-    state = {"seen": {}, "order": []};
+function depth_first(graph, start) {
+    const state = {"seen": {}, "order": []};
     visit(graph, start, state);
     return state["order"];
 }
 
-def shortest_path(graph, start, target) {
-    queue = [start];
-    parents = {};
+function shortest_path(graph, start, target) {
+    var queue = [start];
+    const parents = {};
     parents[start] = null;
-    position = 0;
+    var position = 0;
     while position < len(queue) {
-        current = queue[position];
+        const current = queue[position];
         if current == target {
-            result = [];
-            cursor = target;
+            var result = [];
+            var cursor = target;
             while cursor != null {
                 result = [cursor] + result;
                 cursor = parents[cursor];
@@ -89,27 +89,27 @@ def shortest_path(graph, start, target) {
     return [];
 }
 
-def edge_count(graph) {
-    total = 0;
+function edge_count(graph) {
+    var total = 0;
     for vertex in graph {
         total = total + len(graph[vertex]);
     }
     return total;
 }
 
-def degrees(graph) {
-    result = {};
+function degrees(graph) {
+    const result = {};
     for vertex in graph {
         result[vertex] = len(graph[vertex]);
     }
     return result;
 }
 
-def dag_paths(graph, start, target) {
+function dag_paths(graph, start, target) {
     if start == target {
         return 1;
     }
-    total = 0;
+    var total = 0;
     for neighbor in graph[start] {
         total = total + dag_paths(graph, neighbor, target);
     }

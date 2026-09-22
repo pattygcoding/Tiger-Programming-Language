@@ -1,72 +1,72 @@
 const TITLE = "Geometry workshop";
 
 class Shape {
-    def init(self, name) {
-        self.name = name;
+    function init(this, name) {
+        this.name = name;
     }
 
-    def area(self) {
+    function area(this) {
         return 0;
     }
 
-    def describe(self) {
-        return self.name + " area=" + str(self.area());
+    function describe(this) {
+        return this.name + " area=" + str(this.area());
     }
 }
 
 class Rectangle(Shape) {
-    def init(self, width, height) {
+    function init(this, width, height) {
         super.init("rectangle");
-        self.width = width;
-        self.height = height;
+        this.width = width;
+        this.height = height;
     }
 
-    def area(self) {
-        return self.width * self.height;
+    function area(this) {
+        return this.width * this.height;
     }
 
-    def scale(self, factor) {
-        self.width = self.width * factor;
-        self.height = self.height * factor;
-        return self;
+    function scale(this, factor) {
+        this.width = this.width * factor;
+        this.height = this.height * factor;
+        return this;
     }
 }
 
 class Square(Rectangle) {
-    def init(self, side) {
+    function init(this, side) {
         super.init(side, side);
-        self.name = "square";
+        this.name = "square";
     }
 
-    def side(self) {
-        return self.width;
+    function side(this) {
+        return this.width;
     }
 
-    def describe(self) {
-        return super.describe() + " side=" + str(self.side());
+    function describe(this) {
+        return super.describe() + " side=" + str(this.side());
     }
 }
 
 class Triangle(Shape) {
-    def init(self, base, height) {
+    function init(this, base, height) {
         super.init("triangle");
-        self.base = base;
-        self.height = height;
+        this.base = base;
+        this.height = height;
     }
 
-    def area(self) {
-        return self.base * self.height / 2;
+    function area(this) {
+        return this.base * this.height / 2;
     }
 
-    def scale(self, factor) {
-        self.base = self.base * factor;
-        self.height = self.height * factor;
-        return self;
+    function scale(this, factor) {
+        this.base = this.base * factor;
+        this.height = this.height * factor;
+        return this;
     }
 }
 
-def total_area(shapes) {
-    total = 0;
+function total_area(shapes) {
+    var total = 0;
     for shape in shapes {
         total = total + shape.area();
     }

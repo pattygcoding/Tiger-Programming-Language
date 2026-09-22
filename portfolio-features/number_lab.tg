@@ -1,16 +1,16 @@
 const TITLE = "Number laboratory";
 
-def gcd(left, right) {
+function gcd(left, right) {
     while right != 0 {
-        remainder = left % right;
+        const remainder = left % right;
         left = right;
         right = remainder;
     }
     return left;
 }
 
-def factorial(value) {
-    result = 1;
+function factorial(value) {
+    var result = 1;
     while value > 1 {
         result = result * value;
         value = value - 1;
@@ -18,24 +18,24 @@ def factorial(value) {
     return result;
 }
 
-def fibonacci(count) {
-    values = [];
-    first = 0;
-    second = 1;
+function fibonacci(count) {
+    var values = [];
+    var first = 0;
+    var second = 1;
     while len(values) < count {
         values = values + [first];
-        next = first + second;
+        const next = first + second;
         first = second;
         second = next;
     }
     return values;
 }
 
-def is_prime(value) {
+function is_prime(value) {
     if value < 2 {
         return false;
     }
-    divisor = 2;
+    var divisor = 2;
     while divisor * divisor <= value {
         if value % divisor == 0 {
             return false;
@@ -45,9 +45,9 @@ def is_prime(value) {
     return true;
 }
 
-def primes(limit) {
-    result = [];
-    candidate = 0;
+function primes(limit) {
+    var result = [];
+    var candidate = 0;
     while candidate <= limit {
         if is_prime(candidate) {
             result = result + [candidate];
@@ -57,16 +57,16 @@ def primes(limit) {
     return result;
 }
 
-def summary(values) {
-    total = 0;
+function summary(values) {
+    var total = 0;
     for value in values {
         total = total + value;
     }
     return {"count": len(values), "total": total, "average": total / len(values)};
 }
 
-def squares(values) {
-    result = [];
+function squares(values) {
+    var result = [];
     for value in values {
         result = result + [value * value];
     }

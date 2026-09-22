@@ -1,16 +1,16 @@
 const TITLE = "Language semantics";
 const ANSWER = 42;
 
-def read_answer() {
+function read_answer() {
     return ANSWER;
 }
 
-def parameter_shadow(ANSWER) {
+function parameter_shadow(ANSWER) {
     ANSWER = ANSWER + 1;
     return ANSWER;
 }
 
-def classify(number) {
+function classify(number) {
     if number < 0 {
         return "negative";
     } elif number == 0 {
@@ -22,8 +22,8 @@ def classify(number) {
     }
 }
 
-def truth_values(values) {
-    result = [];
+function truth_values(values) {
+    var result = [];
     for value in values {
         if value {
             result = result + [true];
@@ -34,12 +34,12 @@ def truth_values(values) {
     return result;
 }
 
-def touch(state) {
+function touch(state) {
     state["calls"] = state["calls"] + 1;
     return state["calls"];
 }
 
-def find_even(values) {
+function find_even(values) {
     for value in values {
         if value % 2 == 0 {
             while true {
@@ -50,20 +50,20 @@ def find_even(values) {
     return null;
 }
 
-def bare_return() {
+function bare_return() {
     return;
 }
 
-def implicit_return() {
-    local = 1;
+function implicit_return() {
+    var local = 1;
     local = local + 1;
 }
 
-def count_pairs(limit) {
-    counts = {"less": 0, "equal": 0, "greater": 0};
-    row_index = 0;
+function count_pairs(limit) {
+    const counts = {"less": 0, "equal": 0, "greater": 0};
+    var row_index = 0;
     while row_index < limit {
-        column_index = 0;
+        var column_index = 0;
         while column_index < limit {
             if row_index < column_index {
                 counts["less"] = counts["less"] + 1;
@@ -79,8 +79,8 @@ def count_pairs(limit) {
     return counts;
 }
 
-def loop_constants(values) {
-    total = 0;
+function loop_constants(values) {
+    var total = 0;
     for value in values {
         const DOUBLED = value * 2;
         if DOUBLED > 2 {

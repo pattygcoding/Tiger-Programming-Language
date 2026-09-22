@@ -1,12 +1,12 @@
 const TITLE = "Text pipeline";
 const MESSAGE = "tiger builds small language tools";
 
-def split_words(text) {
-    words = [];
-    current = "";
-    index = 0;
+function split_words(text) {
+    var words = [];
+    var current = "";
+    var index = 0;
     while index < len(text) {
-        character = text[index];
+        const character = text[index];
         if character == " " {
             if current != "" {
                 words = words + [current];
@@ -23,9 +23,9 @@ def split_words(text) {
     return words;
 }
 
-def reverse(text) {
-    result = "";
-    index = len(text) - 1;
+function reverse(text) {
+    var result = "";
+    var index = len(text) - 1;
     while index >= 0 {
         result = result + text[index];
         index = index - 1;
@@ -33,9 +33,9 @@ def reverse(text) {
     return result;
 }
 
-def join(words, separator) {
-    result = "";
-    first = true;
+function join(words, separator) {
+    var result = "";
+    var first = true;
     for word in words {
         if not first {
             result = result + separator;
@@ -46,16 +46,16 @@ def join(words, separator) {
     return result;
 }
 
-def initials(words) {
-    result = "";
+function initials(words) {
+    var result = "";
     for word in words {
         result = result + word[0];
     }
     return result;
 }
 
-def frequencies(words) {
-    counts = {};
+function frequencies(words) {
+    const counts = {};
     for word in words {
         if word in counts {
             counts[word] = counts[word] + 1;
@@ -66,8 +66,8 @@ def frequencies(words) {
     return counts;
 }
 
-def longest(words) {
-    winner = "";
+function longest(words) {
+    var winner = "";
     for word in words {
         if len(word) > len(winner) {
             winner = word;

@@ -13,21 +13,22 @@ built-in names can be shadowed and are still colored as built-ins.
 
 | Category | Grammar |
 | --- | --- |
-| Keywords | `const def class super return if elif else while for in and or not` |
+| Keywords | `const var function class super this public private protected return if elif else while for cfor in and or not break continue switch case default try catch throw` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
 | Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\\`, `\"`, `\'` |
-| Comments | `#` or `//` through the end of the line; no block comments |
-| Symbolic operators | `= == != < <= > >= + - * / %` |
+| Formatted strings | `f`/`F` directly before either quote; string text, `{expression}` tokens, and `{{`/`}}` literal braces |
+| Comments | `//` through the end of the line; `/* ... */` across one or more lines, without nesting |
+| Symbolic operators | `= == != < <= > >= + - * / % ++ --` |
 | Word operators | `and or not in`, styled as keywords |
 | Punctuation | `(` `)` `[` `]` `{` `}` `:` `,` `;` `.` |
 | Identifiers | Unicode letters or `_`, followed by Unicode letters, decimal digits, or `_` |
-| Built-in functions | `print str len` |
+| Built-in functions | `print str len range` |
 
 Tiger is dynamically typed. There are **no reserved primitive-type names or type
 annotations**: `number`, `string`, `bool`, `int`, and `float` remain identifiers.
 Lists, dictionaries, functions, classes, and instances are runtime values, not
-additional type keywords. `self` is also an ordinary identifier.
+additional type keywords. `this` is reserved; `self`, `def`, and `init` are ordinary identifiers. See the [complete editor checklist](../docs/syntax-highlighting.md).
 
 Highlighting tolerates incomplete code while typing. Unclosed strings stop at a
 line ending; unfinished exponents stay colored as numbers. Unknown characters

@@ -1,94 +1,94 @@
 const TITLE = "Polymorphic shapes";
 
 class Shape {
-    def init(self, label) {
-        self.label = label;
+    function init(this, label) {
+        this.label = label;
     }
 
-    def area(self) {
+    function area(this) {
         return 0;
     }
 
-    def perimeter(self) {
+    function perimeter(this) {
         return 0;
     }
 
-    def describe(self) {
-        return self.label + ": area=" + str(self.area()) + ", perimeter=" + str(self.perimeter());
+    function describe(this) {
+        return this.label + ": area=" + str(this.area()) + ", perimeter=" + str(this.perimeter());
     }
 }
 
 class Rectangle(Shape) {
-    def init(self, width, height) {
+    function init(this, width, height) {
         super.init("rectangle");
-        self.width = width;
-        self.height = height;
+        this.width = width;
+        this.height = height;
     }
 
-    def area(self) {
-        return self.width * self.height;
+    function area(this) {
+        return this.width * this.height;
     }
 
-    def perimeter(self) {
-        return 2 * (self.width + self.height);
+    function perimeter(this) {
+        return 2 * (this.width + this.height);
     }
 
-    def scale(self, factor) {
-        self.width = self.width * factor;
-        self.height = self.height * factor;
-        return self;
+    function scale(this, factor) {
+        this.width = this.width * factor;
+        this.height = this.height * factor;
+        return this;
     }
 }
 
 class Square(Rectangle) {
-    def init(self, side) {
+    function init(this, side) {
         super.init(side, side);
-        self.label = "square";
+        this.label = "square";
     }
 
-    def side(self) {
-        return self.width;
+    function side(this) {
+        return this.width;
     }
 
-    def describe(self) {
-        return super.describe() + ", side=" + str(self.side());
+    function describe(this) {
+        return super.describe() + ", side=" + str(this.side());
     }
 }
 
 class RightTriangle(Shape) {
-    def init(self, base, height, hypotenuse) {
+    function init(this, base, height, hypotenuse) {
         super.init("triangle");
-        self.base = base;
-        self.height = height;
-        self.hypotenuse = hypotenuse;
+        this.base = base;
+        this.height = height;
+        this.hypotenuse = hypotenuse;
     }
 
-    def area(self) {
-        return self.base * self.height / 2;
+    function area(this) {
+        return this.base * this.height / 2;
     }
 
-    def perimeter(self) {
-        return self.base + self.height + self.hypotenuse;
+    function perimeter(this) {
+        return this.base + this.height + this.hypotenuse;
     }
 
-    def scale(self, factor) {
-        self.base = self.base * factor;
-        self.height = self.height * factor;
-        self.hypotenuse = self.hypotenuse * factor;
-        return self;
+    function scale(this, factor) {
+        this.base = this.base * factor;
+        this.height = this.height * factor;
+        this.hypotenuse = this.hypotenuse * factor;
+        return this;
     }
 }
 
-def total_area(shapes) {
-    total = 0;
+function total_area(shapes) {
+    var total = 0;
     for shape in shapes {
         total = total + shape.area();
     }
     return total;
 }
 
-def descriptions(shapes) {
-    result = [];
+function descriptions(shapes) {
+    var result = [];
     for shape in shapes {
         result = result + [shape.describe()];
     }

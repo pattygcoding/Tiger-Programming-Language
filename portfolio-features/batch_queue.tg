@@ -1,0 +1,54 @@
+/* A batch queue with explicit state transitions and per-job recovery. */
+class Job {
+    var name = "";
+    private var remaining = 0;
+    protected var attempts = 0;
+
+    function init(this, name, work) {
+        this.name = name;
+        this.remaining = work;
+    }
+
+    function step(this) {
+        ++this.attempts;
+        if this.remaining < 0 {
+            throw "invalid workload for " + this.name;
+        }
+        if this.remaining == 0 {
+            return "done";
+        }
+        --this.remaining;
+        return "working";
+    }
+}
+
+const jobs = [Job("report", 2), Job("import", -1), Job("index", 1)];
+var completed = 0;
+for job in jobs {
+    try {
+        var done = false;
+        cfor (var tick = 0; tick < 5; tick++) {
+            switch job.step() {
+                case "working":
+                    continue;
+                case "done":
+                    done = true;
+                    break;
+                default:
+                    throw "unexpected state";
+            }
+            if done {
+                completed++;
+                print(f"completed {job.name} at tick {tick}");
+                break;
+            }
+        } else {
+            print(f"timed out {job.name}");
+        }
+    } catch (error) {
+        print(f"failed {error}");
+    }
+} else {
+    print(f"batch complete: {completed} of {len(jobs)}");
+}
+print("next batch slots:", range(10, 16, 2));

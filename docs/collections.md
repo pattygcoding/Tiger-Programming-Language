@@ -7,7 +7,7 @@
 A list is an ordered sequence that can mix value types. Indexing is zero-based; negative indices count backward from the end.
 
 ```tg
-items = [1, "apple", true];
+var items = [1, "apple", true];
 items[0] = 9;
 items = items + ["last"];
 print(items);
@@ -53,9 +53,9 @@ Dictionaries retain insertion order. Repeated keys replace the value without mov
 ## Sharing and Shallow Copies
 
 ```tg
-original = [[1], [2]];
-alias = original;
-copy = original + [];
+const original = [[1], [2]];
+const alias = original;
+const copy = original + [];
 copy[0][0] = 9;
 copy[1] = [8];
 print(original, alias, copy);
@@ -76,8 +76,8 @@ Equality compares list elements and dictionary key/value contents recursively, r
 ## Iteration Snapshots
 
 ```tg
-values = [1, 2];
-seen = [];
+const values = [1, 2];
+var seen = [];
 for value in values {
     seen = seen + [value];
     values[1] = 9;
@@ -85,7 +85,7 @@ for value in values {
 print(seen, values);
 
 const mapping = {"first": 1};
-keys = [];
+var keys = [];
 for key in mapping {
     keys = keys + [key];
     mapping["second"] = 2;

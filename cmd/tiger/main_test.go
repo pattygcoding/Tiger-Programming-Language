@@ -43,3 +43,23 @@ func TestCLI(t *testing.T) {
 		})
 	}
 }
+
+func TestExamplePrograms(t *testing.T) {
+	for _, directory := range []string{"examples", "portfolio-features"} {
+		paths, err := filepath.Glob(filepath.Join("..", "..", directory, "*.tg"))
+		if err != nil || len(paths) == 0 {
+			t.Fatalf("find %s programs: %v", directory, err)
+		}
+		for _, path := range paths {
+			t.Run(directory+"/"+filepath.Base(path), func(t *testing.T) {
+				var stdout, stderr bytes.Buffer
+				if code := run([]string{"run", path}, &stdout, &stderr); code != 0 {
+					t.Fatalf("exit %d: %s", code, stderr.String())
+				}
+				if stdout.Len() == 0 || stderr.Len() != 0 {
+					t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+				}
+			})
+		}
+	}
+}

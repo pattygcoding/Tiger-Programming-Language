@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Classes and Inheritance](classes-and-inheritance.md) | [Runtime and Errors](runtime-and-errors.md)
 
-Tiger currently provides exactly three built-in functions. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them under the normal scope rules.
+Tiger provides four built-ins: `print`, `str`, `len`, and `range`. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them.
 
 ## print(...values)
 
@@ -11,7 +11,7 @@ Accepts zero or more arguments of any value type. Formats each argument, joins t
 ```tg
 print("score", 12, true, null);
 print(["one", "two"], {"ready": true});
-result = print("written");
+const result = print("written");
 print(result);
 ```
 
@@ -81,4 +81,16 @@ len does not accept number
 
 ## What Is Not Built In
 
-There is no `input`, `range`, `int`, `float`, `type`, `isinstance`, `sum`, `sorted`, file API, import system, or standard-library module loader. Build helper functions from the language's loops, collections, and functions where appropriate. Examples include [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
+There is no `input`, `int`, `float`, `type`, `isinstance`, `sum`, `sorted`, file API, import system, or standard-library module loader. Build helper functions from loops, collections, and functions. See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
+
+## range(stop), range(start, stop), range(start, stop, step)
+
+Returns a new list starting at `start` (default `0`) and stopping before `stop`. The default step is `1`; negative steps count downward. A direction mismatch produces an empty list. Arguments must be finite integers with absolute value at most `9007199254740991`; step cannot be zero. A range may contain at most 1,000,000 elements. This is an eager list, not a lazy iterator.
+
+```tg
+print(range(4), range(2, 7, 2), range(5, 0, -2), range(0));
+```
+
+```text
+[0, 1, 2, 3] [2, 4, 6] [5, 3, 1] []
+```

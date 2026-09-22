@@ -34,14 +34,35 @@ Single and double quotes have the same meaning. `+` joins strings, but it will n
 | `\"` | Double quote |
 | `\'` | Single quote |
 
-Unknown escapes are lexical errors. There are no raw strings, interpolation, triple quotes, multiline literals, or `\u`/`\x` escapes. Literal Unicode text is supported; use an actual Unicode character rather than an escape for its code point.
+Unknown escapes are lexical errors. There are no raw strings, triple quotes, multiline literal text, or `\u`/`\x` escapes. Literal Unicode text is supported; use an actual Unicode character rather than an escape for its code point.
+
+## Formatted Strings
+
+```tg
+const name = "Tiger";
+const scores = {"total": 12};
+print(f"Hello, {name}! Total: {scores["total"]}");
+print(f'Next: {scores["total"] + 1}; literal braces: {{value}}');
+const message = F"Values: {range(3)}";
+print(message);
+```
+
+```text
+Hello, Tiger! Total: 12
+Next: 13; literal braces: {value}
+Values: [0, 1, 2]
+```
+
+Prefix a single- or double-quoted string with `f` or `F`, without whitespace. Each `{expression}` is evaluated in the current scope, left to right, and converted using the same formatting as `str`. Calls, member access, indexing, dictionaries, arithmetic, and nested f-strings work inside braces. Quotes inside expressions may match the outer quotes. Write `{{` and `}}` for literal braces; ordinary string escapes still apply to literal text.
+
+F-strings are ordinary string-valued expressions, not just a special `print` feature: assign, return, concatenate, or throw them. Empty expressions, unmatched braces, and invalid expressions are errors. Errors inside an expression retain its source position and can be caught when they are runtime errors. Python format specifications (`:.2f`), conversions (`!r`, `!s`), and debug expressions (`{name=}`) are not supported.
 
 ## Index and Iterate
 
 ```tg
 const text = "Tiger";
 print(len(text), text[0], text[-1]);
-reversed = "";
+var reversed = "";
 for character in text {
     reversed = character + reversed;
 }
@@ -66,7 +87,7 @@ The index must be an integer-valued number and must be in range. Slicing is not 
 **Expected error:**
 
 ```tg
-text = "cat";
+const text = "cat";
 text[0] = "b";
 ```
 

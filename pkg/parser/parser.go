@@ -12,6 +12,8 @@ type parser struct {
 	tokens        []lexer.Token
 	pos           int
 	functionDepth int
+	loopDepth     int
+	switchDepth   int
 	depth         int
 }
 
@@ -73,22 +75,33 @@ func (parse *parser) enter() {
 func (parse *parser) statement() ast.Stmt {
 	base := ast.Base{Token: parse.current()}
 	switch {
-	case parse.match("class"):
-		return parse.class(base)
-	case parse.match("const"):
-		name := parse.expect(lexer.Ident)
-		parse.expect("=")
+	case parse.match("throw"):
 		value := parse.expression(0)
 		parse.expect(";")
-		return &ast.Assign{Base: base, Target: &ast.Identifier{Base: ast.Base{Token: name}, Name: name.Text}, Value: value, Constant: true}
-	case parse.match("def"):
+		return &ast.Throw{Base: base, Value: value}
+	case parse.match("try"):
+		statement := &ast.Try{Base: base, Body: parse.block()}
+		parse.expect("catch")
+		parse.expect("(")
+		statement.Name = parse.expect(lexer.Ident).Text
+		parse.expect(")")
+		statement.Catch = parse.block()
+		return statement
+	case parse.match("class"):
+		return parse.class(base)
+	case parse.match("function"):
 		name := parse.expect(lexer.Ident).Text
 		parse.expect("(")
 		parameters := []string{}
 		seen := map[string]bool{}
 		if !parse.at(")") {
 			for {
-				parameter := parse.expect(lexer.Ident)
+				parameter := parse.current()
+				if parse.at("this") {
+					parse.take()
+				} else {
+					parse.expect(lexer.Ident)
+				}
 				if seen[parameter.Text] {
 					panic(syntaxError{parameter.Errorf("duplicate parameter %q", parameter.Text)})
 				}
@@ -101,7 +114,10 @@ func (parse *parser) statement() ast.Stmt {
 		}
 		parse.expect(")")
 		parse.functionDepth++
+		loopDepth, switchDepth := parse.loopDepth, parse.switchDepth
+		parse.loopDepth, parse.switchDepth = 0, 0
 		body := parse.block()
+		parse.loopDepth, parse.switchDepth = loopDepth, switchDepth
 		parse.functionDepth--
 		return &ast.Function{Base: base, Name: name, Parameters: parameters, Body: body}
 	case parse.match("return"):
@@ -129,27 +145,109 @@ func (parse *parser) statement() ast.Stmt {
 		return conditional
 	case parse.match("while"):
 		condition := parse.expression(0)
-		return &ast.While{Base: base, Condition: condition, Body: parse.block()}
+		body, otherwise := parse.loopBody()
+		return &ast.While{Base: base, Condition: condition, Body: body, Else: otherwise}
 	case parse.match("for"):
 		name := parse.expect(lexer.Ident).Text
 		parse.expect("in")
 		iterable := parse.expression(0)
-		return &ast.For{Base: base, Name: name, Iterable: iterable, Body: parse.block()}
-	default:
-		value := parse.expression(0)
-		if parse.match("=") {
-			switch value.(type) {
-			case *ast.Identifier, *ast.Index, *ast.Property:
-			default:
-				panic(syntaxError{value.Position().Errorf("invalid assignment target")})
-			}
-			right := parse.expression(0)
-			parse.expect(";")
-			return &ast.Assign{Base: base, Target: value, Value: right}
+		body, otherwise := parse.loopBody()
+		return &ast.For{Base: base, Name: name, Iterable: iterable, Body: body, Else: otherwise}
+	case parse.match("cfor"):
+		loop := &ast.CFor{Base: base}
+		parse.expect("(")
+		if !parse.at(";") {
+			loop.Initializer = parse.simpleStatement()
 		}
 		parse.expect(";")
-		return &ast.ExpressionStmt{Base: base, Value: value}
+		if !parse.at(";") {
+			loop.Condition = parse.expression(0)
+		}
+		parse.expect(";")
+		if !parse.at(")") {
+			loop.Update = parse.simpleStatement()
+			if assignment, ok := loop.Update.(*ast.Assign); ok && assignment.Declaration {
+				panic(syntaxError{assignment.Position().Errorf("cfor update cannot declare a variable")})
+			}
+		}
+		parse.expect(")")
+		loop.Body, loop.Else = parse.loopBody()
+		return loop
+	case parse.at("break") || parse.at("continue"):
+		kind := parse.take().Text
+		if parse.loopDepth == 0 && (kind == "continue" || parse.switchDepth == 0) {
+			panic(syntaxError{base.Token.Errorf("%s outside a loop%s", kind, map[bool]string{true: " or switch"}[kind == "break"])})
+		}
+		parse.expect(";")
+		return &ast.Control{Base: base, Kind: kind}
+	case parse.match("switch"):
+		parse.enter()
+		defer func() { parse.depth-- }()
+		statement := &ast.Switch{Base: base, Value: parse.expression(0)}
+		parse.expect("{")
+		parse.switchDepth++
+		seenDefault := false
+		for !parse.at("}") && !parse.at(lexer.EOF) {
+			branch := ast.Case{}
+			if parse.match("case") {
+				branch.Value = parse.expression(0)
+			} else {
+				marker := parse.expect("default")
+				if seenDefault {
+					panic(syntaxError{marker.Errorf("duplicate default case")})
+				}
+				seenDefault = true
+			}
+			parse.expect(":")
+			for !parse.at("case") && !parse.at("default") && !parse.at("}") && !parse.at(lexer.EOF) {
+				branch.Body = append(branch.Body, parse.statement())
+			}
+			statement.Cases = append(statement.Cases, branch)
+		}
+		parse.switchDepth--
+		parse.expect("}")
+		parse.match(";")
+		return statement
+	default:
+		statement := parse.simpleStatement()
+		parse.expect(";")
+		return statement
 	}
+}
+
+func (parse *parser) simpleStatement() ast.Stmt {
+	base := ast.Base{Token: parse.current()}
+	if parse.at("const") || parse.at("var") {
+		constant := parse.take().Kind == "const"
+		name := parse.expect(lexer.Ident)
+		parse.expect("=")
+		return &ast.Assign{Base: base, Target: &ast.Identifier{Base: ast.Base{Token: name}, Name: name.Text}, Value: parse.expression(0), Constant: constant, Declaration: true}
+	}
+	value := parse.expression(0)
+	if parse.match("=") {
+		parse.assignmentTarget(value)
+		return &ast.Assign{Base: base, Target: value, Value: parse.expression(0)}
+	}
+	return &ast.ExpressionStmt{Base: base, Value: value}
+}
+
+func (parse *parser) assignmentTarget(value ast.Expr) {
+	switch value.(type) {
+	case *ast.Identifier, *ast.Index, *ast.Property:
+	default:
+		panic(syntaxError{value.Position().Errorf("invalid assignment target")})
+	}
+}
+
+func (parse *parser) loopBody() ([]ast.Stmt, []ast.Stmt) {
+	parse.loopDepth++
+	body := parse.block()
+	parse.loopDepth--
+	var otherwise []ast.Stmt
+	if parse.match("else") {
+		otherwise = parse.block()
+	}
+	return body, otherwise
 }
 
 func (parse *parser) class(base ast.Base) ast.Stmt {
@@ -168,12 +266,27 @@ func (parse *parser) class(base ast.Base) ast.Stmt {
 	parse.expect("{")
 	seen := map[string]bool{}
 	for !parse.at("}") && !parse.at(lexer.EOF) {
-		if !parse.at("def") {
-			panic(syntaxError{parse.current().Errorf("class bodies may only contain method definitions")})
+		access := "public"
+		if parse.at("public") || parse.at("private") || parse.at("protected") {
+			access = parse.take().Text
+		}
+		if parse.at("var") || parse.at("const") {
+			field := parse.statement().(*ast.Assign)
+			name := field.Target.(*ast.Identifier).Name
+			if seen[name] {
+				panic(syntaxError{field.Position().Errorf("duplicate member %q", name)})
+			}
+			seen[name] = true
+			declaration.Fields = append(declaration.Fields, &ast.Field{Base: field.Base, Name: name, Access: access, Constant: field.Constant, Value: field.Value})
+			continue
+		}
+		if !parse.at("function") {
+			panic(syntaxError{parse.current().Errorf("class bodies may only contain methods and field declarations")})
 		}
 		method := parse.statement().(*ast.Function)
-		if len(method.Parameters) == 0 || method.Parameters[0] != "self" {
-			panic(syntaxError{method.Position().Errorf("method %q must declare self as its first parameter", method.Name)})
+		method.Access = access
+		if len(method.Parameters) == 0 || method.Parameters[0] != "this" {
+			panic(syntaxError{method.Position().Errorf("method %q must declare this as its first parameter", method.Name)})
 		}
 		if seen[method.Name] {
 			panic(syntaxError{method.Position().Errorf("duplicate method %q", method.Name)})
@@ -213,6 +326,8 @@ func precedence(kind lexer.Kind) int {
 		return 5
 	case "(", "[", ".":
 		return 7
+	case "++", "--":
+		return 8
 	}
 	return 0
 }
@@ -229,11 +344,23 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		left = &ast.Literal{Base: base, Value: value}
 	case lexer.String:
 		left = &ast.Literal{Base: base, Value: token.Text}
+	case lexer.FString:
+		formatted := &ast.FormattedString{Base: base}
+		for _, part := range token.Parts {
+			if part.Kind == lexer.String {
+				formatted.Parts = append(formatted.Parts, &ast.Literal{Base: ast.Base{Token: part}, Value: part.Text})
+			} else {
+				nested := parser{tokens: part.Parts, depth: parse.depth}
+				formatted.Parts = append(formatted.Parts, nested.expression(0))
+				nested.expect(lexer.EOF)
+			}
+		}
+		left = formatted
 	case "true", "false":
 		left = &ast.Literal{Base: base, Value: token.Kind == "true"}
 	case "null":
 		left = &ast.Literal{Base: base}
-	case lexer.Ident:
+	case lexer.Ident, "this":
 		left = &ast.Identifier{Base: base, Name: token.Text}
 	case "super":
 		parse.expect(".")
@@ -245,6 +372,10 @@ func (parse *parser) expression(minimum int) ast.Expr {
 			binding = 2
 		}
 		left = &ast.Unary{Base: base, Operator: token.Text, Right: parse.expression(binding)}
+	case "++", "--":
+		target := parse.expression(6)
+		parse.assignmentTarget(target)
+		left = &ast.Update{Base: base, Target: target, Operator: token.Text, Prefix: true}
 	case "(":
 		left = parse.expression(0)
 		parse.expect(")")
@@ -271,8 +402,16 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		operator := parse.take()
 		base = ast.Base{Token: operator}
 		switch operator.Kind {
+		case "++", "--":
+			parse.assignmentTarget(left)
+			left = &ast.Update{Base: base, Target: left, Operator: operator.Text}
 		case ".":
-			member := parse.expect(lexer.Ident)
+			member := parse.current()
+			if parse.at("this") {
+				parse.take()
+			} else {
+				parse.expect(lexer.Ident)
+			}
 			left = &ast.Property{Base: ast.Base{Token: member}, Receiver: left, Name: member.Text}
 		case "(":
 			left = &ast.Call{Base: base, Function: left, Arguments: parse.expressions(")")}

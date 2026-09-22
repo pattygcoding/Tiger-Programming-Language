@@ -1,0 +1,22 @@
+/* C-style counting, loop completion, and structured recovery. */
+var total = 0;
+cfor (var index = 0; index < 6; ++index) {
+    switch index {
+        case 1:
+            continue;
+        default:
+            total = total + index;
+    }
+} else {
+    print(f"total: {total}");
+}
+
+for value in range(3, 0, -1) {
+    print(f"countdown: {value}");
+}
+
+try {
+    throw {"message": "demonstration error"};
+} catch (error) {
+    print(f"caught: {error["message"]}");
+}

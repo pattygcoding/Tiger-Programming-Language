@@ -27,6 +27,11 @@ type Literal struct {
 	Value any
 }
 
+type FormattedString struct {
+	Base
+	Parts []Expr
+}
+
 type Identifier struct {
 	Base
 	Name string
@@ -36,6 +41,13 @@ type Unary struct {
 	Base
 	Operator string
 	Right    Expr
+}
+
+type Update struct {
+	Base
+	Target   Expr
+	Operator string
+	Prefix   bool
 }
 
 type Binary struct {
@@ -84,13 +96,15 @@ type ExpressionStmt struct {
 
 type Assign struct {
 	Base
-	Target   Expr
-	Value    Expr
-	Constant bool
+	Target      Expr
+	Value       Expr
+	Constant    bool
+	Declaration bool
 }
 
 type Function struct {
 	Base
+	Access     string
 	Name       string
 	Parameters []string
 	Body       []Stmt
@@ -101,6 +115,15 @@ type Class struct {
 	Name    string
 	Parent  *Identifier
 	Methods []*Function
+	Fields  []*Field
+}
+
+type Field struct {
+	Base
+	Name     string
+	Access   string
+	Constant bool
+	Value    Expr
 }
 
 type Return struct {
@@ -123,6 +146,7 @@ type While struct {
 	Base
 	Condition Expr
 	Body      []Stmt
+	Else      []Stmt
 }
 
 type For struct {
@@ -130,23 +154,68 @@ type For struct {
 	Name     string
 	Iterable Expr
 	Body     []Stmt
+	Else     []Stmt
 }
 
-func (*Literal) expression()       {}
-func (*Identifier) expression()    {}
-func (*Unary) expression()         {}
-func (*Binary) expression()        {}
-func (*Call) expression()          {}
-func (*Index) expression()         {}
-func (*Property) expression()      {}
-func (*Super) expression()         {}
-func (*List) expression()          {}
-func (*Dict) expression()          {}
-func (*ExpressionStmt) statement() {}
-func (*Assign) statement()         {}
-func (*Function) statement()       {}
-func (*Class) statement()          {}
-func (*Return) statement()         {}
-func (*If) statement()             {}
-func (*While) statement()          {}
-func (*For) statement()            {}
+type CFor struct {
+	Base
+	Initializer Stmt
+	Condition   Expr
+	Update      Stmt
+	Body        []Stmt
+	Else        []Stmt
+}
+
+type Control struct {
+	Base
+	Kind string
+}
+
+type Throw struct {
+	Base
+	Value Expr
+}
+
+type Try struct {
+	Base
+	Body  []Stmt
+	Name  string
+	Catch []Stmt
+}
+
+type Case struct {
+	Value Expr
+	Body  []Stmt
+}
+
+type Switch struct {
+	Base
+	Value Expr
+	Cases []Case
+}
+
+func (*Literal) expression()         {}
+func (*FormattedString) expression() {}
+func (*Identifier) expression()      {}
+func (*Unary) expression()           {}
+func (*Update) expression()          {}
+func (*Binary) expression()          {}
+func (*Call) expression()            {}
+func (*Index) expression()           {}
+func (*Property) expression()        {}
+func (*Super) expression()           {}
+func (*List) expression()            {}
+func (*Dict) expression()            {}
+func (*ExpressionStmt) statement()   {}
+func (*Assign) statement()           {}
+func (*Function) statement()         {}
+func (*Class) statement()            {}
+func (*Return) statement()           {}
+func (*If) statement()               {}
+func (*While) statement()            {}
+func (*For) statement()              {}
+func (*CFor) statement()             {}
+func (*Control) statement()          {}
+func (*Switch) statement()           {}
+func (*Throw) statement()            {}
+func (*Try) statement()              {}

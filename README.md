@@ -68,20 +68,26 @@ For PowerShell, set `GOOS` to `wasip1` and `GOARCH` to `wasm` as above, build, t
 
 ## Language
 
+Formatted strings support Python-style interpolation: `print(f"Hello, {name}! Count: {len(items)}");`. Use `{{` and `}}` for literal braces. See [Strings](docs/strings.md) for details and supported syntax.
+
+Functions and methods use `function`. Declare variables with `const` for immutable bindings or `var` for mutable bindings; later assignments update an existing binding and cannot introduce a new name. `const` prevents rebinding, not mutation of a referenced collection or instance. Parameters and `for name in ...` headers declare their own local bindings. Comments use `//` or `/* ... */`; legacy `def` definitions and `#` comments are no longer supported.
+
+Methods explicitly receive `this`, replacing `self`. Class methods and declared fields are public by default; optional `public`, `private`, and `protected` modifiers control access. Tiger also supports prefix/postfix `++`/`--`, `cfor (var index = 0; index < limit; ++index)`, `range`, loop `else`, fall-through `switch`, `break`/`continue`, and `try`/`catch`/`throw`. See the [highlighting reference](docs/syntax-highlighting.md) for editor integration, the [control-flow example](examples/control_flow.tg), and the [batch queue](portfolio-features/batch_queue.tg) and [account audit](portfolio-features/account_audit.tg) portfolio programs.
+
 ```tg
 class Scoreboard {
-    def init(self, name) {
-        self.name = name;
-        self.points = 0;
+    function init(this, name) {
+        this.name = name;
+        this.points = 0;
     }
-    def add(self, points) {
-        self.points = self.points + points;
-        return self.name + ": " + str(self.points);
+    function add(this, points) {
+        this.points = this.points + points;
+        return this.name + ": " + str(this.points);
     }
 }
 
 class DoubleScore(Scoreboard) {
-    def add(self, points) { return super.add(points * 2); }
+    function add(this, points) { return super.add(points * 2); }
 }
 
 const score = DoubleScore("Tigers").add;
@@ -104,13 +110,13 @@ Explore the [Tiger tutorial and language reference](docs/README.md) for step-by-
 
 ## Regression Benchmarks
 
-Run all fifteen reference-output programs, including five OOP workloads:
+Run all seventeen reference-output programs, including OOP, control-flow, and exception workloads:
 
 ```sh
 go test ./benchmarks -count=1 -v
 ```
 
-`make benchmarks` runs the same checks; `go test ./...` includes them too. See [benchmarks/README.md](benchmarks/README.md) for coverage and filtering commands.
+`make benchmarks` runs the same checks; `go test ./...` includes them too, along with execution checks for every example and portfolio-feature program. See [benchmarks/README.md](benchmarks/README.md) for coverage and filtering commands.
 
 ## Layout
 
