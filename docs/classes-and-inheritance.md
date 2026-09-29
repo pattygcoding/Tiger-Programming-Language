@@ -1,6 +1,6 @@
 # 9. Classes and Inheritance
 
-[Previous: Functions and Closures](functions-and-closures.md) | [Guide index](README.md) | [Next: Built-ins](builtins.md)
+[Previous: Functions and Closures](functions-and-closures.md) | [Guide index](README.md) | [Next: Files](file-io.md)
 
 ## Create an Instance
 

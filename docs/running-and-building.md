@@ -65,7 +65,7 @@ GOOS=js GOARCH=wasm go build -o web/tiger.wasm ./cmd/wasm
 
 The Go support script must come from the same toolchain as the Wasm binary. It lives under `lib/wasm` on newer Go releases or `misc/wasm` on older ones; the helper handles both locations.
 
-The browser editor supports examples, Run, Stop, Reset, Clear, source download, and local source persistence. Ctrl+Enter or Cmd+Enter runs the source. Code executes in a worker, where `tigerRun(source)` returns an object with `output` and `error` strings. The bridge is not a main-page global. Each call gets a fresh evaluator environment.
+The browser editor supports examples, Run, Stop, Reset, Clear, source download, and local source persistence. Ctrl+Enter or Cmd+Enter runs the source. Code executes in a worker, where `tigerRun(source)` returns an object with `output` and `error` strings. The bridge is not a main-page global. Each call gets a fresh evaluator environment and a fresh in-memory filesystem, so file I/O in the playground never touches the host disk (see [Files](file-io.md)).
 
 For static deployment, publish the contents of `web/` and copy the example scripts into an `examples/` subdirectory beside the HTML. Serve over HTTP(S), not `file://`. No Node.js server or CDN is required. Rebuild the Wasm artifacts after changing the interpreter.
 
@@ -78,7 +78,7 @@ GOOS=wasip1 GOARCH=wasm go build -o bin/tiger-wasi.wasm ./cmd/wasi
 wasmtime run --dir . bin/tiger-wasi.wasm examples/demo.tg
 ```
 
-The WASI runtime must be installed separately and grant access to the source file. The WASI entry point accepts a `.tg` file directly; it does not expose the native CLI's `run` and `build` subcommands.
+The WASI runtime must be installed separately and grant access to the source file. File input and output reach only directories the host exposes; `wasmtime run --dir .` grants the current directory for both reading and writing. The WASI entry point accepts a `.tg` file directly; it does not expose the native CLI's `run` and `build` subcommands.
 
 PowerShell cross-compilation, preserving existing environment settings:
 
@@ -102,6 +102,8 @@ Use `GOOS=js` and `./cmd/wasm` for the browser target, or use the cross-platform
 Within this Go module, the simplest API is `evaluator.Run(source, writer)`. It parses and executes source, returns an error on failure, and writes `print` output to the supplied `io.Writer`. Passing `nil` discards output.
 
 Use `evaluator.RunFile(filename, writer)` for filesystem imports, or `RunWithLoader` with an explicit loader for virtual sources. The plain `Run` API does not read files. See [Importing Tiger Files](modules.md). Standalone builds bundle all literal import dependencies, including imports inside functions; WASI imports require the corresponding host filesystem access.
+
+`RunWithOptions(source, filename, loader, files, writer)` also selects a filesystem. Passing `nil` uses the host disk, `evaluator.NewMemoryFileSystem()` keeps file I/O in memory, and an `Evaluator` also accepts a custom `FileSystem` for embedding. See [Files](file-io.md).
 
 For a configurable step budget, parse once and execute explicitly:
 
@@ -139,7 +141,7 @@ go test ./benchmarks -count=1 -v
 go vet ./...
 ```
 
-The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks eighteen 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
+The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks nineteen 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
 
 | Make target | Purpose |
 | --- | --- |

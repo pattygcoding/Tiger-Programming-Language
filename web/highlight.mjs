@@ -6,7 +6,7 @@ const keywords = new Set([
   "import", "as",
 ]);
 const literals = new Set(["true", "false", "null"]);
-const builtins = new Set(["print", "str", "len", "range"]);
+const builtins = new Set(["print", "str", "len", "range", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file"]);
 const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|\+\+|--|\*\*|[=!<>+*%\-]=|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
 
 export function tokenize(source) {

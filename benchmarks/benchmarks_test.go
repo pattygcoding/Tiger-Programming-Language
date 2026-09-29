@@ -21,8 +21,8 @@ func TestCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 18 || len(outputs) != 18 {
-		t.Fatalf("want 18 Tiger programs and 18 expected outputs, got %d and %d", len(sources), len(outputs))
+	if len(sources) != 19 || len(outputs) != 19 {
+		t.Fatalf("want 19 Tiger programs and 19 expected outputs, got %d and %d", len(sources), len(outputs))
 	}
 	for _, output := range outputs {
 		if _, err := fixtures.ReadFile(strings.TrimSuffix(output, ".txt") + ".tg"); err != nil {
@@ -56,7 +56,7 @@ func TestPrograms(t *testing.T) {
 				t.Fatal(err)
 			}
 			var output bytes.Buffer
-			if err := evaluator.Run(text, &output); err != nil {
+			if err := evaluator.RunWithOptions(text, path, nil, evaluator.NewMemoryFileSystem(), &output); err != nil {
 				t.Fatalf("%s:%v", path, err)
 			}
 			if actual, want := normalize(output.String()), normalize(string(expected)); actual != want {

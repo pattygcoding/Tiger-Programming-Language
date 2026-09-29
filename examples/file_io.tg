@@ -1,0 +1,50 @@
+// File input and output.
+//
+// Relative paths resolve against the process working directory, so this
+// program creates its file next to wherever it runs and deletes it at the end.
+// The browser playground uses an in-memory filesystem with the same API.
+
+const PATH = "tiger_file_io_example.txt";
+
+print("wrote", write_file(PATH, "first line\nsecond line\n"));
+print("appended", append_file(PATH, "third line\n"));
+print("exists", file_exists(PATH), file_exists("tiger_file_io_absent.txt"));
+
+print("contents:");
+print(read_file(PATH), end="");
+
+const reader = open(PATH, "r");
+print("name/mode:", reader.name, reader.mode);
+var number = 0;
+while true {
+    const line = reader.readline();
+    if line == "" { break; }
+    number = number + 1;
+    print("line " + str(number) + ": " + line, end="");
+}
+reader.close();
+print("closed:", reader.closed);
+
+const probe = open(PATH, "r");
+print("tell:", probe.tell());
+print("first five:", probe.read(5));
+print("tell:", probe.tell());
+probe.seek(0, 2);
+print("size:", probe.tell());
+probe.close();
+
+const writer = open(PATH, "w");
+writer.writelines(["one\n", "two\n"]);
+writer.close();
+const counter = open(PATH, "r");
+print("after truncate:", len(counter.readlines()), "lines");
+counter.close();
+
+try {
+    open("tiger_file_io_absent.txt", "r");
+} catch (error) {
+    print("missing file is catchable:", "tiger_file_io_absent.txt" in str(error));
+}
+
+remove_file(PATH);
+print("removed:", file_exists(PATH));

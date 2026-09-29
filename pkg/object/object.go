@@ -35,7 +35,16 @@ type Module struct {
 	Env  *Environment
 }
 
+// File is an open file object. Handle is the evaluator's implementation of the
+// underlying byte stream and is opaque to this package.
+type File struct {
+	Name   string
+	Mode   string
+	Handle any
+}
+
 func (*Module) Type() string { return "module" }
+func (*File) Type() string   { return "file" }
 
 func (Number) Type() string       { return "number" }
 func (String) Type() string       { return "string" }
@@ -155,6 +164,8 @@ func format(value Value, seen map[Value]bool, nested bool) string {
 		return "<function " + typed.Declaration.Name + ">"
 	case *Module:
 		return "<module " + typed.Name + ">"
+	case *File:
+		return "<file " + strconv.Quote(typed.Name) + ">"
 	case *Class:
 		return "<class " + typed.Name + ">"
 	case *Instance:
