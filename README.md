@@ -76,6 +76,8 @@ Functions and methods use `function`. Declare variables with `const` for immutab
 
 `print` accepts an optional string ending, such as `print("working", end="");`. Lists and strings can report their length with `len(value)`, `value.size()`, or `value.length()`.
 
+Functions and methods may declare `*args` to collect extra positional arguments and `**kwargs` to collect unmatched keyword arguments. A call may unpack a list with `*items`, unpack a dictionary with `**mapping`, or pass `name=value` keywords that bind to parameters by name. See [Functions and Closures](docs/functions-and-closures.md).
+
 Methods explicitly receive `this`, replacing `self`. Class methods and declared fields are public by default; optional `public`, `private`, and `protected` modifiers control access. Tiger also supports prefix/postfix `++`/`--`, `cfor (var index = 0; index < limit; ++index)`, `range`, loop `else`, fall-through `switch`, `break`/`continue`, and `try`/`catch`/`throw`. See the [highlighting reference](docs/syntax-highlighting.md) for editor integration, the [control-flow example](examples/control_flow.tg), and the [batch queue](portfolio-features/batch_queue.tg) and [account audit](portfolio-features/account_audit.tg) portfolio programs.
 
 ```tg
@@ -114,7 +116,7 @@ Explore the [Tiger tutorial and language reference](docs/README.md) for step-by-
 
 ## Regression Benchmarks
 
-Run all seventeen reference-output programs, including OOP, control-flow, and exception workloads:
+Run all eighteen reference-output programs, including OOP, control-flow, exception, and variadic-call workloads:
 
 ```sh
 go test ./benchmarks -count=1 -v

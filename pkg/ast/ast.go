@@ -68,13 +68,22 @@ type Binary struct {
 type Call struct {
 	Base
 	Function  Expr
-	Arguments []Expr
+	Arguments []Argument
 	Keywords  []KeywordArgument
 }
 
+// Argument is one positional slot. Spread marks a star argument, "*value".
+type Argument struct {
+	Value  Expr
+	Spread bool
+}
+
+// KeywordArgument is one keyword slot. A non-spread entry is "name=value";
+// a spread entry is "**value".
 type KeywordArgument struct {
-	Name  string
-	Value Expr
+	Name   string
+	Value  Expr
+	Spread bool
 }
 
 type Index struct {
@@ -122,6 +131,8 @@ type Function struct {
 	Access     string
 	Name       string
 	Parameters []string
+	Variadic   string
+	Keyword    string
 	Body       []Stmt
 }
 

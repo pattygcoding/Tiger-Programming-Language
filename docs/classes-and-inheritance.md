@@ -28,7 +28,7 @@ Output:
 primary
 ```
 
-`class Name { ... }` declares a class in the current lexical scope. Class bodies contain methods and `var`/`const` field declarations. Every method explicitly declares `this` as its first parameter; calls through an instance supply it automatically. `this` is a reserved receiver name and cannot be rebound inside a method.
+`class Name { ... }` declares a class in the current lexical scope. Class bodies contain methods and `var`/`const` field declarations. Every method explicitly declares `this` as its first parameter; a method may then list named parameters followed by `*rest` and `**options` (see [Functions and Closures](functions-and-closures.md)). Calls through an instance supply `this` automatically. `this` is a reserved receiver name and cannot be rebound inside a method.
 
 Calling a class creates a fresh instance, evaluates declared field initializers from ancestors to descendants in source order, then invokes `init`. Initializers run once per instance, may refer to `this`, and have their declaring class's access context. Dynamic public fields can still be created by assignment through an instance reference. `const` on an instance variable prevents rebinding that variable, not updating its mutable fields.
 

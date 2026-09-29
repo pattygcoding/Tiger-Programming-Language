@@ -68,3 +68,32 @@ func TestCompoundAssignmentTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestStarAndDoubleStarTokens(t *testing.T) {
+	tokens, err := Scan("function f(*rest, **options) { return rest * 2 * options; }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Kind{"function", Ident, "(", "*", Ident, ",", "**", Ident, ")", "{", "return", Ident, "*", Number, "*", Ident, ";", "}", EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("tokens: %#v", tokens)
+	}
+	for index, kind := range want {
+		if tokens[index].Kind != kind {
+			t.Errorf("token %d: got %s, want %s", index, tokens[index].Kind, kind)
+		}
+	}
+	calls, err := Scan("collect(*items, **mapping, key=\"value\");")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCalls := []Kind{Ident, "(", "*", Ident, ",", "**", Ident, ",", Ident, "=", String, ")", ";", EOF}
+	if len(calls) != len(wantCalls) {
+		t.Fatalf("tokens: %#v", calls)
+	}
+	for index, kind := range wantCalls {
+		if calls[index].Kind != kind {
+			t.Errorf("call token %d: got %s, want %s", index, calls[index].Kind, kind)
+		}
+	}
+}

@@ -387,13 +387,46 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		}
 	case *ast.Call:
 		function := eval.expression(node.Function, env)
-		arguments := make([]object.Value, len(node.Arguments))
-		for index, argument := range node.Arguments {
-			arguments[index] = eval.expression(argument, env)
+		arguments := make([]object.Value, 0, len(node.Arguments))
+		for _, argument := range node.Arguments {
+			value := eval.expression(argument.Value, env)
+			if !argument.Spread {
+				arguments = append(arguments, value)
+				continue
+			}
+			list, ok := value.(*object.List)
+			if !ok {
+				fail(node, "cannot unpack %s in a call; expected a list", value.Type())
+			}
+			arguments = append(arguments, list.Elements...)
 		}
-		keywords := make(map[string]object.Value, len(node.Keywords))
-		for _, keyword := range node.Keywords {
-			keywords[keyword.Name] = eval.expression(keyword.Value, env)
+		keywords := make([]keyword, 0, len(node.Keywords))
+		seen := map[string]bool{}
+		for _, entry := range node.Keywords {
+			value := eval.expression(entry.Value, env)
+			if !entry.Spread {
+				if seen[entry.Name] {
+					fail(node, "duplicate keyword argument %q", entry.Name)
+				}
+				seen[entry.Name] = true
+				keywords = append(keywords, keyword{name: entry.Name, value: value})
+				continue
+			}
+			dict, ok := value.(*object.Dict)
+			if !ok {
+				fail(node, "cannot unpack %s in a call; expected a dictionary", value.Type())
+			}
+			for _, pair := range dict.Entries {
+				name, ok := pair.Key.(object.String)
+				if !ok {
+					fail(node, "keyword argument names must be strings, got %s", pair.Key.Type())
+				}
+				if seen[string(name)] {
+					fail(node, "duplicate keyword argument %q", string(name))
+				}
+				seen[string(name)] = true
+				keywords = append(keywords, keyword{name: string(name), value: pair.Value})
+			}
 		}
 		return eval.call(node, function, arguments, keywords, env)
 	}

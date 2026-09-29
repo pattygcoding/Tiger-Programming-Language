@@ -46,7 +46,7 @@ Tiger! [1, 2, 3]
 
 `+`, `-`, `*`, `/`, and `%` accept numbers. Division always produces a number, so `7 / 2` is `3.5`. Modulo follows the divisor's sign. Division and modulo by zero are errors. Unary `+` and `-` require a number.
 
-`+` also concatenates two strings or two lists. Mixed-type arithmetic does not implicitly convert values. Use `str` when constructing text. `//` begins a comment; it is not integer division. Exponentiation is not implemented.
+`+` also concatenates two strings or two lists. Mixed-type arithmetic does not implicitly convert values. Use `str` when constructing text. `//` begins a comment; it is not integer division. Exponentiation is not implemented. `*` and `**` are never arithmetic-power operators: in a call they unpack a list and a dictionary, and in a parameter list they declare `*args` and `**kwargs`.
 
 `+=`, `-=`, `*=`, and `%=` read an assignable target, apply the matching arithmetic operator, and store the result. They work with the same operand types as `+`, `-`, `*`, and `%`; for example, `items += [next]` appends by list concatenation. Variables, instance fields, and list/dictionary entries are valid targets. The receiver and index expressions are evaluated once. Prefix and postfix `++`/`--` update numeric assignable targets; see [Control Flow](control-flow.md).
 

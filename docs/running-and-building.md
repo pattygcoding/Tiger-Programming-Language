@@ -139,7 +139,7 @@ go test ./benchmarks -count=1 -v
 go vet ./...
 ```
 
-The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks seventeen 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
+The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks eighteen 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
 
 | Make target | Purpose |
 | --- | --- |

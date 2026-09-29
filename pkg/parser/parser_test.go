@@ -93,6 +93,41 @@ func TestKeywordArguments(t *testing.T) {
 	}
 }
 
+func TestVariadicAndSpreadSyntax(t *testing.T) {
+	for _, source := range []string{
+		`function collect(first, *rest, **options) { return rest; }`,
+		`function only(*rest) { return rest; }`,
+		`function only(**options) { return options; }`,
+		`function keyword_first(**options) {}`,
+		`function mixed(a, b, *rest, **options) {}`,
+		`class Item { function method(this, *rest, **options) {} }`,
+		`const numbers = [1, 2]; collect(*numbers);`,
+		`collect(**{"a": 1});`,
+		`collect(1, *numbers, key="value", **{"other": 2});`,
+	} {
+		if _, err := Parse(source); err != nil {
+			t.Errorf("%s: %v", source, err)
+		}
+	}
+	for _, source := range []string{
+		`function bad(*rest, *more) {}`,
+		`function bad(**options, **more) {}`,
+		`function bad(**options, *rest) {}`,
+		`function bad(first, *first) {}`,
+		`function bad(a, *rest, extra) {}`,
+		`function bad(*) {}`,
+		`function bad(**) {}`,
+		`class Item { function method(*rest) {} }`,
+		`collect(*numbers, key="value", 2);`,
+		`collect(key="value", *numbers);`,
+		`value = 1 ** 2;`,
+	} {
+		if _, err := Parse(source); err == nil {
+			t.Errorf("expected syntax error: %s", source)
+		}
+	}
+}
+
 func TestImports(t *testing.T) {
 	program, err := Parse(`import "lib/math.tg" as math; print(math.square(3));`)
 	if err != nil {

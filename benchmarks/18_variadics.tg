@@ -1,0 +1,175 @@
+const TITLE = "Variadic and keyword arguments";
+
+function sum_all(*values) {
+    var total = 0;
+    for value in values {
+        total = total + value;
+    }
+    return total;
+}
+
+function product_all(first, *rest) {
+    var result = first;
+    for value in rest {
+        result = result * value;
+    }
+    return result;
+}
+
+function summarize(*values, **options) {
+    var total = 0;
+    var maximum = null;
+    for value in values {
+        total = total + value;
+        if maximum == null or value > maximum {
+            maximum = value;
+        }
+    }
+    var name = "summary";
+    if "name" in options {
+        name = options["name"];
+    }
+    var scale = 1;
+    if "scale" in options {
+        scale = options["scale"];
+    }
+    return {
+        "name": name,
+        "count": len(values),
+        "total": total * scale,
+        "max": maximum,
+    };
+}
+
+function configure(**options) {
+    const settings = {"width": 80, "height": 24, "title": "untitled"};
+    for key in options {
+        settings[key] = options[key];
+    }
+    return settings;
+}
+
+function rectangle(width, height) {
+    return [width, height, width * height];
+}
+
+function join_text(separator, *parts, **options) {
+    var text = "";
+    var first = true;
+    for part in parts {
+        if first {
+            text = str(part);
+            first = false;
+        } else {
+            text = text + separator + str(part);
+        }
+    }
+    if "suffix" in options {
+        text = text + options["suffix"];
+    }
+    return text;
+}
+
+function dispatch(action, *args, **kwargs) {
+    if action == "sum" {
+        return sum_all(*args);
+    } elif action == "product" {
+        return product_all(*args);
+    } elif action == "rect" {
+        return rectangle(*args, **kwargs);
+    } else {
+        return null;
+    }
+}
+
+function tag_names(**named) {
+    var names = [];
+    for key in named {
+        names = names + [key];
+    }
+    return names;
+}
+
+class Accumulator {
+    function init(this, start, *steps, **options) {
+        this.total = start;
+        this.history = [];
+        this.label = "acc";
+        if "label" in options {
+            this.label = options["label"];
+        }
+        for step in steps {
+            this.total = this.total + step;
+            this.history = this.history + [this.total];
+        }
+    }
+    function push(this, *values) {
+        for value in values {
+            this.total = this.total + value;
+            this.history = this.history + [this.total];
+        }
+        return this.total;
+    }
+    function describe(this) {
+        return f"{this.label}:{this.total}:{len(this.history)}";
+    }
+}
+
+class NamedAccumulator(Accumulator) {
+    function init(this, name, start, *steps, **options) {
+        super.init(start, *steps, **options);
+        this.name = name;
+    }
+    function describe(this) {
+        return this.name + " " + super.describe();
+    }
+}
+
+print(TITLE);
+
+print("sum:", sum_all(), sum_all(4), sum_all(1, 2, 3), sum_all(*[10, 20, 30]));
+print("product:", product_all(5), product_all(2, 3, 4), product_all(*[1, 2, 3, 4]));
+
+print("summary:", summarize(3, 1, 4, 1, 5));
+print("summary named:", summarize(2, 4, name="measures", scale=2));
+print("summary empty:", summarize());
+
+print("configure:", configure());
+print("configure a:", configure(width=100, title="panel"));
+print("configure b:", configure(**{"height": 30, "title": "grid"}));
+
+print("rectangle:", rectangle(3, 4));
+print("rectangle spread:", rectangle(*[5, 6]));
+print("rectangle keywords:", rectangle(height=8, width=2));
+print("rectangle mapping:", rectangle(**{"height": 9, "width": 3}));
+
+print("join:", join_text("-", "a", "b", "c"));
+print("join one:", join_text("-", "solo"));
+print("join suffix:", join_text("+", *[1, 2, 3], suffix="!"));
+
+print("dispatch sum:", dispatch("sum", 1, 2, 3, 4));
+print("dispatch product:", dispatch("product", *[2, 5, 3]));
+print("dispatch rect:", dispatch("rect", *[4, 5]));
+print("dispatch mixed:", dispatch("rect", 2, **{"height": 7}));
+print("dispatch none:", dispatch("unknown", 1));
+
+print("tags:", tag_names(alpha=1, beta=2, gamma=3));
+print("tags empty:", tag_names());
+
+print("accumulator:", Accumulator(10, 1, 2, 3).describe());
+print("accumulator named:", Accumulator(0, 5, label="tally").describe());
+print("accumulator push:", Accumulator(1).push(2, 3, 4));
+
+const named = NamedAccumulator("ledger", 100, 10, 20, label="book");
+print("named accumulator:", named.describe());
+print("named total:", named.total, named.history);
+
+const pipeline = [1, 2, 3, 4, 5];
+print("pipeline:", sum_all(*pipeline), product_all(*pipeline));
+print("pipeline slice:", join_text(",", *["x", "y"]));
+
+const shared = {"scale": 3, "name": "shared"};
+print("shared:", summarize(1, 2, **shared));
+
+print("nested:", summarize(*[1, 2, 3], **{"scale": 10, "name": "nested"}));
+print("forwarded:", dispatch("sum", *[7, 8, 9]));
