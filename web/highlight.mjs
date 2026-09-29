@@ -7,7 +7,7 @@ const keywords = new Set([
 ]);
 const literals = new Set(["true", "false", "null"]);
 const builtins = new Set(["print", "str", "len", "range"]);
-const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|[=!<>+*%\-]=|\+\+|--|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
+const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|\+\+|--|\*\*|[=!<>+*%\-]=|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
 
 export function tokenize(source) {
   const result = [];

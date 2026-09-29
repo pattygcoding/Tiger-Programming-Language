@@ -56,6 +56,8 @@ protected public return super switch this throw true try var while
 
 `import "helpers.tg" as helpers;` declares a module alias. Import statements require semicolons; see [Importing Tiger Files](modules.md).
 
+A function or method parameter list may end with one `*args` declaration and then one `**kwargs` declaration. In a call, `*value` unpacks a list into positional arguments and `**value` unpacks a dictionary into keyword arguments. `*` and `**` are not exponentiation; see [Functions and Closures](functions-and-closures.md).
+
 ## Comments and Strings
 
 `//` starts a single-line comment. `/*` starts a block comment, which ends at the next `*/` and may span multiple lines. Block comments do not nest; an unclosed block comment is a syntax error. `#` is not a comment marker. Inside quoted strings, comment markers are ordinary characters. Multiline string literals are not supported.

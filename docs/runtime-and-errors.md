@@ -21,7 +21,13 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | `index out of range` | List or string index exceeds bounds | Check `len` before indexing |
 | `index must be an integer` | Index is fractional or not numeric | Use an integer-valued number |
 | `dictionary key not found` | Missing dictionary entry | Check `key in dictionary` first |
-| `expects ... arguments` | Function, constructor, or method arity mismatch | Match the declared parameters; omit bound `this` |
+| `expects ... arguments` | Function, constructor, or method arity mismatch | Match the declared parameters; omit bound `this`; use `*args` for extra positional arguments |
+| `missing required argument` | A variadic function did not receive a required named parameter | Pass the missing argument positionally or by keyword |
+| `unexpected keyword argument` | A keyword argument has no matching parameter | Match a parameter name or declare `**kwargs` |
+| `multiple values for argument` | One parameter received both a positional and a keyword argument | Pass each value once |
+| `duplicate keyword argument` | A keyword name was supplied twice, directly or through `**` | Remove the repeated name |
+| `cannot unpack ... expected a list` | A `*` argument expanded to a non-list | Spread a list instead |
+| `cannot unpack ... expected a dictionary` | A `**` argument expanded to a non-dictionary | Spread a dictionary with string keys |
 | `has no property` | Instance member does not exist | Initialize the field or check the method name |
 | `super requires a parent class` | A parent method is requested in a class without a parent | Add inheritance or remove the delegation |
 
@@ -99,7 +105,7 @@ These safeguards are not a memory limit, a wall-clock deadline, or a security gu
 
 ## Current Language Boundaries
 
-Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md), but has no package manager, general file or network I/O built-ins, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or keyword arguments. Numbers are float64, not arbitrary-precision integers.
+Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md) and variadic `*args`/`**kwargs` parameters with `*`/`**` call unpacking, but has no package manager, general file or network I/O built-ins, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or default parameter values. Numbers are float64, not arbitrary-precision integers.
 
 There is no exponentiation. `+=`, `-=`, `*=`, `%=`, `++`/`--`, `break`, `continue`, `switch`, loop `else`, and C-style `cfor` are supported. `//` is a comment marker, not integer division. Classes support one parent, explicit `this`, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
 

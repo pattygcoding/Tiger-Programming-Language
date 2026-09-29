@@ -26,7 +26,7 @@ test("identifiers include Unicode and do not invent type keywords", () => {
 
 test("decimal and exponent numbers, operators, and punctuation", () => {
   assert.deepEqual(tokens("12 3.5 1e2 2E-3 4e+" ).map(({ kind }) => kind), Array(5).fill("number"));
-  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ --".split(" ")) {
+  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- **".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "operator" }]);
   }
   for (const text of "()[]{}:;,.") {
@@ -51,6 +51,27 @@ test("strings protect comment markers and handle escapes", () => {
   assert.deepEqual(tokens('// "hello"\n// true'), [
     { text: '// "hello"', kind: "comment" },
     { text: "// true", kind: "comment" },
+  ]);
+});
+
+test("variadic and unpack markers tokenize as operators", () => {
+  assert.deepEqual(tokens("*args"), [
+    { text: "*", kind: "operator" },
+    { text: "args", kind: "identifier" },
+  ]);
+  assert.deepEqual(tokens("**kwargs"), [
+    { text: "**", kind: "operator" },
+    { text: "kwargs", kind: "identifier" },
+  ]);
+  assert.deepEqual(tokens("f(*items, **mapping)"), [
+    { text: "f", kind: "identifier" },
+    { text: "(", kind: "punctuation" },
+    { text: "*", kind: "operator" },
+    { text: "items", kind: "identifier" },
+    { text: ",", kind: "punctuation" },
+    { text: "**", kind: "operator" },
+    { text: "mapping", kind: "identifier" },
+    { text: ")", kind: "punctuation" },
   ]);
 });
 

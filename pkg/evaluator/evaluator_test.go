@@ -216,6 +216,46 @@ func TestFormattedStrings(t *testing.T) {
 	}
 }
 
+func TestVariadicArguments(t *testing.T) {
+	tests := []struct{ source, want string }{
+		{`function collect(first, *rest, **options) { return str(first) + " " + str(rest) + " " + str(options); } print(collect(1, 2, 3, name="a"));`, "1 [2, 3] {\"name\": \"a\"}\n"},
+		{`function options(**named) { return len(named); } print(options(a=1, b=2), options());`, "2 0\n"},
+		{`function point(x, y) { return x * 10 + y; } print(point(y=2, x=1), point(3, 4));`, "12 34\n"},
+		{`function add3(a, b, c) { return a + b + c; } const values = [1, 2, 3]; print(add3(*values));`, "6\n"},
+		{`function label(text, end) { return text + end; } const config = {"text": "a", "end": "b"}; print(label(**config));`, "ab\n"},
+		{`function inner(first, *rest, **opts) { return str(first) + str(rest) + str(opts); } function outer(*args, **kwargs) { return inner(0, *args, **kwargs); } print(outer(1, 2, flag=true));`, "0[1, 2]{\"flag\": true}\n"},
+		{`class Counter { function init(this) { this.value = 0; } function add(this, *amounts) { for amount in amounts { this.value = this.value + amount; } return this.value; } } print(Counter().add(1, 2, 3));`, "6\n"},
+		{`class Point { function init(this, *coords) { this.coords = coords; } } print(Point(1, 2, 3).coords);`, "[1, 2, 3]\n"},
+		{`function keys(**named) { var result = []; for key in named { result = result + [key]; } return result; } print(keys(one=1, two=2, three=3));`, "[\"one\", \"two\", \"three\"]\n"},
+		{`function grow(*rest) { rest = rest + [9]; return rest; } print(grow(1), grow());`, "[1, 9] [9]\n"},
+		{`function mix(a, *rest, **named) { return [a, rest, named]; } print(mix(1, *[2, 3], **{"k": 4}));`, "[1, [2, 3], {\"k\": 4}]\n"},
+		{`class Base { function init(this, *values) { this.values = values; } } class Child(Base) { function init(this, first, *rest) { super.init(*rest); this.first = first; } } const child = Child(1, 2, 3); print(child.first, child.values);`, "1 [2, 3]\n"},
+	}
+	for _, test := range tests {
+		var output bytes.Buffer
+		if err := Run(test.source, &output); err != nil || output.String() != test.want {
+			t.Errorf("%s: got %q, %v; want %q", test.source, output.String(), err, test.want)
+		}
+	}
+	for _, test := range []struct{ source, message string }{
+		{`function f(**options) {} f(1);`, "expects 0 arguments"},
+		{`function f(a) {} f();`, "expects 1 arguments"},
+		{`function f(a) {} f(1, 2);`, "expects 1 arguments"},
+		{`class Item {} Item(key="value");`, "expects 0 arguments"},
+		{`function f(a, *rest, **options) {} f();`, "missing required argument"},
+		{`function f(a) {} f(bad=1);`, "unexpected keyword argument"},
+		{`function f(a) {} f(1, a=2);`, "multiple values for argument"},
+		{`function f(**options) {} f(a=1, **{"a": 2});`, "duplicate keyword argument"},
+		{`function f(*rest) {} f(*1);`, "cannot unpack number"},
+		{`function f(**options) {} f(**1);`, "cannot unpack number"},
+		{`function f(**options) {} f(**{1: 2});`, "keyword argument names must be strings"},
+	} {
+		if err := Run(test.source, nil); err == nil || !strings.Contains(err.Error(), test.message) {
+			t.Errorf("%s: expected %q, got %v", test.source, test.message, err)
+		}
+	}
+}
+
 type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("output closed") }

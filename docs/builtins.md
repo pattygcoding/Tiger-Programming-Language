@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Classes and Inheritance](classes-and-inheritance.md) | [Runtime and Errors](runtime-and-errors.md)
 
-Tiger provides four built-ins: `print`, `str`, `len`, and `range`. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them.
+Tiger provides four built-ins: `print`, `str`, `len`, and `range`. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
 
 ## print(...values, end="\n")
 

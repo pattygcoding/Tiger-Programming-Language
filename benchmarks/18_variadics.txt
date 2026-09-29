@@ -1,0 +1,33 @@
+Variadic and keyword arguments
+sum: 0 4 6 60
+product: 5 24 24
+summary: {"name": "summary", "count": 5, "total": 14, "max": 5}
+summary named: {"name": "measures", "count": 2, "total": 12, "max": 4}
+summary empty: {"name": "summary", "count": 0, "total": 0, "max": null}
+configure: {"width": 80, "height": 24, "title": "untitled"}
+configure a: {"width": 100, "height": 24, "title": "panel"}
+configure b: {"width": 80, "height": 30, "title": "grid"}
+rectangle: [3, 4, 12]
+rectangle spread: [5, 6, 30]
+rectangle keywords: [2, 8, 16]
+rectangle mapping: [3, 9, 27]
+join: a-b-c
+join one: solo
+join suffix: 1+2+3!
+dispatch sum: 10
+dispatch product: 30
+dispatch rect: [4, 5, 20]
+dispatch mixed: [2, 7, 14]
+dispatch none: null
+tags: ["alpha", "beta", "gamma"]
+tags empty: []
+accumulator: acc:16:3
+accumulator named: tally:5:1
+accumulator push: 10
+named accumulator: ledger book:130:2
+named total: 130 [110, 130]
+pipeline: 15 120
+pipeline slice: x,y
+shared: {"name": "shared", "count": 2, "total": 9, "max": 2}
+nested: {"name": "nested", "count": 3, "total": 60, "max": 3}
+forwarded: 24

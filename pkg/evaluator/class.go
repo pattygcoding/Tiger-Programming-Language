@@ -88,29 +88,38 @@ func lengthMethod(name string, length object.Number) object.Value {
 	}}
 }
 
-func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []object.Value, keywords map[string]object.Value, env *object.Environment) object.Value {
+// keyword is one evaluated keyword argument in call order. An ordered slice is
+// used instead of a map so that **kwargs preserves the caller's order and
+// duplicates can be detected.
+type keyword struct {
+	name  string
+	value object.Value
+}
+
+func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []object.Value, keywords []keyword, env *object.Environment) object.Value {
 	switch callable := function.(type) {
 	case *object.Builtin:
-		value, err := callable.Call(arguments, keywords)
+		table := make(map[string]object.Value, len(keywords))
+		for _, entry := range keywords {
+			table[entry.name] = entry.value
+		}
+		value, err := callable.Call(arguments, table)
 		check(node, err)
 		return value
 	case *object.Function:
-		rejectKeywords(node, keywords)
-		return eval.invoke(node, callable, arguments, nil)
+		return eval.invoke(node, callable, arguments, keywords, nil)
 	case *object.BoundMethod:
-		rejectKeywords(node, keywords)
-		return eval.invoke(node, callable.Method.Function, arguments, callable)
+		return eval.invoke(node, callable.Method.Function, arguments, keywords, callable)
 	case *object.Class:
-		rejectKeywords(node, keywords)
 		instance := &object.Instance{Class: callable, Fields: map[string]object.Value{}}
 		if initializer := callable.FindMethod("init"); initializer != nil {
 			accessible(node, initializer.Function.Declaration.Access, initializer.Owner, env)
 		}
 		eval.initializeFields(instance, callable)
 		if initializer := callable.FindMethod("init"); initializer != nil {
-			eval.call(node, &object.BoundMethod{Method: initializer, Receiver: instance}, arguments, nil, env)
-		} else if len(arguments) != 0 {
-			fail(node, "%s expects 0 arguments, got %d", callable.Name, len(arguments))
+			eval.call(node, &object.BoundMethod{Method: initializer, Receiver: instance}, arguments, keywords, env)
+		} else if len(arguments) != 0 || len(keywords) != 0 {
+			fail(node, "%s expects 0 arguments", callable.Name)
 		}
 		return instance
 	default:
@@ -119,20 +128,18 @@ func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []ob
 	return object.Null{}
 }
 
-func rejectKeywords(node ast.Node, keywords map[string]object.Value) {
-	if len(keywords) != 0 {
-		fail(node, "keyword arguments are only supported by built-in functions")
-	}
-}
-
-func (eval *Evaluator) invoke(node ast.Node, function *object.Function, arguments []object.Value, bound *object.BoundMethod) object.Value {
+func (eval *Evaluator) invoke(node ast.Node, function *object.Function, arguments []object.Value, keywords []keyword, bound *object.BoundMethod) object.Value {
 	declaration := function.Declaration
 	parameters := declaration.Parameters
 	if bound != nil {
 		parameters = parameters[1:]
 	}
-	if len(arguments) != len(parameters) {
-		fail(node, "%s expects %d arguments, got %d", declaration.Name, len(parameters), len(arguments))
+	fixed := len(parameters)
+	if len(arguments) > fixed && declaration.Variadic == "" {
+		fail(node, "%s expects %d arguments, got %d", declaration.Name, fixed, len(arguments))
+	}
+	if len(arguments) < fixed && declaration.Variadic == "" && len(keywords) == 0 {
+		fail(node, "%s expects %d arguments, got %d", declaration.Name, fixed, len(arguments))
 	}
 	scope := object.NewEnvironment(function.Env)
 	if bound != nil {
@@ -140,13 +147,60 @@ func (eval *Evaluator) invoke(node ast.Node, function *object.Function, argument
 		check(node, scope.Define("this", bound.Receiver, true))
 		check(node, scope.Define("super", &object.Super{Parent: bound.Method.Owner.Parent, Receiver: bound.Receiver}, true))
 	}
+	assigned := make(map[string]bool, fixed)
 	for index, parameter := range parameters {
+		if index >= len(arguments) {
+			break
+		}
 		check(node, scope.Define(parameter, arguments[index], false))
+		assigned[parameter] = true
+	}
+	if declaration.Variadic != "" {
+		extra := []object.Value{}
+		if len(arguments) > fixed {
+			extra = append(extra, arguments[fixed:]...)
+		}
+		check(node, scope.Define(declaration.Variadic, &object.List{Elements: extra}, false))
+	}
+	collected := &object.Dict{}
+	for _, entry := range keywords {
+		if contains(parameters, entry.name) {
+			if assigned[entry.name] {
+				fail(node, "%s got multiple values for argument %q", declaration.Name, entry.name)
+			}
+			check(node, scope.Define(entry.name, entry.value, false))
+			assigned[entry.name] = true
+			continue
+		}
+		if declaration.Keyword == "" {
+			fail(node, "%s got an unexpected keyword argument %q", declaration.Name, entry.name)
+		}
+		if _, exists, _ := collected.Get(object.String(entry.name)); exists {
+			fail(node, "%s got multiple values for keyword argument %q", declaration.Name, entry.name)
+		}
+		check(node, collected.Set(object.String(entry.name), entry.value))
+	}
+	for _, parameter := range parameters {
+		if !assigned[parameter] {
+			fail(node, "%s missing required argument %q", declaration.Name, parameter)
+		}
+	}
+	if declaration.Keyword != "" {
+		check(node, scope.Define(declaration.Keyword, collected, false))
 	}
 	if result := eval.block(declaration.Body, scope); result != nil {
 		return result.value
 	}
 	return object.Null{}
+}
+
+func contains(names []string, name string) bool {
+	for _, candidate := range names {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (eval *Evaluator) initializeFields(instance *object.Instance, class *object.Class) {

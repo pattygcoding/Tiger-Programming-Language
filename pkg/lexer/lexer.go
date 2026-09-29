@@ -170,7 +170,13 @@ func (scan *scanner) tokens(interpolation bool, depth int) ([]Token, error) {
 				if scan.peek(0) == current || scan.peek(0) == '=' {
 					token.Text += string(scan.advance())
 				}
-			case '*', '%':
+			case '*':
+				if scan.peek(0) == '*' {
+					token.Text += string(scan.advance())
+				} else if scan.peek(0) == '=' {
+					token.Text += string(scan.advance())
+				}
+			case '%':
 				if scan.peek(0) == '=' {
 					token.Text += string(scan.advance())
 				}

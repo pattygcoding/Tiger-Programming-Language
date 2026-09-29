@@ -115,20 +115,55 @@ func (parse *parser) statement() ast.Stmt {
 		name := parse.expect(lexer.Ident).Text
 		parse.expect("(")
 		parameters := []string{}
+		variadic, keyword := "", ""
 		seen := map[string]bool{}
 		if !parse.at(")") {
 			for {
 				parameter := parse.current()
-				if parse.at("this") {
+				star, doubleStar := parse.at("*"), parse.at("**")
+				if star || doubleStar {
+					marker := parse.take()
+					if doubleStar {
+						if keyword != "" {
+							panic(syntaxError{marker.Errorf("function may declare at most one **kwargs parameter")})
+						}
+					} else {
+						if keyword != "" {
+							panic(syntaxError{marker.Errorf("*args cannot follow **kwargs")})
+						}
+						if variadic != "" {
+							panic(syntaxError{marker.Errorf("function may declare at most one *args parameter")})
+						}
+					}
+					declaration := parse.current()
+					if declaration.Kind != lexer.Ident {
+						panic(syntaxError{declaration.Errorf("expected a parameter name after %q", marker.Text)})
+					}
 					parse.take()
+					if seen[declaration.Text] {
+						panic(syntaxError{declaration.Errorf("duplicate parameter %q", declaration.Text)})
+					}
+					seen[declaration.Text] = true
+					if doubleStar {
+						keyword = declaration.Text
+					} else {
+						variadic = declaration.Text
+					}
 				} else {
-					parse.expect(lexer.Ident)
+					if variadic != "" {
+						panic(syntaxError{parameter.Errorf("parameter %q cannot follow *args; only **kwargs may follow", parameter.Text)})
+					}
+					if parse.at("this") {
+						parse.take()
+					} else {
+						parse.expect(lexer.Ident)
+					}
+					if seen[parameter.Text] {
+						panic(syntaxError{parameter.Errorf("duplicate parameter %q", parameter.Text)})
+					}
+					seen[parameter.Text] = true
+					parameters = append(parameters, parameter.Text)
 				}
-				if seen[parameter.Text] {
-					panic(syntaxError{parameter.Errorf("duplicate parameter %q", parameter.Text)})
-				}
-				seen[parameter.Text] = true
-				parameters = append(parameters, parameter.Text)
 				if !parse.match(",") || parse.at(")") {
 					break
 				}
@@ -141,7 +176,7 @@ func (parse *parser) statement() ast.Stmt {
 		body := parse.block()
 		parse.loopDepth, parse.switchDepth = loopDepth, switchDepth
 		parse.functionDepth--
-		return &ast.Function{Base: base, Name: name, Parameters: parameters, Body: body}
+		return &ast.Function{Base: base, Name: name, Parameters: parameters, Variadic: variadic, Keyword: keyword, Body: body}
 	case parse.match("return"):
 		if parse.functionDepth == 0 {
 			panic(syntaxError{base.Token.Errorf("return outside a function")})
@@ -454,7 +489,17 @@ func (parse *parser) call(base ast.Base, function ast.Expr) ast.Expr {
 	seenNames := map[string]bool{}
 	if !parse.at(")") {
 		for {
-			if parse.at(lexer.Ident) && parse.pos+1 < len(parse.tokens) && parse.tokens[parse.pos+1].Kind == "=" {
+			if parse.at("**") {
+				parse.take()
+				seenKeyword = true
+				call.Keywords = append(call.Keywords, ast.KeywordArgument{Spread: true, Value: parse.expression(0)})
+			} else if parse.at("*") {
+				marker := parse.take()
+				if seenKeyword {
+					panic(syntaxError{marker.Errorf("positional argument cannot follow a keyword argument")})
+				}
+				call.Arguments = append(call.Arguments, ast.Argument{Spread: true, Value: parse.expression(0)})
+			} else if parse.at(lexer.Ident) && parse.pos+1 < len(parse.tokens) && parse.tokens[parse.pos+1].Kind == "=" {
 				seenKeyword = true
 				name := parse.take()
 				parse.take()
@@ -467,7 +512,7 @@ func (parse *parser) call(base ast.Base, function ast.Expr) ast.Expr {
 				if seenKeyword {
 					panic(syntaxError{parse.current().Errorf("positional argument cannot follow a keyword argument")})
 				}
-				call.Arguments = append(call.Arguments, parse.expression(0))
+				call.Arguments = append(call.Arguments, ast.Argument{Value: parse.expression(0)})
 			}
 			if !parse.match(",") || parse.at(")") {
 				break

@@ -23,9 +23,78 @@ Output:
 7 null null
 ```
 
-Use `function`, a required parenthesized parameter list, and a braced body. Parameters are positional, and the number of arguments must match exactly. Duplicate parameter names are syntax errors. There are no default arguments, keyword arguments, variadic user functions, or anonymous/lambda expressions.
+Use `function`, a required parenthesized parameter list, and a braced body. Named parameters fill positionally, and the number of arguments must match exactly unless the declaration is variadic. Duplicate parameter names are syntax errors. There are no default values or anonymous/lambda expressions; declare `*args` and `**kwargs` when a call needs optional arguments.
 
-Arguments are evaluated left to right. Parameters are local mutable bindings. User-defined functions accept positional arguments only; keyword argument syntax is reserved for supported built-ins such as `print(..., end="")`. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
+Arguments are evaluated left to right. Parameters are local mutable bindings. Calls may pass positional arguments, `name=value` keyword arguments, `*list` to unpack a list positionally, and `**dict` to unpack a dictionary into keyword arguments. A keyword argument binds to a parameter with the same name; when no such parameter exists it goes to `**kwargs`, or the call fails when the declaration has no `**kwargs`. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
+
+## Variadic and Keyword Parameters
+
+A trailing `*name` collects extra positional arguments into a list, and a trailing `**name` collects unmatched keyword arguments into a dictionary. Both are optional, and `**kwargs` must come last.
+
+```tg
+function describe(name, *tags, **options) {
+    return f"{name} tags={tags} options={options}";
+}
+print(describe("tiger", "wild", "striped", size="large"));
+print(describe("cub", order="carnivore"));
+```
+
+Output:
+
+```text
+tiger tags=["wild", "striped"] options={"size": "large"}
+cub tags=[] options={"order": "carnivore"}
+```
+
+`tags` is always a list, empty when no extra positional arguments are supplied. `options` is always a dictionary, and it preserves the order in which the caller wrote the keywords. A function may declare only `*args` or only `**kwargs`; `function total(*values) {}` and `function settings(**fields) {}` are both valid.
+
+## Unpacking Calls
+
+An argument prefixed with `*` expands a list, and an argument prefixed with `**` expands a dictionary. Keywords bind to parameters by name before falling through to `**kwargs`.
+
+```tg
+function total(first, *rest) {
+    var sum = first;
+    for value in rest {
+        sum = sum + value;
+    }
+    return sum;
+}
+function point(x, y) {
+    return [x, y];
+}
+const numbers = [1, 2, 3];
+const center = {"x": 4, "y": 5};
+print(total(*numbers), total(10, *[20, 30]));
+print(point(1, 2), point(y=9, x=8), point(*[3, 4]), point(**center));
+```
+
+Output:
+
+```text
+6 60
+[1, 2] [8, 9] [3, 4] [4, 5]
+```
+
+Unpacking composes with forwarding, so a wrapper can relay every argument it received. A `*` argument must expand to a list and a `**` argument must expand to a dictionary; any other value is a runtime error. A `**` dictionary must use string keys. Duplicate keyword names, whether written directly or produced by a `**` expansion, are errors.
+
+```tg
+function log(level, *messages, **fields) {
+    return f"{level}: {messages} {fields}";
+}
+function forward(*args, **kwargs) {
+    return log("info", *args, **kwargs);
+}
+print(forward("started", user="ada"));
+```
+
+Output:
+
+```text
+info: ["started"] {"user": "ada"}
+```
+
+The same rules apply to methods and constructors: a method still declares `this` first, then any named parameters, then `*rest` and `**options`.
 
 ## Recursion
 
@@ -120,4 +189,4 @@ Each loop iteration has a fresh binding for `factor`. The callbacks retain those
 
 ## Try It
 
-Write `make_multiplier(factor)` that returns a function. Create independent doubling and tripling functions, then pass one to `map_values`.
+Write `make_multiplier(factor)` that returns a function. Create independent doubling and tripling functions, then pass one to `map_values`. Then write `total(*values)` that sums any number of numbers and call it with `total(*[1, 2, 3])`.

@@ -17,6 +17,7 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 | Literal values | `true false null` | `constant.language.tiger` |
 | Built-in calls | `print str len range` | `support.function.tiger` |
 | Arithmetic / update | `+ - * / % ++ --` | `keyword.operator.arithmetic.tiger` |
+| Variadic / unpack markers | `*` and `**` inside a parameter list or call | `punctuation.tiger` or `keyword.operator.tiger` |
 | Assignment / comparison | `= += -= *= %= == != < <= > >=` | `keyword.operator.tiger` |
 | Delimiters | `( ) [ ] { } , ; : .` | `punctuation.tiger` |
 | Numbers | Decimal digits, optional fractional digits, optional `e`/`E` exponent with optional sign | `constant.numeric.tiger` |
@@ -27,9 +28,9 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 | Block comments | `/*` through the next `*/`, including newlines; no nesting | `comment.block.tiger` |
 | Identifiers | Unicode letter or `_`, followed by letters, decimal digits, or `_` | `variable.other.tiger` |
 
-Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, and `>=` before their single-character prefixes. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
+Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, and `>=` before their single-character prefixes. Match `**` before `*` so that `*args`, `**kwargs`, `*items`, and `**mapping` tokenize as a marker plus a name or value. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
 
-`range` is a built-in binding, not a reserved keyword. `init` is a conventional constructor name, not a keyword. `self`, `def`, `number`, `string`, `bool`, `int`, and `float` are ordinary identifiers. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, `&&`, `||`, or standalone `!` operators. F-string format specifications and conversions are not supported.
+`range` is a built-in binding, not a reserved keyword. `init` is a conventional constructor name, not a keyword. `self`, `def`, `number`, `string`, `bool`, `int`, and `float` are ordinary identifiers. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, `&&`, `||`, or standalone `!` operators, and `**` is not exponentiation. F-string format specifications and conversions are not supported.
 
 Within f-strings, highlight literal text as string, interpolation delimiters as punctuation, and embedded expressions using normal Tiger token rules. Track nested dictionary braces, quoted strings, comments, and nested f-strings so their braces do not prematurely close an interpolation. Doubled literal braces are string text. The `f`/`F` prefix must directly precede the opening quote.
 
@@ -56,6 +57,7 @@ Semantic classification needs scope resolution. A lightweight lexical highlighte
 - Recover incomplete strings at newline; allow an unfinished block comment to remain colored to end of file while typing.
 - Distinguish declaration names, parameters, member names, constants, and calls when semantic information is available.
 - Highlight prefix and postfix updates identically as operators.
+- Treat `*` and `**` as markers before a name in a parameter list or before a value in a call, and match `**` before `*`.
 - Fold class/function/loop/try/catch/switch bodies and multiline comments.
 - Do not treat switch-label colons as Python-style block syntax.
 - Test Unicode identifiers, escaped quotes, comment markers in strings, adjacent operators, and incomplete input.
