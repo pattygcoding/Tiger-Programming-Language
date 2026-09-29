@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Classes and Inheritance](classes-and-inheritance.md) | [Runtime and Errors](runtime-and-errors.md)
 
-Tiger provides four built-ins: `print`, `str`, `len`, and `range`. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
+Tiger provides the general built-ins `print`, `str`, `len`, and `range`, plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, and `remove_file` described in [Files](file-io.md). Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration in an inner scope or a parameter can shadow them. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
 
 ## print(...values, end="\n")
 
@@ -95,7 +95,7 @@ len does not accept number
 
 ## What Is Not Built In
 
-There is no `input`, `int`, `float`, `type`, `isinstance`, `sum`, `sorted`, general file API, or standard library. Share helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
+There is no `input`, `int`, `float`, `type`, `isinstance`, `sum`, `sorted`, network API, or standard library. File input and output use the helpers and file objects in [Files](file-io.md). Share other helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
 
 ## range(stop), range(start, stop), range(start, stop, step)
 

@@ -29,6 +29,7 @@ type Evaluator struct {
 	Output      io.Writer
 	MaxSteps    int
 	Loader      ModuleLoader
+	FileSystem  FileSystem
 	SourcePath  string
 	modules     map[string]*object.Module
 	loading     map[string]bool
@@ -593,6 +594,9 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 				return nil, fmt.Errorf("len does not accept %s", value.Type())
 			}
 		},
+	}
+	for name, function := range eval.fileBuiltins() {
+		functions[name] = function
 	}
 	for name, function := range functions {
 		_ = env.Define(name, &object.Builtin{Name: name, Call: function}, true)

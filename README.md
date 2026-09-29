@@ -74,7 +74,7 @@ Formatted strings support Python-style interpolation: `print(f"Hello, {name}! Co
 
 Functions and methods use `function`. Declare variables with `const` for immutable bindings or `var` for mutable bindings; later assignments update an existing binding and cannot introduce a new name. Compound `+=`, `-=`, `*=`, and `%=` assignments are supported. `const` prevents rebinding, not mutation of a referenced collection or instance. Parameters and `for name in ...` headers declare their own local bindings. Comments use `//` or `/* ... */`; legacy `def` definitions and `#` comments are no longer supported.
 
-`print` accepts an optional string ending, such as `print("working", end="");`. Lists and strings can report their length with `len(value)`, `value.size()`, or `value.length()`.
+`print` accepts an optional string ending, such as `print("working", end="");`. Lists and strings can report their length with `len(value)`, `value.size()`, or `value.length()`. Read and write files with `open`, `read_file`, `write_file`, `append_file`, `file_exists`, and `remove_file`; see [Files](docs/file-io.md).
 
 Functions and methods may declare `*args` to collect extra positional arguments and `**kwargs` to collect unmatched keyword arguments. A call may unpack a list with `*items`, unpack a dictionary with `**mapping`, or pass `name=value` keywords that bind to parameters by name. See [Functions and Closures](docs/functions-and-closures.md).
 
@@ -116,7 +116,7 @@ Explore the [Tiger tutorial and language reference](docs/README.md) for step-by-
 
 ## Regression Benchmarks
 
-Run all eighteen reference-output programs, including OOP, control-flow, exception, and variadic-call workloads:
+Run all nineteen reference-output programs, including OOP, control-flow, exception, variadic-call, and file-I/O workloads:
 
 ```sh
 go test ./benchmarks -count=1 -v

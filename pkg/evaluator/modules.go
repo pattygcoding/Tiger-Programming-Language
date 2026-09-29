@@ -75,12 +75,19 @@ func RunFile(filename string, output io.Writer) error {
 }
 
 func RunWithLoader(source, filename string, loader ModuleLoader, output io.Writer) error {
+	return RunWithOptions(source, filename, loader, nil, output)
+}
+
+// RunWithOptions runs source with both a module loader and a filesystem. A nil
+// filesystem uses the host disk; browser builds and tests supply a memory
+// filesystem instead.
+func RunWithOptions(source, filename string, loader ModuleLoader, files FileSystem, output io.Writer) error {
 	program, err := parser.ParseSource(source, filename)
 	if err != nil {
 		return err
 	}
 	eval := New(output)
-	eval.SourcePath, eval.Loader = filename, loader
+	eval.SourcePath, eval.Loader, eval.FileSystem = filename, loader, files
 	return eval.Execute(program)
 }
 

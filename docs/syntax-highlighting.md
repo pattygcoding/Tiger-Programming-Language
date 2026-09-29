@@ -15,7 +15,7 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 | Receiver / parent | `this super` | `variable.language.tiger` |
 | Word operators | `and or not in` | `keyword.operator.word.tiger` |
 | Literal values | `true false null` | `constant.language.tiger` |
-| Built-in calls | `print str len range` | `support.function.tiger` |
+| Built-in calls | `print str len range open read_file write_file append_file file_exists remove_file` | `support.function.tiger` |
 | Arithmetic / update | `+ - * / % ++ --` | `keyword.operator.arithmetic.tiger` |
 | Variadic / unpack markers | `*` and `**` inside a parameter list or call | `punctuation.tiger` or `keyword.operator.tiger` |
 | Assignment / comparison | `= += -= *= %= == != < <= > >=` | `keyword.operator.tiger` |
@@ -30,7 +30,7 @@ Use `.tg` as the source extension and `tiger` as the editor language ID. The aut
 
 Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, and `>=` before their single-character prefixes. Match `**` before `*` so that `*args`, `**kwargs`, `*items`, and `**mapping` tokenize as a marker plus a name or value. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
 
-`range` is a built-in binding, not a reserved keyword. `init` is a conventional constructor name, not a keyword. `self`, `def`, `number`, `string`, `bool`, `int`, and `float` are ordinary identifiers. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, `&&`, `||`, or standalone `!` operators, and `**` is not exponentiation. F-string format specifications and conversions are not supported.
+`range`, `open`, and the other built-ins are ordinary bindings, not reserved keywords. `init` is a conventional constructor name, not a keyword. `self`, `def`, `number`, `string`, `bool`, `int`, and `float` are ordinary identifiers. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, `&&`, `||`, or standalone `!` operators, and `**` is not exponentiation. F-string format specifications and conversions are not supported.
 
 Within f-strings, highlight literal text as string, interpolation delimiters as punctuation, and embedded expressions using normal Tiger token rules. Track nested dictionary braces, quoted strings, comments, and nested f-strings so their braces do not prematurely close an interpolation. Doubled literal braces are string text. The `f`/`F` prefix must directly precede the opening quote.
 

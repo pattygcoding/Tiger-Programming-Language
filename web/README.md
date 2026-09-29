@@ -23,7 +23,7 @@ built-in names can be shadowed and are still colored as built-ins.
 | Word operators | `and or not in`, styled as keywords |
 | Punctuation | `(` `)` `[` `]` `{` `}` `:` `,` `;` `.` |
 | Identifiers | Unicode letters or `_`, followed by Unicode letters, decimal digits, or `_` |
-| Built-in functions | `print str len range` |
+| Built-in functions | `print str len range open read_file write_file append_file file_exists remove_file` |
 
 Tiger is dynamically typed. There are **no reserved primitive-type names or type
 annotations**: `number`, `string`, `bool`, `int`, and `float` remain identifiers.
@@ -65,6 +65,8 @@ The playground already does this for example loading, Reset, and Tab insertion.
 Local storage, downloads, and Wasm execution use only the original textarea value.
 
 The worker accepts `tigerRun(source, filename)`; the optional filename controls relative imports. The editor persists its source path alongside source text. Imports load same-origin `.tg` URLs synchronously inside the worker, leaving the page responsive and stoppable. Deploy imported module directories with the examples. Editor downloads contain only the entry source, not its dependencies. See [module semantics](../docs/modules.md).
+
+The browser has no host filesystem, so each run receives a fresh in-memory filesystem. `open`, `read_file`, `write_file`, `append_file`, `file_exists`, and `remove_file` work against it for the duration of the run, which keeps file-I/O examples runnable in the playground without touching the user's disk. See [Files](../docs/file-io.md).
 
 Both layers share padding, font, line height, tab width, and disabled ligatures.
 Lines do not wrap. A resize observer matches the mirror to the textarea's client

@@ -51,10 +51,10 @@ func main() {
 			loader := browserLoader{}
 			filename, err = loader.Resolve("", filename)
 			if err == nil {
-				err = evaluator.RunWithLoader(args[0].String(), filename, loader, &output)
+				err = evaluator.RunWithOptions(args[0].String(), filename, loader, evaluator.NewMemoryFileSystem(), &output)
 			}
 		} else {
-			err = evaluator.Run(args[0].String(), &output)
+			err = evaluator.RunWithOptions(args[0].String(), filename, nil, evaluator.NewMemoryFileSystem(), &output)
 		}
 		message := ""
 		if err != nil {

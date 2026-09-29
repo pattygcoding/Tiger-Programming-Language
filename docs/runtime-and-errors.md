@@ -30,6 +30,10 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | `cannot unpack ... expected a dictionary` | A `**` argument expanded to a non-dictionary | Spread a dictionary with string keys |
 | `has no property` | Instance member does not exist | Initialize the field or check the method name |
 | `super requires a parent class` | A parent method is requested in a class without a parent | Add inheritance or remove the delegation |
+| `file ... is not open for reading` | Read attempted on a stream opened without read access | Open with `r`, `r+`, `w+`, or `a+` |
+| `file ... is not open for writing` | Write attempted on a read-only stream | Open with `w`, `a`, `r+`, `w+`, or `a+` |
+| `I/O operation on closed file` | A file object is used after `close()` | Close once, only when finished |
+| `open ... no such file` | Path does not exist or is not readable | Check `file_exists` or catch the error |
 
 ## Error Examples
 
@@ -105,7 +109,7 @@ These safeguards are not a memory limit, a wall-clock deadline, or a security gu
 
 ## Current Language Boundaries
 
-Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md) and variadic `*args`/`**kwargs` parameters with `*`/`**` call unpacking, but has no package manager, general file or network I/O built-ins, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or default parameter values. Numbers are float64, not arbitrary-precision integers.
+Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md), [file input and output](file-io.md), and variadic `*args`/`**kwargs` parameters with `*`/`**` call unpacking, but has no package manager, network API, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or default parameter values. Numbers are float64, not arbitrary-precision integers.
 
 There is no exponentiation. `+=`, `-=`, `*=`, `%=`, `++`/`--`, `break`, `continue`, `switch`, loop `else`, and C-style `cfor` are supported. `//` is a comment marker, not integer division. Classes support one parent, explicit `this`, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
 

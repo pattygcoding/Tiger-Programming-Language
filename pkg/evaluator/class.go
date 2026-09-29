@@ -52,6 +52,8 @@ func property(node *ast.Property, receiver object.Value, env *object.Environment
 			return value
 		}
 		fail(node, "module %q has no export %q", typed.Name, node.Name)
+	case *object.File:
+		return fileProperty(node, typed)
 	case *object.Instance:
 		memberAccess(node, typed.Class, node.Name, env, false)
 		if field, exists := typed.Fields[node.Name]; exists {

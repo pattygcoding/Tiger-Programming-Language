@@ -1,0 +1,137 @@
+// 19_file_io.tg - file input and output regression workload.
+//
+// Exercises the write_file, append_file, read_file, file_exists, and
+// remove_file helpers plus open along with the file-object methods read,
+// readline, readlines, write, writelines, flush, close, seek, and tell.
+// Modes "r", "w", "a", "r+", "a+", "wb", and "rb" are covered, and every
+// failure path is handled with try/catch. The program creates its own data
+// and removes it before exiting, so it leaves no files behind.
+
+const REPORT = "tiger_file_io_report.txt";
+const RAW = "tiger_file_io_raw.bin";
+const MISSING = "tiger_file_io_missing.txt";
+
+function is_space(char) {
+    return char == " " or char == "\t" or char == "\r";
+}
+
+function trim(text) {
+    var start = 0;
+    var end = len(text);
+    while start < end and is_space(text[start]) { start = start + 1; }
+    while end > start and is_space(text[end - 1]) { end = end - 1; }
+    var result = "";
+    cfor (var index = start; index < end; ++index) {
+        result = result + text[index];
+    }
+    return result;
+}
+
+function split_lines(text) {
+    var parts = [];
+    var current = "";
+    for char in text {
+        if char == "\n" {
+            parts = parts + [current];
+            current = "";
+        } else {
+            current = current + char;
+        }
+    }
+    if current != "" { parts = parts + [current]; }
+    return parts;
+}
+
+function first_line(text) {
+    const parts = split_lines(text);
+    if len(parts) == 0 { return ""; }
+    return parts[0];
+}
+
+function summarize(text) {
+    return str(len(text)) + " bytes in " + str(len(split_lines(text))) + " lines";
+}
+
+function main() {
+    print("write_file:", write_file(REPORT, "alpha\nbeta\ngamma\n"));
+    print("append_file:", append_file(REPORT, "delta\n"));
+    print("read_file bytes:", len(read_file(REPORT)));
+    print("read_file lines:", len(split_lines(read_file(REPORT))));
+    print("summary:", summarize(read_file(REPORT)));
+
+    const reader = open(REPORT, "r");
+    print("reader name:", reader.name);
+    print("reader mode:", reader.mode);
+    print("reader closed:", reader.closed);
+    var number = 0;
+    while true {
+        const line = reader.readline();
+        if line == "" { break; }
+        number = number + 1;
+        print("readline", number, trim(line));
+    }
+    reader.close();
+    print("reader closed after close:", reader.closed);
+
+    print("readlines count:", len(open(REPORT).readlines()));
+    print("first line:", first_line(read_file(REPORT)));
+
+    const probe = open(REPORT, "r");
+    print("tell start:", probe.tell());
+    print("read 5:", probe.read(5));
+    print("tell after read:", probe.tell());
+    print("seek 6:", probe.seek(6));
+    print("readline from 6:", trim(probe.readline()));
+    print("tell at end:", probe.tell(), probe.tell() > 0);
+    probe.close();
+
+    const writer = open(REPORT, "w");
+    print("write:", writer.write("fresh\n"));
+    print("writelines:", writer.writelines(["one\n", "two\n"]));
+    writer.flush();
+    writer.close();
+    print("after truncate:", len(read_file(REPORT)));
+    print("after truncate lines:", len(split_lines(read_file(REPORT))));
+
+    const update = open(REPORT, "r+");
+    const before = update.read();
+    update.seek(0);
+    update.write("FRESH");
+    update.close();
+    print("r+ replaced:", first_line(read_file(REPORT)), len(before));
+
+    const log = open(REPORT, "a+");
+    print("a+ append:", log.write("tail\n"));
+    log.seek(0);
+    print("a+ lines:", len(log.readlines()));
+    log.close();
+
+    const binary = open(RAW, "wb");
+    print("binary write:", binary.write("PQRS"));
+    binary.close();
+    const raw = open(RAW, "rb");
+    print("binary read:", raw.read());
+    print("binary tell:", raw.tell());
+    raw.close();
+
+    print("exists:", file_exists(REPORT), file_exists(RAW), file_exists(MISSING));
+    remove_file(RAW);
+    print("raw removed:", file_exists(RAW));
+
+    try { read_file(MISSING); } catch (error) { print("missing file:", str(error)); }
+    try { open(REPORT, "q"); } catch (error) { print("bad mode:", str(error)); }
+    try { open(REPORT, "r").write("no"); } catch (error) { print("read only:", str(error)); }
+    try { open(REPORT, "w").read(); } catch (error) { print("write only:", str(error)); }
+    try {
+        const closed = open(REPORT);
+        closed.close();
+        closed.read();
+    } catch (error) { print("closed stream:", str(error)); }
+    try { remove_file(MISSING); } catch (error) { print("missing remove:", str(error)); }
+
+    remove_file(REPORT);
+    print("report removed:", file_exists(REPORT));
+    print("done");
+}
+
+main();

@@ -1,0 +1,46 @@
+write_file: 17
+append_file: 6
+read_file bytes: 23
+read_file lines: 4
+summary: 23 bytes in 4 lines
+reader name: tiger_file_io_report.txt
+reader mode: r
+reader closed: false
+readline 1 alpha
+
+readline 2 beta
+
+readline 3 gamma
+
+readline 4 delta
+
+reader closed after close: true
+readlines count: 4
+first line: alpha
+tell start: 0
+read 5: alpha
+tell after read: 5
+seek 6: 6
+readline from 6: beta
+
+tell at end: 11 true
+write: 6
+writelines: null
+after truncate: 14
+after truncate lines: 3
+r+ replaced: FRESH 14
+a+ append: 5
+a+ lines: 4
+binary write: 4
+binary read: PQRS
+binary tell: 4
+exists: true true false
+raw removed: false
+missing file: 19_file_io.tg:121:20: open tiger_file_io_missing.txt: file does not exist
+bad mode: 19_file_io.tg:122:15: invalid mode "q"
+read only: 19_file_io.tg:123:34: file "tiger_file_io_report.txt" is not open for writing
+write only: 19_file_io.tg:124:33: file "tiger_file_io_report.txt" is not open for reading
+closed stream: 19_file_io.tg:128:20: I/O operation on closed file
+missing remove: 19_file_io.tg:130:22: remove tiger_file_io_missing.txt: file does not exist
+report removed: false
+done

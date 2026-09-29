@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all eighteen programs and compare their output with the corresponding checked-in `.txt` files:
+Run all nineteen programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 go test ./benchmarks -count=1 -v
@@ -34,6 +34,7 @@ go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
 | `16_control_flow.tg` | Prefix/postfix updates, cfor, range, loop else, switch, break/continue |
 | `17_access_exceptions.tg` | Public defaults, restricted fields/methods, this, try/catch/throw, recovery, f-string interpolation |
 | `18_variadics.tg` | `*args`/`**kwargs` collection, keyword binding, `*`/`**` call unpacking, variadic methods and constructors |
+| `19_file_io.tg` | File helpers, open modes, file-object methods, seek/tell, binary streams, catchable file errors |
 
 Run only the five OOP programs:
 
@@ -41,7 +42,7 @@ Run only the five OOP programs:
 go test ./benchmarks -run 'TestPrograms/1[1-5]_' -count=1 -v
 ```
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly eighteen source files and eighteen matching output files exist. Every program executes in a fresh evaluator with the normal execution limits.
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly nineteen source files and nineteen matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 
