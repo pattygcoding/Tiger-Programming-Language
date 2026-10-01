@@ -1,0 +1,150 @@
+/* Expression calculator: a tokenizer, a recursive-descent parser that builds an AST, and an evaluator with variables and functions. */
+const DIGITS = "0123456789.";
+const LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+const FUNCTIONS = {"sqrt": math.sqrt, "abs": math.abs, "max": math.max, "min": math.min, "round": math.round, "floor": math.floor};
+
+function tokenize(source) {
+    var tokens = [];
+    var i = 0;
+    while i < len(source) {
+        const ch = source[i];
+        cif (ch == " ") { i++; } celse cif (ch in DIGITS) {
+            var text = "";
+            while i < len(source) and source[i] in DIGITS { text += source[i++]; }
+            tokens += [{"kind": "number", "text": text, "at": i - len(text)}];
+        } celse cif (ch in LETTERS) {
+            var name = "";
+            while i < len(source) and (source[i] in LETTERS or source[i] in DIGITS) { name += source[i++]; }
+            tokens += [{"kind": "name", "text": name, "at": i - len(name)}];
+        } celse cif (ch in "+-*/%^(),=") {
+            tokens += [{"kind": ch, "text": ch, "at": i++}];
+        } celse {
+            throw f"unexpected character '{ch}' at column {i + 1}";
+        }
+    }
+    return tokens + [{"kind": "end", "text": "end of input", "at": len(source)}];
+}
+
+class Parser {
+    private var tokens;
+    private var position = 0;
+    Parser(source) { this.tokens = tokenize(source); }
+
+    private function peek() { return this.tokens[this.position]["kind"]; }
+    private function advance() { return this.tokens[this.position++]; }
+    private function expect(kind) {
+        const token = this.advance();
+        if token["kind"] == kind { return token; }
+        throw f"expected '{kind}' but found '{token["text"]}' at column {token["at"] + 1}";
+    }
+
+    function statement() {
+        var node = this.expression();
+        if this.peek() == "=" and node["type"] == "variable" {
+            this.advance();
+            node = {"type": "assign", "name": node["name"], "value": this.expression()};
+        }
+        this.expect("end");
+        return node;
+    }
+
+    function expression() {
+        var node = this.term();
+        while this.peek() == "+" or this.peek() == "-" {
+            node = {"type": "binary", "op": this.advance()["kind"], "left": node, "right": this.term()};
+        }
+        return node;
+    }
+
+    function term() {
+        var node = this.unary();
+        while this.peek() == "*" or this.peek() == "/" or this.peek() == "%" {
+            node = {"type": "binary", "op": this.advance()["kind"], "left": node, "right": this.unary()};
+        }
+        return node;
+    }
+
+    function unary() {
+        if this.peek() == "-" { this.advance(); return {"type": "negate", "value": this.unary()}; }
+        const base = this.primary();
+        if this.peek() == "^" { this.advance(); return {"type": "binary", "op": "^", "left": base, "right": this.unary()}; }
+        return base;
+    }
+
+    function primary() {
+        const token = this.advance();
+        switch token["kind"] {
+            case "number": return {"type": "number", "value": float(token["text"])};
+            case "(":
+                const inner = this.expression();
+                this.expect(")");
+                return inner;
+            case "name":
+                if this.peek() != "(" { return {"type": "variable", "name": token["text"]}; }
+                this.advance();
+                var args = [];
+                while this.peek() != ")" {
+                    if args { this.expect(","); }
+                    args += [this.expression()];
+                }
+                this.expect(")");
+                return {"type": "call", "name": token["text"], "args": args};
+        }
+        throw f"unexpected '{token["text"]}' at column {token["at"] + 1}";
+    }
+}
+
+function show(node) {
+    switch node["type"] {
+        case "number": return str(node["value"]);
+        case "variable": return node["name"];
+        case "negate": return "(-" + show(node["value"]) + ")";
+        case "assign": return node["name"] + " = " + show(node["value"]);
+        case "binary": return "(" + show(node["left"]) + " " + node["op"] + " " + show(node["right"]) + ")";
+    }
+    var parts = "";
+    for arg in node["args"] { parts += (parts and ", " or "") + show(arg); }
+    return node["name"] + "(" + parts + ")";
+}
+
+var variables = {"pi": 3.141592653589793};
+
+function evaluate(node) {
+    switch node["type"] {
+        case "number": return node["value"];
+        case "negate": return -evaluate(node["value"]);
+        case "variable":
+            if node["name"] in variables { return variables[node["name"]]; }
+            throw f"unknown variable '{node["name"]}'";
+        case "assign":
+            variables[node["name"]] = evaluate(node["value"]);
+            return variables[node["name"]];
+        case "call":
+            if not (node["name"] in FUNCTIONS) { throw f"unknown function '{node["name"]}'"; }
+            var values = [];
+            for arg in node["args"] { values += [evaluate(arg)]; }
+            return FUNCTIONS[node["name"]](*values);
+    }
+    const left = evaluate(node["left"]);
+    const right = evaluate(node["right"]);
+    switch node["op"] {
+        case "+": return left + right;
+        case "-": return left - right;
+        case "*": return left * right;
+        case "^": return math.pow(left, right);
+    }
+    if right == 0 { throw "division by zero"; }
+    return node["op"] == "/" and left / right or left % right;
+}
+
+const program = ["1 + 2 * 3", "(1 + 2) * 3", "2 ^ 3 ^ 2", "-2 ^ 2", "r = 3", "area = pi * r ^ 2", "round(area * 100) / 100",
+    "hyp = sqrt(3 ^ 2 + 4 ^ 2)", "max(hyp, 2 * r) % 4", "2 +", "(1 + 2", "4 / (r - 3)", "3 $ 4", "y * 2", "nope(1)"];
+for line in program {
+    try {
+        const tree = Parser(line).statement();
+        print(f"{line}  =>  {show(tree)}  =>  {evaluate(tree)}");
+    } catch (error) {
+        print(f"{line}  =>  error: {error}");
+    }
+}
+print("variables:", variables);

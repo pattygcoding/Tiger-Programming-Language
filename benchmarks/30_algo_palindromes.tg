@@ -1,0 +1,134 @@
+/* Algo module: palindrome functions cross-checked against brute-force Tiger versions. */
+print("Palindromes");
+
+print(algo.palindromeValid("A man, a plan, a canal: Panama"));
+print(algo.palindromeCanBeValid("abca"));
+print(algo.palindromeLongest("babad"));
+print(algo.palindromeCount("aaa"));
+print(algo.palindromeMinCuts("aab"));
+
+function is_pal(s, left, right) {
+    var i = left;
+    var j = right;
+    while i < j {
+        if s[i] != s[j] {
+            return false;
+        }
+        i++;
+        j--;
+    }
+    return true;
+}
+
+function brute_count(s) {
+    var count = 0;
+    for start in range(len(s)) {
+        cfor (var end = start; end < len(s); end++) {
+            if is_pal(s, start, end) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+function brute_longest(s) {
+    var best_start = 0;
+    var best_length = 0;
+    for start in range(len(s)) {
+        cfor (var end = start; end < len(s); end++) {
+            if end - start + 1 > best_length and is_pal(s, start, end) {
+                best_start = start;
+                best_length = end - start + 1;
+            }
+        }
+    }
+    var result = "";
+    cfor (var i = best_start; i < best_start + best_length; i++) {
+        result += s[i];
+    }
+    return result;
+}
+
+function brute_cuts(s) {
+    var cuts = [0];
+    cfor (var end = 1; end <= len(s); end++) {
+        var best = end;
+        cfor (var start = 0; start < end; start++) {
+            if is_pal(s, start, end - 1) {
+                best = math.min(best, cuts[start] + 1);
+            }
+        }
+        cuts += [best];
+    }
+    return math.max(cuts[len(s)] - 1, 0);
+}
+
+function brute_can_be(s) {
+    if is_pal(s, 0, len(s) - 1) {
+        return true;
+    }
+    for skip in range(len(s)) {
+        var rest = "";
+        for i in range(len(s)) {
+            if i != skip {
+                rest += s[i];
+            }
+        }
+        if is_pal(rest, 0, len(rest) - 1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const sentences = ["A man, a plan, a canal: Panama", "race a car", "", " ", "0P", "Was it a car or a cat I saw?", "No 'x' in Nixon", "Tiger", "12321", "Madam, I'm Adam"];
+for s in sentences {
+    print(f"valid '{s}': {algo.palindromeValid(s)}");
+}
+
+const words = ["", "a", "ab", "aba", "abca", "abc", "racecar", "banana", "abacdfgdcaba", "cbbd", "noonabbad", "aabbaa", "tiger", "level", "deeee", "cbbcc"];
+var agree = 0;
+for s in words {
+    const can = algo.palindromeCanBeValid(s);
+    const longest = algo.palindromeLongest(s);
+    const count = algo.palindromeCount(s);
+    const cuts = algo.palindromeMinCuts(s);
+    if can == brute_can_be(s) and longest == brute_longest(s) and count == brute_count(s) and cuts == brute_cuts(s) {
+        agree++;
+    }
+    print(f"'{s}': {can} '{longest}' {count} {cuts}");
+}
+print("brute force agrees", agree, "of", len(words));
+
+var found = [];
+for phrase in ["Step on no pets", "Tiger", "Never odd or even", "Hello", "Was it a rat I saw?"] {
+    if algo.palindromeValid(phrase) {
+        found += [phrase];
+    }
+}
+print("phrases", found);
+
+var long = "";
+cfor (var i = 0; i < 5001; i++) {
+    long += "a";
+}
+print("long valid", algo.palindromeValid(long), algo.palindromeCanBeValid(long + "b"));
+
+try {
+    algo.palindromeLongest(long);
+} catch (error) {
+    print("too long", "input is too long (5001 characters; the limit is 5000)" in error);
+}
+
+try {
+    algo.palindromeValid(121);
+} catch (error) {
+    print("not string", "expects a string, got number" in error);
+}
+
+try {
+    algo.palindromeCount();
+} catch (error) {
+    print("arity", "expects 1 argument, got 0" in error);
+}

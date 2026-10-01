@@ -1,83 +1,85 @@
 const TITLE = "Lexical super and inherited constructors";
 
 class Root {
-    function init(this, name) {
+    var name;
+    var trail = ["root"];
+
+    Root(name) {
         this.name = name;
-        this.trail = ["root"];
     }
 
-    function label(this) {
+    function label() {
         return "root:" + this.name;
     }
 
-    function level(this) {
+    function level() {
         return 1;
     }
 
-    function describe(this) {
+    function describe() {
         return this.label() + "@" + str(this.level());
     }
 
-    function rename(this, name) {
+    function rename(name) {
         this.name = name;
         return this;
     }
 }
 
-class Middle(Root) {
-    function init(this, name) {
-        super.init(name);
+class Middle extends Root {
+    Middle(name) {
+        super(name);
         this.trail = this.trail + ["middle"];
     }
 
-    function label(this) {
+    function label() {
         return super.label() + "/middle";
     }
 
-    function level(this) {
+    function level() {
         return super.level() + 1;
     }
 
-    function root_callback(this) {
+    function root_callback() {
         function later() {
             return super.label();
         }
         return later;
     }
 
-    function root_method(this) {
+    function root_method() {
         return super.label;
     }
 }
 
-class Leaf(Middle) {
-    function init(this, name) {
-        super.init(name);
+class Leaf extends Middle {
+    Leaf(name) {
+        super(name);
         this.trail = this.trail + ["leaf"];
     }
 
-    function label(this) {
+    function label() {
         return super.label() + "/leaf";
     }
 
-    function level(this) {
+    function level() {
         return super.level() + 1;
     }
 
-    function parent_label(this) {
+    function parent_label() {
         return super.label();
     }
 }
 
-class Inherited(Leaf) {
+class Inherited extends Leaf {
 }
 
-class Final(Inherited) {
-    function label(this) {
+class Final extends Inherited {
+    function label() {
         return super.label() + "/final";
     }
 
-    function level(this) {
+    function level() {
         return super.level() + 1;
     }
 }
@@ -91,8 +93,8 @@ function descriptions(objects) {
 }
 
 function make_local(prefix) {
-    class Local(Root) {
-        function label(this) {
+    class Local extends Root {
+        function label() {
             return prefix + super.label();
         }
     }

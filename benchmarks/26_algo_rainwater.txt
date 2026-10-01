@@ -1,0 +1,28 @@
+Rainwater
+6
+unchanged [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]
+columns [0, 0, 1, 0, 1, 2, 1, 0, 0, 1, 0, 0]
+case 0 6 true true
+case 1 9 true true
+case 2 0 true true
+case 3 0 true true
+case 4 0 true true
+case 5 0 true true
+case 6 3 true true
+case 7 3 true true
+case 8 4 true true
+case 9 8 true true
+case 10 1.5 true true
+case 11 13 true true
+case 12 4 true true
+.......#....
+...#~~~##~#.
+.#~##~######
+random agree 20 of 20
+valley 21 100
+square basins [1, 4, 9, 16, 25]
+stored 2 <builtin algo.rainwater>
+negative true
+string true
+not list true
+arity true

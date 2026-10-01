@@ -1,0 +1,190 @@
+/* Algo module: takeInventory frequency counts, findPlace rankings with bounds errors, and isPrime. */
+print("Algo inventory");
+
+const votes = ["oak", "pine", "oak", "elm", "pine", "oak", "birch"];
+const tally = algo.takeInventory(votes);
+print("tally", tally);
+print("oak", tally["oak"], "kinds", len(tally));
+
+const letters = algo.takeInventory(["m", "i", "s", "s", "i", "s", "s", "i", "p", "p", "i"]);
+print("letters", letters);
+print("numbers", algo.takeInventory([3, 1, 3.0, 2, 1, 3, -0, 0]));
+print("flags", algo.takeInventory([true, false, true, "true", true]));
+print("empty", algo.takeInventory([]), len(algo.takeInventory([])));
+
+function most_common(counts) {
+    var best = null;
+    var best_count = 0;
+    for key in counts {
+        if counts[key] > best_count {
+            best = key;
+            best_count = counts[key];
+        }
+    }
+    return [best, best_count];
+}
+print("most common", most_common(tally), most_common(letters));
+
+function manual_count(items) {
+    var counts = {};
+    for item in items {
+        if item in counts {
+            counts[item] = counts[item] + 1;
+        } else {
+            counts[item] = 1;
+        }
+    }
+    return counts;
+}
+print("matches manual", str(manual_count(votes)) == str(tally));
+
+const shipments = ["bolt", "nut", "bolt", "washer", "nut", "bolt", "screw", "nut"];
+const stock = algo.takeInventory(shipments);
+const minimum = {"bolt": 2, "nut": 4, "washer": 2, "screw": 1, "rivet": 1};
+var reorder = [];
+for part in minimum {
+    var have = 0;
+    if part in stock {
+        have = stock[part];
+    }
+    if have < minimum[part] {
+        reorder += [part + ":" + str(minimum[part] - have)];
+    }
+}
+print("stock", stock);
+print("reorder", reorder);
+
+function bar(count) {
+    var text = "";
+    cfor (var step = 0; step < count; step++) {
+        text = text + "#";
+    }
+    return text;
+}
+const rolls = [3, 5, 3, 6, 1, 3, 5, 2, 6, 3];
+const histogram = algo.takeInventory(rolls);
+for face in range(1, 7) {
+    var count = 0;
+    if face in histogram {
+        count = histogram[face];
+    }
+    print(f"face {face}: {bar(count)}|");
+}
+
+const scores = [82, 95, 67, 95, 74, 88, 67, 100];
+print("podium", algo.findPlace(scores, 1), algo.findPlace(scores, 2), algo.findPlace(scores, 3));
+
+var places = [];
+cfor (var place = 1; place <= 6; place++) {
+    places += [algo.findPlace(scores, place)];
+}
+print("all places", places, "unchanged", scores);
+
+var sorted_unique = algo.removeDuplicates(scores);
+sorted_unique.sort(reverse=true);
+var agree = true;
+for index in range(len(sorted_unique)) {
+    if algo.findPlace(scores, index + 1) != sorted_unique[index] {
+        agree = false;
+    }
+}
+print("agrees with sort", agree, len(sorted_unique));
+
+function second_largest(items) {
+    try {
+        return algo.findPlace(items, 2);
+    } catch (error) {
+        return null;
+    }
+}
+print("second", second_largest([4, 9, 2]), second_largest([5, 5, 5]), second_largest([]));
+
+print("floats", algo.findPlace([-1.5, 2.25, 0, -1.5, 2.25], 2), algo.findPlace([-3, -7, -1], 3), algo.findPlace([4, 4.0, 3], 2));
+
+const names = ["mia", "ava", "zoe", "eli", "ava"];
+print("names", algo.findPlace(names, 1), algo.findPlace(names, 4), algo.findPlace(names, 1.0));
+
+var tally_counts = [];
+for key in tally {
+    tally_counts += [tally[key]];
+}
+print("count ranks", algo.findPlace(tally_counts, 1), algo.findPlace(tally_counts, 2), algo.findPlace(tally_counts, 3));
+
+const bad_places = [0, -2, 1.5, 7, 100];
+for bad in bad_places {
+    try {
+        algo.findPlace(scores, bad);
+        print("unexpected");
+    } catch (error) {
+        print("place", bad, "positive whole" in error, "out of range" in error);
+    }
+}
+
+try {
+    algo.findPlace(scores, 7);
+} catch (error) {
+    print("message", "the list has 6 distinct values" in error);
+}
+
+try {
+    algo.findPlace([1, "1"], 1);
+} catch (error) {
+    print("mixed", "cannot compare number and string" in error);
+}
+
+try {
+    algo.findPlace([true, false], 1);
+} catch (error) {
+    print("bools", "cannot rank bool values" in error);
+}
+
+try {
+    algo.findPlace(scores, "2");
+} catch (error) {
+    print("string place", "place must be a number" in error);
+}
+
+try {
+    algo.takeInventory([[1], [1]]);
+} catch (error) {
+    print("unhashable", "list cannot be a dictionary key" in error);
+}
+
+try {
+    algo.takeInventory({"a": 1});
+} catch (error) {
+    print("not list", "expects a list, got dict" in error);
+}
+
+function trial_division(n) {
+    if n < 2 {
+        return false;
+    }
+    cfor (var divisor = 2; divisor * divisor <= n; divisor++) {
+        if n % divisor == 0 {
+            return false;
+        }
+    }
+    return true;
+}
+var prime_agree = true;
+var prime_list = [];
+for n in range(-5, 200) {
+    if algo.isPrime(n) != trial_division(n) {
+        prime_agree = false;
+    }
+    if algo.isPrime(n) and n < 50 {
+        prime_list += [n];
+    }
+}
+print("primes", prime_list, prime_agree);
+print("big primes", algo.isPrime(7919), algo.isPrime(7917), algo.isPrime(999999999989), algo.isPrime(9007199254740881));
+print("prime places", algo.findPlace(prime_list, 1), algo.takeInventory([algo.isPrime(9), algo.isPrime(11), algo.isPrime(13)]));
+
+try {
+    algo.isPrime(4.5);
+} catch (error) {
+    print("prime error", "expects an integer, got 4.5" in error);
+}
+
+print("module", algo.takeInventory, algo.findPlace);

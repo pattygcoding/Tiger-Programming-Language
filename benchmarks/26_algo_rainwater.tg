@@ -1,0 +1,150 @@
+/* Algo module: rainwater (trapping rain water) checked against brute-force and prefix-max versions. */
+print("Rainwater");
+
+var map = [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1];
+var trapped = algo.rainwater(map);
+print(trapped);
+print("unchanged", map);
+
+function brute_force(heights) {
+    var total = 0;
+    for index in range(len(heights)) {
+        var left_max = 0;
+        cfor (var i = 0; i <= index; i++) {
+            left_max = math.max(left_max, heights[i]);
+        }
+        var right_max = 0;
+        cfor (var j = index; j < len(heights); j++) {
+            right_max = math.max(right_max, heights[j]);
+        }
+        total += math.min(left_max, right_max) - heights[index];
+    }
+    return total;
+}
+
+function water_columns(heights) {
+    const n = len(heights);
+    var lefts = [];
+    var running = 0;
+    for height in heights {
+        running = math.max(running, height);
+        lefts += [running];
+    }
+    var rights = [];
+    running = 0;
+    cfor (var k = n - 1; k >= 0; k--) {
+        running = math.max(running, heights[k]);
+        rights = [running] + rights;
+    }
+    var water = [];
+    for index in range(n) {
+        water += [math.min(lefts[index], rights[index]) - heights[index]];
+    }
+    return water;
+}
+
+function total(values) {
+    var sum = 0;
+    for value in values {
+        sum += value;
+    }
+    return sum;
+}
+
+print("columns", water_columns(map));
+
+const cases = [
+    [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1],
+    [4, 2, 0, 3, 2, 5],
+    [],
+    [7],
+    [1, 2, 3, 4],
+    [4, 3, 2, 1],
+    [3, 0, 3],
+    [5, 0, 0, 0, 1],
+    [2, 0, 2, 0, 2],
+    [0, 3, 0, 1, 0, 3, 0],
+    [1.5, 0, 2.5],
+    [6, 1, 4, 0, 2, 5],
+    [3, 3, 1, 1, 3, 3]
+];
+for index in range(len(cases)) {
+    const heights = cases[index];
+    const fast = algo.rainwater(heights);
+    print("case", index, fast, fast == brute_force(heights), fast == total(water_columns(heights)));
+}
+
+function draw(heights) {
+    const water = water_columns(heights);
+    const tallest = algo.findPlace(heights, 1);
+    cfor (var row = tallest; row >= 1; row--) {
+        var line = "";
+        for index in range(len(heights)) {
+            if heights[index] >= row {
+                line += "#";
+            } elif heights[index] + water[index] >= row {
+                line += "~";
+            } else {
+                line += ".";
+            }
+        }
+        print(line);
+    }
+}
+draw(map);
+
+var seed = 11;
+var agree = 0;
+for trial in range(20) {
+    var heights = [];
+    for step in range(15) {
+        seed = (seed * 37 + 17) % 101;
+        heights += [seed % 6];
+    }
+    const fast = algo.rainwater(heights);
+    if fast == brute_force(heights) and fast == total(water_columns(heights)) {
+        agree++;
+    }
+}
+print("random agree", agree, "of 20");
+
+const valley = range(10, 0, -1) + range(0, 11);
+print("valley", len(valley), algo.rainwater(valley));
+
+var walls = [];
+for width in range(1, 6) {
+    var basin = [width];
+    for gap in range(width) {
+        basin += [0];
+    }
+    basin += [width];
+    walls += [algo.rainwater(basin)];
+}
+print("square basins", walls);
+
+const stored = algo.rainwater;
+print("stored", stored([2, 0, 2]), stored);
+
+try {
+    algo.rainwater([1, -2, 3]);
+} catch (error) {
+    print("negative", "cannot be negative, got -2 at index 1" in error);
+}
+
+try {
+    algo.rainwater([1, "2", 3]);
+} catch (error) {
+    print("string", "must be numbers, got string at index 1" in error);
+}
+
+try {
+    algo.rainwater("0102");
+} catch (error) {
+    print("not list", "expects a list, got string" in error);
+}
+
+try {
+    algo.rainwater([1], [2]);
+} catch (error) {
+    print("arity", "expects 1 argument, got 2" in error);
+}

@@ -47,12 +47,12 @@ Names start with a letter or `_`, followed by letters, digits, or `_`. Unicode l
 Reserved keywords:
 
 ```text
-and as break case catch cfor class const continue default
-elif else false for function if import in not null or private
+and as break case catch celse cfor cif class const continue default
+elif else extends false for function if import in not null or private
 protected public return super switch this throw true try var while
 ```
 
-`this` is reserved and every method uses it as the first parameter. `init` is the constructor method name, not a keyword. `print`, `str`, `len`, and `range` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
+`this` is reserved and is available automatically inside every constructor and method; it is never listed as a parameter. Constructors are declared Java-style with the class name, as in `Counter(start) { ... }`; `init` is an ordinary name, not a keyword. `super(...)` calls the parent constructor. `print`, `input`, `str`, `int`, `float`, `bool`, `len`, and `range` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
 
 `import "helpers.tg" as helpers;` declares a module alias. Import statements require semicolons; see [Importing Tiger Files](modules.md).
 
@@ -95,7 +95,7 @@ The parser reports a line and column. The position may point at the next token o
 
 Replace `def` with `function` for functions and methods, and replace `#` comments with `//` or `/* ... */`. Prefix each variable's initial assignment with `const` unless that binding will be reassigned, in which case use `var`. Later assignments keep the form `name = value;`. The old function and comment syntax is no longer accepted.
 
-Rename each method's first parameter and receiver references from `self` to `this`. `self` is now just an ordinary identifier and is not accepted as a method receiver declaration. Existing unmodified class methods remain public; adding `public` is optional.
+Remove each method's `self` parameter and rename receiver references from `self` to `this`; `this` is implicit and is not declared as a parameter. `self` is now just an ordinary identifier. Existing unmodified class methods remain public; adding `public` is optional.
 
 ## Try It
 

@@ -1,55 +1,58 @@
 const TITLE = "Bound methods and callbacks";
 
 class Counter {
-    function init(this, initial) {
+    var value;
+    var operation;
+    var transform;
+
+    Counter(initial) {
         this.value = initial;
     }
 
-    function add(this, amount) {
+    function add(amount) {
         this.value = this.value + amount;
         return this.value;
     }
 
-    function callback(this, factor) {
+    function callback(factor) {
         function later(amount) {
             return this.add(amount * factor);
         }
         return later;
     }
 
-    function reset(this) {
+    function reset() {
         this.value = 0;
     }
 }
 
-class LoggedCounter(Counter) {
-    function init(this, initial) {
-        super.init(initial);
-        this.history = [];
+class LoggedCounter extends Counter {
+    var history = [];
+
+    LoggedCounter(initial) {
+        super(initial);
     }
 
-    function add(this, amount) {
+    function add(amount) {
         const result = super.add(amount);
         this.history = this.history + [result];
         return result;
     }
 
-    function silent_callback(this) {
+    function silent_callback() {
         return super.add;
     }
 }
 
 class Dispatcher {
-    function init(this) {
-        this.listeners = [];
-    }
+    var listeners = [];
 
-    function subscribe(this, handler) {
+    function subscribe(handler) {
         this.listeners = this.listeners + [handler];
         return this;
     }
 
-    function emit(this, value) {
+    function emit(value) {
         var results = [];
         for handler in this.listeners {
             results = results + [handler(value)];
@@ -59,31 +62,37 @@ class Dispatcher {
 }
 
 class Adder {
-    function init(this, offset) {
+    var offset;
+
+    Adder(offset) {
         this.offset = offset;
     }
 
-    function transform(this, value) {
+    function transform(value) {
         return value + this.offset;
     }
 }
 
 class Multiplier {
-    function init(this, factor) {
+    var factor;
+
+    Multiplier(factor) {
         this.factor = factor;
     }
 
-    function transform(this, value) {
+    function transform(value) {
         return value * this.factor;
     }
 }
 
 class Pipeline {
-    function init(this, stages) {
+    var stages;
+
+    Pipeline(stages) {
         this.stages = stages;
     }
 
-    function apply(this, value) {
+    function apply(value) {
         var result = value;
         for stage in this.stages {
             result = stage.transform(result);
@@ -91,7 +100,7 @@ class Pipeline {
         return result;
     }
 
-    function map(this, values) {
+    function map(values) {
         var results = [];
         for value in values {
             results = results + [this.apply(value)];

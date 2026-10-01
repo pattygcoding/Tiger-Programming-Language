@@ -13,7 +13,7 @@ func main() {
 		os.Exit(2)
 	}
 	filename := os.Args[1]
-	if err := evaluator.RunFile(filename, os.Stdout); err != nil {
+	if err := evaluator.RunFileWithInput(filename, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

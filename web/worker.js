@@ -42,12 +42,19 @@ async function initialize() {
   self.postMessage({ type: "ready" });
 }
 
-self.onmessage = (event) => {
+self.tigerOutput = (text) => self.postMessage({ type: "output", text });
+self.tigerRequestInput = () => self.postMessage({ type: "input" });
+
+self.onmessage = async (event) => {
+  if (event.data.type === "input") {
+    self.tigerProvideInput(event.data.text ?? null);
+    return;
+  }
   if (event.data.type !== "run") return;
   const started = performance.now();
   try {
-    const result = self.tigerRun(event.data.source, event.data.filename || "examples/playground.tg");
-    self.postMessage({ type: "result", ...result, duration: performance.now() - started });
+    const result = await self.tigerRun(event.data.source, event.data.filename || "examples/playground.tg");
+    self.postMessage({ type: "result", error: result.error, duration: performance.now() - started });
   } catch (error) {
     self.postMessage({ type: "fatal", error: error.message });
   }

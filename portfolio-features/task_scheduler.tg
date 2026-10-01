@@ -1,0 +1,149 @@
+/* Task scheduler: a binary-heap priority queue class, dependency ordering, cycle detection, and a two-worker simulation. */
+class PriorityQueue {
+    private var items = [];
+    private var count = 0;
+    private var sequence = 0;
+
+    function size() { return this.count; }
+
+    private function before(a, b) { return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]); }
+
+    private function swap(i, j) { const held = this.items[i]; this.items[i] = this.items[j]; this.items[j] = held; }
+
+    function push(priority, value) {
+        const entry = [priority, this.sequence++, value];
+        if this.count < len(this.items) { this.items[this.count] = entry; } else { this.items += [entry]; }
+        var child = this.count++;
+        while child > 0 {
+            const parent = math.floor((child - 1) / 2);
+            if not this.before(this.items[child], this.items[parent]) { break; }
+            this.swap(child, parent);
+            child = parent;
+        }
+    }
+
+    function pop() {
+        if this.count == 0 { throw "pop from an empty queue"; }
+        const top = this.items[0][2];
+        this.items[0] = this.items[--this.count];
+        var parent = 0;
+        while true {
+            var best = parent;
+            for child in [2 * parent + 1, 2 * parent + 2] {
+                if child < this.count and this.before(this.items[child], this.items[best]) { best = child; }
+            }
+            if best == parent { break; }
+            this.swap(parent, best);
+            parent = best;
+        }
+        return top;
+    }
+}
+
+const TASKS = {
+    "design": {"duration": 3, "priority": 1, "deps": []},
+    "lexer": {"duration": 2, "priority": 2, "deps": ["design"]},
+    "docs": {"duration": 4, "priority": 5, "deps": ["design"]},
+    "parser": {"duration": 4, "priority": 1, "deps": ["lexer"]},
+    "evaluator": {"duration": 5, "priority": 1, "deps": ["parser"]},
+    "tests": {"duration": 3, "priority": 2, "deps": ["parser"]},
+    "playground": {"duration": 2, "priority": 3, "deps": ["evaluator", "docs"]},
+    "release": {"duration": 1, "priority": 1, "deps": ["playground", "tests"]}
+};
+
+function dependents_of(tasks) {
+    var result = {};
+    for name in tasks { result[name] = []; }
+    for name in tasks {
+        for dep in tasks[name]["deps"] { result[dep] += [name]; }
+    }
+    return result;
+}
+
+function plan(tasks) {
+    const dependents = dependents_of(tasks);
+    var waiting = {};
+    const ready = PriorityQueue();
+    for name in tasks {
+        waiting[name] = len(tasks[name]["deps"]);
+        if waiting[name] == 0 { ready.push(tasks[name]["priority"], name); }
+    }
+    var order = [];
+    while ready.size() > 0 {
+        const name = ready.pop();
+        order += [name];
+        for next in dependents[name] {
+            if --waiting[next] == 0 { ready.push(tasks[next]["priority"], next); }
+        }
+    }
+    if len(order) < len(tasks) { throw f"dependency cycle: only {len(order)} of {len(tasks)} tasks can run"; }
+    return order;
+}
+
+const order = plan(TASKS);
+print("priority-aware build order:", order);
+var symbols = {};
+var legend = [];
+for index in range(len(order)) {
+    symbols[order[index]] = "ABCDEFGHIJ"[index];
+    legend += [f"{symbols[order[index]]}={order[index]}"];
+}
+print("legend:", legend);
+
+function simulate(tasks, worker_count) {
+    const dependents = dependents_of(tasks);
+    var waiting = {};
+    const ready = PriorityQueue();
+    for name in tasks {
+        waiting[name] = len(tasks[name]["deps"]);
+        if not waiting[name] { ready.push(tasks[name]["priority"], name); }
+    }
+    var workers = [];
+    var lanes = [];
+    for w in range(worker_count) { workers += [null]; lanes += [""]; }
+    var time = 0;
+    var finished = 0;
+    while finished < len(tasks) {
+        for w in range(worker_count) {
+            if workers[w] == null and ready.size() > 0 {
+                const name = ready.pop();
+                workers[w] = {"task": name, "finish": time + tasks[name]["duration"]};
+            }
+        }
+        var next_time = null;
+        for job in workers {
+            if job != null and (next_time == null or job["finish"] < next_time) { next_time = job["finish"]; }
+        }
+        cfor (var t = time; t < next_time; t++) {
+            for w in range(worker_count) { lanes[w] += workers[w] == null and "." or symbols[workers[w]["task"]]; }
+        }
+        time = next_time;
+        for w in range(worker_count) {
+            if workers[w] != null and workers[w]["finish"] == time {
+                finished++;
+                for next in dependents[workers[w]["task"]] {
+                    if --waiting[next] == 0 { ready.push(tasks[next]["priority"], next); }
+                }
+                workers[w] = null;
+            }
+        }
+    }
+    return {"time": time, "lanes": lanes};
+}
+
+var serial = 0;
+for name in TASKS { serial += TASKS[name]["duration"]; }
+for workers in [1, 2, 3] {
+    const result = simulate(TASKS, workers);
+    print(f"{workers} worker(s): done at t={result["time"]} (serial total {serial})");
+    for lane in result["lanes"] { print("   ", lane); }
+}
+
+const queue = PriorityQueue();
+for pair in [[3, "low"], [1, "urgent"], [2, "normal"], [1, "urgent too"]] { queue.push(*pair); }
+var drained = [];
+while queue.size() > 0 { drained += [queue.pop()]; }
+print("heap drains by priority, FIFO on ties:", drained);
+
+const cyclic = {"a": {"duration": 1, "priority": 1, "deps": ["b"]}, "b": {"duration": 1, "priority": 1, "deps": ["a"]}};
+try { plan(cyclic); } catch (error) { print("rejected:", error); }

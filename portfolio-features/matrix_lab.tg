@@ -1,0 +1,150 @@
+/* Matrix lab: a Matrix class built on nested lists, variadic constructors, recursion, and rotations with the math module. */
+const PI = 3.141592653589793;
+
+function fixed(value) { return math.round(value * 1000) / 1000 + 0; }
+
+function pad_left(text, width) {
+    var out = text;
+    while len(out) < width { out = " " + out; }
+    return out;
+}
+
+class Matrix {
+    var rows;
+    var height;
+    var width;
+
+    Matrix(*rows) {
+        if len(rows) == 0 {
+            throw "a matrix needs at least one row";
+        }
+        for row in rows {
+            if len(row) != len(rows[0]) { throw f"ragged matrix: expected {len(rows[0])} columns, got {len(row)}"; }
+        }
+        this.rows = rows;
+        this.height = len(rows);
+        this.width = len(rows[0]);
+    }
+
+    function add(other) {
+        if this.height != other.height or this.width != other.width { throw f"cannot add {this.shape()} and {other.shape()}"; }
+        var rows = [];
+        for r in range(this.height) {
+            var row = [];
+            for c in range(this.width) { row += [this.rows[r][c] + other.rows[r][c]]; }
+            rows += [row];
+        }
+        return Matrix(*rows);
+    }
+
+    function shape() { return f"{this.height}x{this.width}"; }
+
+    function multiply(other) {
+        if this.width != other.height { throw f"cannot multiply {this.shape()} by {other.shape()}"; }
+        var rows = [];
+        for r in range(this.height) {
+            var row = [];
+            for c in range(other.width) {
+                var sum = 0;
+                for k in range(this.width) { sum += this.rows[r][k] * other.rows[k][c]; }
+                row += [fixed(sum)];
+            }
+            rows += [row];
+        }
+        return Matrix(*rows);
+    }
+
+    function transpose() {
+        var rows = [];
+        for c in range(this.width) {
+            var row = [];
+            for r in range(this.height) { row += [this.rows[r][c]]; }
+            rows += [row];
+        }
+        return Matrix(*rows);
+    }
+
+    function minor(skip_row, skip_col) {
+        var rows = [];
+        for r in range(this.height) {
+            if r == skip_row { continue; }
+            var row = [];
+            for c in range(this.width) {
+                if c != skip_col { row += [this.rows[r][c]]; }
+            }
+            rows += [row];
+        }
+        return Matrix(*rows);
+    }
+
+    function determinant() {
+        cif (this.height != this.width) {
+            throw f"determinant needs a square matrix, got {this.shape()}";
+        } celse cif (this.height == 1) {
+            return this.rows[0][0];
+        }
+        var total = 0;
+        for c in range(this.width) {
+            const sign = c % 2 == 0 and 1 or -1;
+            total += sign * this.rows[0][c] * this.minor(0, c).determinant();
+        }
+        return total;
+    }
+
+    function power(n) {
+        var result = identity(this.height);
+        var base = this;
+        var exponent = n;
+        while exponent > 0 {
+            if exponent % 2 == 1 { result = result.multiply(base); }
+            base = base.multiply(base);
+            exponent = math.floor(exponent / 2);
+        }
+        return result;
+    }
+
+    function show(label) {
+        var widest = 0;
+        for row in this.rows {
+            for value in row { widest = math.max(widest, len(str(value))); }
+        }
+        print(f"{label} ({this.shape()})");
+        for row in this.rows {
+            var line = "  |";
+            for value in row { line += " " + pad_left(str(value), widest); }
+            print(line + " |");
+        }
+    }
+}
+
+function identity(n) {
+    var rows = [];
+    for r in range(n) {
+        var row = [];
+        for c in range(n) { row += [r == c and 1 or 0]; }
+        rows += [row];
+    }
+    return Matrix(*rows);
+}
+
+const a = Matrix([1, 2], [3, 4]);
+const b = Matrix([5, 6], [7, 8]);
+a.multiply(b).show("A x B");
+a.add(b).add(identity(2)).transpose().show("(A + B + I) transposed");
+print("det(A) =", a.determinant(), " det(3x3) =", Matrix([2, -3, 1], [2, 0, -1], [1, 4, 5]).determinant());
+
+const det = a.determinant();
+const inverse = Matrix([a.rows[1][1] / det, -a.rows[0][1] / det], [-a.rows[1][0] / det, a.rows[0][0] / det]);
+inverse.show("inverse of A");
+print("A x inverse == I:", a.multiply(inverse).rows == identity(2).rows);
+print("Fibonacci via matrix power: F(30) =", Matrix([1, 1], [1, 0]).power(30).rows[0][1]);
+
+function rotation(degrees) {
+    const t = degrees * PI / 180;
+    return Matrix([math.cos(t), -math.sin(t)], [math.sin(t), math.cos(t)]);
+}
+rotation(90).multiply(Matrix([1, 0, -1], [0, 1, 0])).show("unit points rotated 90 degrees");
+
+for attempt in [[[1, 2], [3]], [[1, 2, 3]]] {
+    try { Matrix(*attempt).multiply(a); } catch (error) { print("error:", error); }
+}

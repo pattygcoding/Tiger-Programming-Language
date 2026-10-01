@@ -1,0 +1,40 @@
+Sliding windows
+[3, 3, 5, 5, 6, 7]
+51
+2
+3
+BANC
+fixed 3 [3, 3, 5, 5, 6, 7] true 16 true
+fixed 2 [9, 8, 7, 6] true 17 true
+fixed 1 [4] true 4 true
+fixed 2 [-1, -1, -3] true -3 true
+fixed 4 [2] true 8 true
+fixed 2 [1.5, 2.5, 2.5] true 3.5 true
+min len 7 2 true
+min len 4 1 true
+min len 11 0 true
+min len 11 3 true
+min len 15 2 true
+min len 1 0 true
+min len 6 1 true
+unique 'abcabcbb': 3 true
+unique 'bbbbb': 1 true
+unique 'pwwkew': 3 true
+unique '': 0 true
+unique 'abba': 2 true
+unique 'tiger tamer': 8 true
+unique 'dvdf': 3 true
+window 'ABC' in 'ADOBECODEBANC': 'BANC'
+window 'a' in 'a': 'a'
+window 'aa' in 'a': ''
+window 'tist' in 'this is a test string': 't stri'
+window 'aaa' in 'aaflslflsldkalskaaa': 'aaa'
+window 'tg' in 'Tiger': ''
+window '' in 'xyz': ''
+3-day highs [21, 25, 25, 25, 27, 27]
+best 3-day total 75 average 25
+random agree 20 of 20
+k too big true
+negative true
+target true
+not string true

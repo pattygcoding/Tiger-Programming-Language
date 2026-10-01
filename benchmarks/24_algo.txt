@@ -1,0 +1,45 @@
+Algo
+8
+[0, 1, 1, 2, 3, 5, 8]
+small 0 1 1 2 55 6765
+large 832040 102334155 12586269025
+limit 3416454622906707 5527939700884757 8944394323791464
+lists [0] [0, 1] [0, 1, 1]
+lengths 11 79
+whole 13 34
+recursive true 610
+iterative true [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144]
+consistent true
+recurrence true
+evens [0, 2, 8, 34, 144, 610, 2584] 3382
+sum 17710 17710
+golden 1.618034
+first above 12 17 31
+mutable [99, 3, 2, 1, 1, -1] [0, 1, 1, 2, 3]
+value <builtin algo.fibonacci> 5
+value <builtin algo.fibonacciList> [0, 1, 1, 2, 3, 5]
+digits 16 11
+rejected -1 true false
+rejected 2.5 true false
+rejected 79 false true
+rejected 1000 false true
+type true
+arity true
+keywords true
+read only true
+missing true
+shadow 0 144
+unique tags ["red", "blue", "green"] 6 3
+dedupe fib [0, 1, 2, 3, 5, 8, 13, 21]
+mixed [2, "2", true, 1, null, false]
+nested [[1, 2], [2, 1], {"k": 1}, {"k": 2}]
+empty [] [7]
+instances 2 true
+faces [1, 2, 3, 6]
+matches ["rice", "oil"] ["oil", "rice"]
+no matches [] []
+deep matches [[1], {"a": [2]}, 3]
+common fib [0, 2, 8, 34]
+matches arity true
+dedupe type true
+module <module algo>

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -70,12 +71,18 @@ func TestDocumentationExamples(t *testing.T) {
 			}
 			count++
 			t.Run(fmt.Sprintf("%s/line_%d", filepath.Base(path), block.line), func(t *testing.T) {
-				if index+1 == len(blocks) || blocks[index+1].language != "text" && blocks[index+1].language != "error" {
+				next := index + 1
+				var input io.Reader
+				if next < len(blocks) && blocks[next].language == "input" {
+					input = strings.NewReader(blocks[next].content)
+					next++
+				}
+				if next == len(blocks) || blocks[next].language != "text" && blocks[next].language != "error" {
 					t.Fatal("each Tiger example must be followed by a text output or error expectation")
 				}
-				expected := blocks[index+1]
+				expected := blocks[next]
 				var output bytes.Buffer
-				err := evaluator.RunWithOptions(block.content, filepath.Join(filepath.Dir(path), "documentation.tg"), evaluator.FileLoader{}, evaluator.NewMemoryFileSystem(), &output)
+				err := evaluator.RunWithInput(block.content, filepath.Join(filepath.Dir(path), "documentation.tg"), evaluator.FileLoader{}, evaluator.NewMemoryFileSystem(), input, &output)
 				if expected.language == "error" {
 					message := strings.TrimSpace(expected.content)
 					if message == "" || err == nil || !strings.Contains(err.Error(), message) {

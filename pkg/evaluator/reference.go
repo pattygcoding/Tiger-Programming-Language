@@ -19,8 +19,11 @@ func (eval *Evaluator) reference(target ast.Expr, env *object.Environment) (func
 		if !ok {
 			fail(node, "cannot assign a property of %s", receiver.Type())
 		}
-		return func() object.Value { return property(node, instance, env) }, func(value object.Value) {
+		return func() object.Value { return eval.property(node, instance, env) }, func(value object.Value) {
 			memberAccess(node, instance.Class, node.Name, env, true)
+			if instance.Class.FindField(node.Name) == nil {
+				fail(node, "%s has no field %q; declare it in the class with var or const", instance.Class.Name, node.Name)
+			}
 			instance.Fields[node.Name] = value
 		}
 	case *ast.Index:

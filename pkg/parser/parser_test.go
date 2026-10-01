@@ -100,7 +100,7 @@ func TestVariadicAndSpreadSyntax(t *testing.T) {
 		`function only(**options) { return options; }`,
 		`function keyword_first(**options) {}`,
 		`function mixed(a, b, *rest, **options) {}`,
-		`class Item { function method(this, *rest, **options) {} }`,
+		`class Item { function method(*rest, **options) {} }`,
 		`const numbers = [1, 2]; collect(*numbers);`,
 		`collect(**{"a": 1});`,
 		`collect(1, *numbers, key="value", **{"other": 2});`,
@@ -117,7 +117,7 @@ func TestVariadicAndSpreadSyntax(t *testing.T) {
 		`function bad(a, *rest, extra) {}`,
 		`function bad(*) {}`,
 		`function bad(**) {}`,
-		`class Item { function method(*rest) {} }`,
+		`class Item { function method(this, *rest) {} }`,
 		`collect(*numbers, key="value", 2);`,
 		`collect(key="value", *numbers);`,
 		`value = 1 ** 2;`,
@@ -163,10 +163,37 @@ func TestControlSyntax(t *testing.T) {
 		`++1;`, `print(1)++;`, `cfor (; true; var value = 1) {}`,
 		`try { print(1); }`, `try {} catch {}`, `try {} catch (error, other) {}`, `throw;`,
 		`private var value = 1;`, `class Item { public private var value = 1; }`,
-		`class Item { var value = 1; function value(this) {} }`,
+		`class Item { var value = 1; function value() {} }`,
 	} {
 		if _, err := Parse(source); err == nil {
 			t.Errorf("expected error: %s", source)
+		}
+	}
+}
+
+func TestCStyleConditions(t *testing.T) {
+	program, err := Parse(`cif (a && b || c) { print(1); } celse cif (d) {} celse { print(2); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditional := program.Statements[0].(*ast.If)
+	if len(conditional.Branches) != 2 || len(conditional.Else) != 1 {
+		t.Fatalf("incorrect branches: %#v", conditional)
+	}
+	or := conditional.Branches[0].Condition.(*ast.Binary)
+	if or.Operator != "or" || or.Left.(*ast.Binary).Operator != "and" {
+		t.Fatalf("&& must bind tighter than ||: %#v", or)
+	}
+	for source, message := range map[string]string{
+		`print(a && b);`:               "&& is only allowed in cif and cfor headers; use and",
+		`if a || b {}`:                 "|| is only allowed in cif and cfor headers; use or",
+		`cif (a) {} else {}`:           "use celse or celse cif after a cif block",
+		`if a {} celse {}`:             "use elif or else after an if block",
+		`cif (a) { print(a && b); }`:   "&& is only allowed",
+		`cfor (;;) { print(a || b); }`: "|| is only allowed",
+	} {
+		if _, err := Parse(source); err == nil || !strings.Contains(err.Error(), message) {
+			t.Errorf("%s: expected %q, got %v", source, message, err)
 		}
 	}
 }

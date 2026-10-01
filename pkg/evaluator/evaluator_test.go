@@ -24,6 +24,7 @@ var i = 1; while i <= MAX_RUNS { const val = factorial(i); print("factorial(" + 
 		{"compound assignments", `var value = 10; value += 5; value -= 3; value *= 2; value %= 7; print(value); var calls = 0; function index() { calls += 1; return 0; } const items = [5]; items[index()] *= 3; print(items, calls);`, "3\n[15] 1\n"},
 		{"print ending", `print("loading", end=""); print("...", end=" done\n"); print(end=""); print("next");`, "loading... done\nnext\n"},
 		{"length methods", `const items = [1, 2, 3]; const text = "T🐯"; print(items.size(), items.length(), text.size(), text.length(), len(text));`, "3 3 2 2 2\n"},
+		{"list sort", `const nums = [3, 1, 2]; print(nums.sort(), nums); nums.sort(reverse=true); print(nums); const words = ["bb", "a", "cc", "d"]; function size(word) { return len(word); } words.sort(key=size); print(words); words.sort(key=size, reverse=true); print(words); const empty = []; empty.sort(key=null); print(empty);`, "null [1, 2, 3]\n[3, 2, 1]\n[\"a\", \"d\", \"bb\", \"cc\"]\n[\"bb\", \"cc\", \"a\", \"d\"]\n[]\n"},
 		{"membership", `print(2 in [1, 2], "port" in {"port": 80}, "ell" in "hello", [] == [], {"a": 1} == {"a": 1});`, "true true true true true\n"},
 		{"cycles", `const items = [null]; items[0] = items; const other = [null]; other[0] = other; print(items, items == other); const config = {}; config["self"] = config; print(config);`, "[[...]] true\n{\"self\": {...}}\n"},
 		{"const binding", `const items = [1]; items[0] = 2; print(items);`, "[2]\n"},
@@ -57,12 +58,15 @@ func TestRuntimeErrors(t *testing.T) {
 		{`print(1 % 0);`, "division by zero"},
 		{`print(1 + "x");`, "not supported"},
 		{`function add(a, b) { return a + b; } add(1);`, "expects 2 arguments"},
-		{`str();`, "expects 1 argument"},
+		{`str(1, 2);`, "str expects at most 1 argument, got 2"},
 		{`len(1);`, "does not accept number"},
 		{`print("x", end=1);`, "end must be a string"},
 		{`print("x", unknown="");`, "does not accept keyword argument"},
 		{`"text".size(1);`, "expects 0 arguments"},
 		{`[1].unknown();`, "has no property"},
+		{`[2, "a"].sort();`, "cannot compare"},
+		{`[2, 1].sort(true);`, "no positional arguments"},
+		{`[2, 1].sort(order=1);`, "does not accept keyword argument"},
 		{`1();`, "not callable"},
 		{`print([1][2]);`, "index out of range"},
 		{`print([1][0.5]);`, "index must be an integer"},
@@ -137,6 +141,11 @@ func TestExtendedControlFlow(t *testing.T) {
 		{`switch 9 { case 1: break; default: print("fallback"); case 2: print("fallthrough"); }`, "fallback\nfallthrough\n"},
 		{`for item in [1, 2, 3] { switch item { case 1: continue; case 2: break; default: print("three"); } print(item); } else { print("done"); }`, "2\nthree\n3\ndone\n"},
 		{`function find() { cfor (;;) { switch 1 { case 1: return 7; } } else { return 0; } } print(find());`, "7\n"},
+		{`function grade(score, attendance, approved) { cif (score >= 90 && attendance >= 90) { return "A"; } celse cif ((score >= 80 && attendance >= 80) || approved) { return "pass"; } celse { return "fail"; } } print(grade(95, 92, false), grade(85, 81, false), grade(50, 50, true), grade(85, 70, false));`, "A pass pass fail\n"},
+		{`cif (false) { print("no"); } print("after"); cif (1) {} celse { print("no"); }`, "after\n"},
+		{`var calls = 0; function hit() { calls++; return true; } cif (false && hit()) {} cif (true || hit()) {} print(calls);`, "0\n"},
+		{`cfor (var i = 0; i < 10 && i * i < 20; i++) { print(i, end=" "); } cfor (var j = 0; j > 5 || j < 2; j++) { print(j, end=" "); } print();`, "0 1 2 3 4 0 1 \n"},
+		{`cif (not (1 > 2) && "x" in "xy") { print("ok"); }`, "ok\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.source, func(t *testing.T) {
@@ -146,7 +155,9 @@ func TestExtendedControlFlow(t *testing.T) {
 			}
 		})
 	}
-	for _, source := range []string{`const count = 1; count++;`, `var text = "one"; ++text;`, `missing++;`, `cfor (var index = 0; index < 1; ++index) {} print(index);`} {
+	for _, source := range []string{`const count = 1; count++;`, `var text = "one"; ++text;`, `missing++;`, `cfor (var index = 0; index < 1; ++index) {} print(index);`,
+		`print(true && false);`, `if true && false {}`, `while false || false {}`, `cif (true) {} celse { if true || false {} }`,
+		`cif true {}`, `cif (true) {} else {}`, `cif (true) {} elif (true) {}`, `if true {} celse {}`, `celse {}`, `cif (true) {} celse cif {}`} {
 		if err := Run(source, nil); err == nil {
 			t.Errorf("expected error: %s", source)
 		}
@@ -196,7 +207,7 @@ func TestFormattedStrings(t *testing.T) {
 		{`const data = {"value": 7}; print(f"{data["value"]} {{ { {"key": 2}["key"] } }}");`, "7 { 2 }\n"},
 		{`print(f"outer {f'inner {1 + 2}'}", f"", f'line\nnext');`, "outer inner 3  line\nnext\n"},
 		{`function message(value) { return f"value={value}"; } const result = message(9); print(result + "!");`, "value=9!\n"},
-		{`class Label { var name = "item"; function text(this) { return f"{this.name}"; } } print(Label().text());`, "item\n"},
+		{`class Label { var name = "item"; function text() { return f"{this.name}"; } } print(Label().text());`, "item\n"},
 		{`try { print(f"{missing}"); } catch (error) { print("undefined name" in error); }`, "true\n"},
 		{`print(f"# // /* {1 /* } ignored */ + 2} */");`, "# // /* 3 */\n"},
 	}
@@ -224,12 +235,12 @@ func TestVariadicArguments(t *testing.T) {
 		{`function add3(a, b, c) { return a + b + c; } const values = [1, 2, 3]; print(add3(*values));`, "6\n"},
 		{`function label(text, end) { return text + end; } const config = {"text": "a", "end": "b"}; print(label(**config));`, "ab\n"},
 		{`function inner(first, *rest, **opts) { return str(first) + str(rest) + str(opts); } function outer(*args, **kwargs) { return inner(0, *args, **kwargs); } print(outer(1, 2, flag=true));`, "0[1, 2]{\"flag\": true}\n"},
-		{`class Counter { function init(this) { this.value = 0; } function add(this, *amounts) { for amount in amounts { this.value = this.value + amount; } return this.value; } } print(Counter().add(1, 2, 3));`, "6\n"},
-		{`class Point { function init(this, *coords) { this.coords = coords; } } print(Point(1, 2, 3).coords);`, "[1, 2, 3]\n"},
+		{`class Counter { var value = 0; function add(*amounts) { for amount in amounts { this.value = this.value + amount; } return this.value; } } print(Counter().add(1, 2, 3));`, "6\n"},
+		{`class Point { var coords; Point(*coords) { this.coords = coords; } } print(Point(1, 2, 3).coords);`, "[1, 2, 3]\n"},
 		{`function keys(**named) { var result = []; for key in named { result = result + [key]; } return result; } print(keys(one=1, two=2, three=3));`, "[\"one\", \"two\", \"three\"]\n"},
 		{`function grow(*rest) { rest = rest + [9]; return rest; } print(grow(1), grow());`, "[1, 9] [9]\n"},
 		{`function mix(a, *rest, **named) { return [a, rest, named]; } print(mix(1, *[2, 3], **{"k": 4}));`, "[1, [2, 3], {\"k\": 4}]\n"},
-		{`class Base { function init(this, *values) { this.values = values; } } class Child(Base) { function init(this, first, *rest) { super.init(*rest); this.first = first; } } const child = Child(1, 2, 3); print(child.first, child.values);`, "1 [2, 3]\n"},
+		{`class Base { var values; Base(*values) { this.values = values; } } class Child extends Base { var first; Child(first, *rest) { super(*rest); this.first = first; } } const child = Child(1, 2, 3); print(child.first, child.values);`, "1 [2, 3]\n"},
 	}
 	for _, test := range tests {
 		var output bytes.Buffer

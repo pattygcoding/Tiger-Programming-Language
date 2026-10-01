@@ -21,7 +21,7 @@ first
 second
 ```
 
-Single and double quotes have the same meaning. `+` joins strings, but it will not automatically turn a number into text. `print` accepts separate values of different types; concatenation requires explicit conversion with `str`.
+Single and double quotes have the same meaning. `+` joins strings, but it will not automatically turn a number into text. `print` accepts separate values of different types; concatenation requires explicit conversion with `str` or `.ToString()`. Convert numeric text back with `int` or `float`, as described in [conversions](builtins.md#intvalue-floatvalue-boolvalue).
 
 ## Escape Reference
 

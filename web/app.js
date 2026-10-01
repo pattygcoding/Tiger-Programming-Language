@@ -13,6 +13,7 @@ let ready = false;
 let running = false;
 let loadVersion = 0;
 let sourceFilename = "examples/demo.tg";
+let pendingInput = null;
 
 try {
   source.value = localStorage.getItem("tiger-source") ?? source.value;
@@ -34,8 +35,44 @@ function setState(label, isReady, isRunning = false) {
   stopButton.disabled = !running;
 }
 
+function appendOutput(text) {
+  output.insertBefore(document.createTextNode(text), pendingInput);
+  output.scrollTop = output.scrollHeight;
+}
+
+function closeInput() {
+  pendingInput?.remove();
+  pendingInput = null;
+}
+
+// Shows an inline field after the prompt; Enter sends the line and Ctrl+D ends input.
+function requestInput(activeWorker) {
+  closeInput();
+  const field = document.createElement("input");
+  field.className = "stdin";
+  field.setAttribute("aria-label", "Program input");
+  field.autocomplete = "off";
+  field.spellcheck = false;
+  field.addEventListener("keydown", (event) => {
+    const endOfInput = event.ctrlKey && (event.key === "d" || event.key === "D");
+    if (event.key !== "Enter" && !endOfInput) return;
+    event.preventDefault();
+    const text = endOfInput ? null : field.value;
+    closeInput();
+    appendOutput(endOfInput ? "^D\n" : `${text}\n`);
+    setState("Running", true, true);
+    activeWorker.postMessage({ type: "input", text });
+  });
+  pendingInput = field;
+  output.append(field);
+  output.scrollTop = output.scrollHeight;
+  field.focus();
+  setState("Waiting for input", true, true);
+}
+
 function startWorker(autoRun = false) {
   worker?.terminate();
+  closeInput();
   setState("Loading runtime", false);
   const activeWorker = new Worker("worker.js");
   worker = activeWorker;
@@ -44,8 +81,12 @@ function startWorker(autoRun = false) {
     if (data.type === "ready") {
       setState("Ready", true);
       if (autoRun) run();
+    } else if (data.type === "output") {
+      appendOutput(data.text);
+    } else if (data.type === "input") {
+      requestInput(activeWorker);
     } else if (data.type === "result") {
-      output.textContent = data.output;
+      closeInput();
       showError(data.error);
       timing.textContent = `${data.duration.toFixed(1)} ms`;
       setState(data.error ? "Error" : "Finished", true);
@@ -87,7 +128,8 @@ function run() {
 
 async function loadExample() {
   const version = ++loadVersion;
-  const filename = `examples/${example.value}.tg`;
+  const directory = example.selectedOptions[0]?.dataset.dir || "examples";
+  const filename = `${directory}/${example.value}.tg`;
   try {
     const response = await fetch(filename);
     if (!response.ok) throw new Error("Could not load example");
@@ -122,12 +164,17 @@ source.addEventListener("keydown", (event) => {
   }
 });
 runButton.addEventListener("click", run);
+output.addEventListener("click", () => pendingInput?.focus());
 stopButton.addEventListener("click", () => {
   startWorker();
   showError("Execution stopped.");
 });
 document.querySelector("#clear").addEventListener("click", () => {
   output.textContent = "";
+  if (pendingInput) {
+    output.append(pendingInput);
+    pendingInput.focus();
+  }
   showError("");
   timing.textContent = "";
 });

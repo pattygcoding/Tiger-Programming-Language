@@ -13,22 +13,23 @@ built-in names can be shadowed and are still colored as built-ins.
 
 | Category | Grammar |
 | --- | --- |
-| Keywords | `const var function class super this public private protected return if elif else while for cfor in and or not break continue switch case default try catch throw import as` |
+| Keywords | `const var function class extends super this public private protected return if elif else cif celse while for cfor in and or not break continue switch case default try catch throw import as` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
 | Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\\`, `\"`, `\'` are highlighted separately |
 | Formatted strings | `f`/`F` directly before either quote; string text, `{expression}` tokens, and `{{`/`}}` literal braces |
 | Comments | `//` through the end of the line; `/* ... */` across one or more lines, without nesting |
-| Symbolic operators | `= == != < <= > >= + - * / % ++ --` |
+| Symbolic operators | `= == != < <= > >= + - * / % ++ -- && \|\|` |
 | Word operators | `and or not in`, styled as keywords |
 | Punctuation | `(` `)` `[` `]` `{` `}` `:` `,` `;` `.` |
 | Identifiers | Unicode letters or `_`, followed by Unicode letters, decimal digits, or `_` |
-| Built-in functions | `print str len range open read_file write_file append_file file_exists remove_file` |
+| Built-in functions | `print input str int float bool len range open read_file write_file append_file file_exists remove_file math algo` |
+| Module members | Names exported by `math` and `algo` (such as `math.sqrt` or `algo.isPrime`), styled as built-ins only directly after `math.` / `algo.` |
 
 Tiger is dynamically typed. There are **no reserved primitive-type names or type
-annotations**: `number`, `string`, `bool`, `int`, and `float` remain identifiers.
+annotations**: `number` and `string` remain identifiers, and `int`, `float`, and `bool` are built-in conversion functions.
 Lists, dictionaries, functions, classes, and instances are runtime values, not
-additional type keywords. `this` is reserved; `self`, `def`, and `init` are ordinary identifiers. See the [complete editor checklist](../docs/syntax-highlighting.md).
+additional type keywords. `this` is reserved; `self`, `def`, and `init` are ordinary identifiers (constructors use the class name). See the [complete editor checklist](../docs/syntax-highlighting.md).
 
 Highlighting tolerates incomplete code while typing. Unclosed strings stop at a
 line ending; unfinished exponents stay colored as numbers. Unknown characters
@@ -81,8 +82,11 @@ does not initialize.
 Run the tokenizer regression tests with Node.js 18 or newer:
 
 ```sh
-node --test web/highlight.test.mjs
+node --test web/highlight.test.mjs editors/vscode/grammar.test.mjs
 ```
+
+`go test ./pkg/evaluator` also checks that `highlight.mjs` and the VS Code grammar
+list exactly the members of the `math` and `algo` modules.
 
 Build the browser runtime from the repository root:
 
@@ -95,5 +99,5 @@ Deploy both together with the web assets, including `highlight.mjs`, and serve t
 repository's examples under `/examples/`. Alternatively, start the included server:
 
 ```sh
-go run ./cmd/web -addr 127.0.0.1:8080
+go run ./cmd/web -addr 127.0.0.1:7171
 ```

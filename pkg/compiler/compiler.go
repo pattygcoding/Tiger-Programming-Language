@@ -67,7 +67,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := evaluator.RunWithLoader(modules.Sources[` + strconv.Quote(entry) + `], ` + strconv.Quote(entry) + `, modules, os.Stdout); err != nil {
+	if err := evaluator.RunWithInput(modules.Sources[` + strconv.Quote(entry) + `], ` + strconv.Quote(entry) + `, modules, nil, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
         os.Exit(1)
     }

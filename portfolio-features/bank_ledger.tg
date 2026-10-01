@@ -1,0 +1,150 @@
+/* Bank ledger: classes, Java-style constructors, three-level inheritance, access control, and exception objects. */
+
+function format_cents(cents) {
+    var sign = "";
+    var amount = cents;
+    if amount < 0 { sign = "-"; amount = -amount; }
+    var rest = str(amount % 100);
+    if len(rest) < 2 { rest = "0" + rest; }
+    return f"{sign}${int(amount / 100)}.{rest}";
+}
+
+class BankError {
+    var text;
+    BankError(text) {
+        this.text = text;
+    }
+    function message() { return this.text; }
+}
+
+class InsufficientFunds extends BankError {
+    var shortfall;
+    InsufficientFunds(owner, requested, available) {
+        super(f"{owner} asked for {format_cents(requested)} but only {format_cents(available)} is available");
+        this.shortfall = requested - available;
+    }
+}
+
+var next_number = 1000;
+
+class Account {
+    var owner;
+    var number;
+    protected var balance = 0;
+    private var history = [];
+
+    Account(owner, opening) {
+        this.owner = owner;
+        this.number = ++next_number;
+        this.balance = opening;
+        this.record("open", opening);
+    }
+
+    protected function record(kind, amount) {
+        this.history += [{"kind": kind, "amount": amount, "balance": this.balance}];
+    }
+
+    function available() { return this.balance; }
+
+    function deposit(amount) {
+        if amount <= 0 { throw BankError(f"deposits must be positive, got {format_cents(amount)}"); }
+        this.balance += amount;
+        this.record("deposit", amount);
+    }
+
+    function withdraw(amount) {
+        if amount <= 0 { throw BankError(f"withdrawals must be positive, got {format_cents(amount)}"); }
+        if amount > this.available() { throw InsufficientFunds(this.owner, amount, this.available()); }
+        this.balance -= amount;
+        this.record("withdraw", amount);
+    }
+
+    function month_end() { return 0; }
+    function summary() { return f"#{this.number} {this.owner}: {format_cents(this.balance)}"; }
+
+    function statement() {
+        var lines = [];
+        for entry in this.history {
+            lines += [f"    {entry["kind"]} {format_cents(entry["amount"])} -> {format_cents(entry["balance"])}"];
+        }
+        return lines;
+    }
+}
+
+class SavingsAccount extends Account {
+    private var rate;
+    SavingsAccount(owner, opening, rate) {
+        super(owner, opening);
+        this.rate = rate;
+    }
+    function month_end() {
+        const interest = math.round(this.balance * this.rate / 100 / 12);
+        this.balance += interest;
+        this.record("interest", interest);
+        return interest;
+    }
+    function summary() { return super.summary() + f" (savings, {this.rate}% APR)"; }
+}
+
+class CheckingAccount extends Account {
+    private var overdraft;
+    CheckingAccount(owner, opening, overdraft) {
+        super(owner, opening);
+        this.overdraft = overdraft;
+    }
+    function available() { return this.balance + this.overdraft; }
+    function month_end() {
+        if this.balance >= 0 { return 0; }
+        this.balance -= 1500;
+        this.record("overdraft fee", 1500);
+        return -1500;
+    }
+}
+
+class PremiumChecking extends CheckingAccount {
+    function month_end() {
+        const fee = super.month_end();
+        if fee < 0 { this.deposit(-fee); }
+        return 0;
+    }
+    function summary() { return super.summary() + " [premium: fees refunded]"; }
+}
+
+const accounts = [CheckingAccount("Ada", 25000, 10000), SavingsAccount("Grace", 100000, 6), PremiumChecking("Linus", 5000, 20000)];
+const ada = accounts[0];
+const grace = accounts[1];
+const linus = accounts[2];
+
+function transfer(from, to, amount) {
+    try {
+        from.withdraw(amount);
+        to.deposit(amount);
+        print(f"  ok      {format_cents(amount)} from {from.owner} to {to.owner}");
+    } catch (error) {
+        print(f"  refused {error.message()}");
+    }
+}
+
+print("Transfers");
+transfer(ada, grace, 30000);
+transfer(linus, ada, 22000);
+transfer(grace, linus, 0);
+transfer(ada, linus, 9000);
+transfer(linus, grace, 50000);
+
+print("Month end");
+var net = 0;
+for account in accounts {
+    net += account.month_end();
+    print(" ", account.summary());
+}
+print("  net month-end adjustments:", format_cents(net));
+
+print("Statement for", ada.owner);
+for line in ada.statement() { print(line); }
+
+try {
+    print(grace.history);
+} catch (error) {
+    print("History is private:", "private" in error);
+}

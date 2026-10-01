@@ -1,0 +1,12 @@
+Your name: Welcome, Ada!
+How many students? Reading 4 students
+Grace excellent
+Linus pass
+Alan pass
+Ken fail
+> > > > > 
+results [9, 42, 13, "?pow"]
+words ["spaced", "words"] 2
+Number: rejected not a number: 12x
+eof true 3 20
+again? still eof true

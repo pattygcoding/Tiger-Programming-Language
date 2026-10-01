@@ -138,10 +138,11 @@ type Function struct {
 
 type Class struct {
 	Base
-	Name    string
-	Parent  *Identifier
-	Methods []*Function
-	Fields  []*Field
+	Name        string
+	Parent      *Identifier
+	Constructor *Function
+	Methods     []*Function
+	Fields      []*Field
 }
 
 type Field struct {

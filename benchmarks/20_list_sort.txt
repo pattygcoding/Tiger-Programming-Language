@@ -1,0 +1,29 @@
+List sort
+numbers [-2, -2, 0, 3.5, 5, 7, 9]
+returns null
+alias [-2, -2, 0, 3.5, 5, 7, 9] true
+descending [9, 7, 5, 3.5, 0, -2, -2]
+ascending [-2, -2, 0, 3.5, 5, 7, 9]
+reverse=1 [9, 7, 5, 3.5, 0, -2, -2]
+reverse=0 [-2, -2, 0, 3.5, 5, 7, 9]
+words ["Apple", "Fig", "apple", "banana", "fig", "pear"]
+by length ["fig", "Fig", "pear", "kiwi", "plum", "Apple", "banana"]
+longest first ["banana", "Apple", "pear", "kiwi", "plum", "fig", "Fig"]
+negated key [50, 40, 30, 20, 10] 5
+by age ["Bo", "Di", "Ada", "Cy", "Ed"]
+team then oldest ["Ed", "Ada", "Di", "Cy", "Bo"]
+team:name ["Ada", "Di", "Ed", "Bo", "Cy"]
+bound key ["low", "mid", "mid", "high"]
+bound reverse ["high", "mid", "mid", "low"]
+closest to 5 [5, 4, 6, 1, 9, 10, 0]
+edges [] ["only"] [1, 2, 3]
+rows [[1, 2, 3], [7, 8, 9]] copy [2, 3, 4] original [4, 2, 3]
+mixed true [3, "a", 1]
+positional true
+unknown keyword true
+bad reverse true
+list keys true
+key threw zero key [3, 0, 1]
+big true 200 true true
+stable true 0 57
+reverse stable true 2 55

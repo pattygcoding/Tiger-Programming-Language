@@ -23,6 +23,27 @@ last 4 4 4 true
 
 Indexed assignment replaces an existing element. It cannot grow a list. Concatenation with `+` creates a new outer list; use `items += [value]` to add one element. `size()` and `length()` are aliases for `len(items)`. There are no `append`/`pop` methods, slices, or comprehensions. Out-of-range and fractional indices are errors.
 
+### Sorting
+
+`items.sort()` sorts a list in place and returns `null`, like Python's `list.sort()`. It accepts only the keyword arguments `key` (a function called once per element, or `null`) and `reverse` (default `false`). The sort is stable, including when reversed. Elements or keys must all be numbers or all be strings; mixed types are an error.
+
+```tg
+const scores = [72, 95, 88];
+scores.sort();
+print(scores);
+const names = ["Mia", "Al", "Bo", "Kate"];
+function size(name) { return len(name); }
+names.sort(key=size, reverse=true);
+print(names);
+```
+
+Output:
+
+```text
+[72, 88, 95]
+["Kate", "Mia", "Al", "Bo"]
+```
+
 ## Dictionaries
 
 ```tg

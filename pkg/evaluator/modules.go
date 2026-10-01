@@ -62,6 +62,11 @@ func (loader FSLoader) Load(filename string) (string, error) {
 }
 
 func RunFile(filename string, output io.Writer) error {
+	return RunFileWithInput(filename, nil, output)
+}
+
+// RunFileWithInput runs a file from disk; input feeds the input() built-in.
+func RunFileWithInput(filename string, input io.Reader, output io.Writer) error {
 	loader := FileLoader{}
 	canonical, err := loader.Resolve("", filename)
 	if err != nil {
@@ -71,7 +76,7 @@ func RunFile(filename string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return RunWithLoader(source, canonical, loader, output)
+	return RunWithInput(source, canonical, loader, nil, input, output)
 }
 
 func RunWithLoader(source, filename string, loader ModuleLoader, output io.Writer) error {
@@ -82,12 +87,17 @@ func RunWithLoader(source, filename string, loader ModuleLoader, output io.Write
 // filesystem uses the host disk; browser builds and tests supply a memory
 // filesystem instead.
 func RunWithOptions(source, filename string, loader ModuleLoader, files FileSystem, output io.Writer) error {
+	return RunWithInput(source, filename, loader, files, nil, output)
+}
+
+// RunWithInput is RunWithOptions plus a reader for input(); nil makes input() fail.
+func RunWithInput(source, filename string, loader ModuleLoader, files FileSystem, input io.Reader, output io.Writer) error {
 	program, err := parser.ParseSource(source, filename)
 	if err != nil {
 		return err
 	}
 	eval := New(output)
-	eval.SourcePath, eval.Loader, eval.FileSystem = filename, loader, files
+	eval.SourcePath, eval.Loader, eval.FileSystem, eval.Input = filename, loader, files, input
 	return eval.Execute(program)
 }
 

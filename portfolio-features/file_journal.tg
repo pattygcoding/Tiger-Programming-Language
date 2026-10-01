@@ -1,0 +1,121 @@
+/* File journal: write_file/append_file/read_file, open() modes, readline loops, seek/tell, in-place edits, and cleanup. */
+const JOURNAL = "tiger_portfolio_journal.txt";
+const SUMMARY = "tiger_portfolio_summary.txt";
+
+function split(text, separator) {
+    var parts = [];
+    var current = "";
+    for ch in text {
+        if ch == separator {
+            parts += [current];
+            current = "";
+        } else {
+            current += ch;
+        }
+    }
+    return parts + [current];
+}
+
+function strip_newline(line) {
+    var out = "";
+    for ch in line {
+        if ch != "\n" { out += ch; }
+    }
+    return out;
+}
+
+try {
+    print("journal exists before:", file_exists(JOURNAL));
+    write_file(JOURNAL, "STATUS:open  \n");
+    const entries = [
+        ["2026-09-01", "happy", "Shipped the Tiger playground"],
+        ["2026-09-02", "focused", "Added classes and inheritance"],
+        ["2026-09-03", "tired", "Chased a parser bug all night"],
+        ["2026-09-04", "happy", "Fixed it with one line"],
+        ["2026-09-05", "focused", "Wrote documentation examples"]
+    ];
+    var written = 0;
+    for entry in entries {
+        written += append_file(JOURNAL, f"{entry[0]}|{entry[1]}|{entry[2]}\n");
+    }
+    print(f"appended {len(entries)} entries ({written} bytes)");
+
+    const reader = open(JOURNAL);
+    const status = strip_newline(reader.readline());
+    var moods = {};
+    var notes = [];
+    while true {
+        const line = reader.readline();
+        if line == "" { break; }
+        const fields = split(strip_newline(line), "|");
+        moods[fields[1]] = (fields[1] in moods and moods[fields[1]] or 0) + 1;
+        notes += [{"date": fields[0], "mood": fields[1], "text": fields[2]}];
+    }
+    print(f"{status} | read {len(notes)} notes, stopped at byte {reader.tell()}, closed={reader.closed}");
+    reader.close();
+    print("closed after close():", reader.closed);
+
+    print("mood counts:", moods);
+    for note in notes {
+        if note["mood"] == "happy" {
+            print(f"  :) {note["date"]} {note["text"]}");
+        }
+    }
+
+    const editor = open(JOURNAL, "r+");
+    editor.seek(7);
+    editor.write("closed");
+    editor.seek(0);
+    print("after in-place edit:", strip_newline(editor.readline()));
+    editor.close();
+
+    const log = open(JOURNAL, "a+");
+    log.write("2026-09-06|proud|Built a portfolio\n");
+    log.seek(0);
+    const all_lines = log.readlines();
+    log.close();
+    print(f"a+ appended and re-read {len(all_lines)} lines; last: {strip_newline(all_lines[-1])}");
+
+    const probe = open(JOURNAL, "rb");
+    probe.seek(-6, 2);
+    print(f"last 6 bytes: {probe.read(6) == "folio\n"}; file size {probe.tell()} bytes");
+    probe.close();
+
+    const out = open(SUMMARY, "w");
+    out.writelines(["Journal summary\n", f"entries: {len(all_lines) - 1}\n"]);
+    for mood in moods {
+        out.write(f"{mood}: {moods[mood]}\n");
+    }
+    out.flush();
+    out.close();
+    print("summary file:");
+    print(read_file(SUMMARY), end="");
+
+    try {
+        open("definitely_missing_file.txt", "r");
+    } catch (error) {
+        print("missing file raised an error:", len(error) > 0);
+    }
+
+    try {
+        const readonly = open(JOURNAL, "r");
+        try {
+            readonly.write("nope");
+        } catch (error) {
+            print("write to read-only stream refused:", len(error) > 0);
+        }
+        readonly.close();
+        readonly.read();
+    } catch (error) {
+        print("reading a closed file refused:", len(error) > 0);
+    }
+} catch (error) {
+    print("journal demo failed:", error);
+}
+
+for path in [JOURNAL, SUMMARY] {
+    if file_exists(path) {
+        remove_file(path);
+    }
+}
+print("cleaned up:", not file_exists(JOURNAL) and not file_exists(SUMMARY));

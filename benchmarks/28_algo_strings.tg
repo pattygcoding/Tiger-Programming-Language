@@ -1,0 +1,149 @@
+/* Algo module: editDistance (Levenshtein DP) and regexMatch (. and * DP), cross-checked against Tiger implementations. */
+print("String algorithms");
+
+var totalOperations = algo.editDistance("horse", "ros");
+print(totalOperations);
+var matchesPattern = algo.regexMatch("aa", "a*");
+print(matchesPattern);
+
+function slow_edit(a, b) {
+    var previous = range(len(b) + 1);
+    for i in range(1, len(a) + 1) {
+        var current = [i];
+        for j in range(1, len(b) + 1) {
+            if a[i - 1] == b[j - 1] {
+                current += [previous[j - 1]];
+            } else {
+                current += [1 + math.min(previous[j - 1], math.min(previous[j], current[j - 1]))];
+            }
+        }
+        previous = current;
+    }
+    return previous[len(b)];
+}
+
+function slow_match(text, pattern, i, j) {
+    if j == len(pattern) {
+        return i == len(text);
+    }
+    const first = i < len(text) and (pattern[j] == "." or pattern[j] == text[i]);
+    if j + 1 < len(pattern) and pattern[j + 1] == "*" {
+        return slow_match(text, pattern, i, j + 2) or (first and slow_match(text, pattern, i + 1, j));
+    }
+    return first and slow_match(text, pattern, i + 1, j + 1);
+}
+
+const edit_cases = [
+    ["horse", "ros"],
+    ["intention", "execution"],
+    ["kitten", "sitting"],
+    ["", "tiger"],
+    ["tiger", ""],
+    ["flaw", "lawn"],
+    ["sunday", "saturday"],
+    ["same", "same"],
+    ["abc", "cba"],
+    ["Tiger", "tiger"]
+];
+for pair in edit_cases {
+    const fast = algo.editDistance(pair[0], pair[1]);
+    print(f"edit '{pair[0]}' -> '{pair[1]}': {fast} {fast == slow_edit(pair[0], pair[1])}");
+}
+
+const match_cases = [
+    ["aa", "a"],
+    ["aa", "a*"],
+    ["ab", ".*"],
+    ["aab", "c*a*b"],
+    ["mississippi", "mis*is*p*."],
+    ["", ""],
+    ["", "c*"],
+    ["a", ""],
+    ["ab", ".*c"],
+    ["aaa", "ab*a*c*a"],
+    ["tiger", "t.g.r"],
+    ["tigers", "t.g.r"]
+];
+for pair in match_cases {
+    const fast = algo.regexMatch(pair[0], pair[1]);
+    print(f"match '{pair[0]}' ~ '{pair[1]}': {fast} {fast == slow_match(pair[0], pair[1], 0, 0)}");
+}
+
+const dictionary = ["print", "range", "input", "float", "class", "while", "return", "const"];
+function suggest(word) {
+    var best = "";
+    var best_distance = 1000;
+    for candidate in dictionary {
+        const distance = algo.editDistance(word, candidate);
+        if distance < best_distance {
+            best = candidate;
+            best_distance = distance;
+        }
+    }
+    return best + " (" + str(best_distance) + ")";
+}
+for typo in ["pirnt", "rnage", "imput", "flaot", "clas", "whiel", "retrun", "cosnt"] {
+    print("suggest", typo, suggest(typo));
+}
+
+const files = ["main.tg", "test.tg", "notes.txt", "math.tg", "data.csv", "t.tg"];
+for pattern in [".*.tg", "t.*", "m.*.tg"] {
+    var found = [];
+    for name in files {
+        if algo.regexMatch(name, pattern) {
+            found += [name];
+        }
+    }
+    print("files", pattern, found);
+}
+
+var seed = 3;
+function pick(alphabet) {
+    seed = (seed * 31 + 7) % 101;
+    return alphabet[seed % len(alphabet)];
+}
+var regex_agree = 0;
+var edit_agree = 0;
+for trial in range(30) {
+    var text = "";
+    var other = "";
+    var pattern = "";
+    for step in range(trial % 6) {
+        text += pick("ab");
+        other += pick("abc");
+        pattern += pick("ab.");
+        if seed % 2 == 0 {
+            pattern += "*";
+        }
+    }
+    if algo.regexMatch(text, pattern) == slow_match(text, pattern, 0, 0) {
+        regex_agree++;
+    }
+    if algo.editDistance(text, other) == slow_edit(text, other) {
+        edit_agree++;
+    }
+}
+print("random agree", regex_agree, edit_agree, "of 30");
+
+print("unicode", algo.editDistance("café", "cafe"), algo.regexMatch("é", "."));
+print("symmetric", algo.editDistance("ros", "horse") == algo.editDistance("horse", "ros"));
+const distance = algo.editDistance;
+print("stored", distance("tiger", "tigress"), distance);
+
+try {
+    algo.regexMatch("a", "*a");
+} catch (error) {
+    print("bad pattern", "* at index 0 must follow a character or ." in error);
+}
+
+try {
+    algo.editDistance("a", 5);
+} catch (error) {
+    print("not string", "expects two strings, got string and number" in error);
+}
+
+try {
+    algo.regexMatch("a");
+} catch (error) {
+    print("arity", "expects 2 arguments, got 1" in error);
+}

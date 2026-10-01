@@ -9,3 +9,8 @@ visited [0, 2, 3, 5]
 attempts 3
 nested 3
 ranges [2, 4, 6] [3, 1, -1]
+grades excellent pass pass fail
+short circuit 20
+precedence ["loose or", "grouped"]
+bounded [1, 2, 3, 4, 5] [0, 1, 2, 3]
+labels ["zero", "1", "2", "odd>1"]

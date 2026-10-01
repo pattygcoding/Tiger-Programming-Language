@@ -17,7 +17,7 @@
 | Instance | Calling a class |
 | Bound method | Accessing a method through an instance |
 
-Numbers are finite IEEE 754 float64 values, not arbitrary-precision integers. Integer arithmetic is exact only within float64's precision range; not every integer beyond 2^53 can be represented. Decimal fractions such as `0.1` are generally approximate. Arithmetic producing infinity or NaN raises an error. There are no user-visible integer, byte, or decimal types.
+Numbers are finite IEEE 754 float64 values, not arbitrary-precision integers. Integer arithmetic is exact only within float64's precision range; not every integer beyond 2^53 can be represented. Decimal fractions such as `0.1` are generally approximate. Arithmetic producing infinity or NaN raises an error. There are no separate integer, byte, or decimal types: integers and fractions share the number type, so mixed arithmetic such as `2 + 0.5` needs no promotion and yields `2.5`. `int(value)` truncates to a whole number and `float(value)` converts to a number; see [conversions](builtins.md#intvalue-floatvalue-boolvalue).
 
 ## Arithmetic
 
@@ -46,7 +46,7 @@ Tiger! [1, 2, 3]
 
 `+`, `-`, `*`, `/`, and `%` accept numbers. Division always produces a number, so `7 / 2` is `3.5`. Modulo follows the divisor's sign. Division and modulo by zero are errors. Unary `+` and `-` require a number.
 
-`+` also concatenates two strings or two lists. Mixed-type arithmetic does not implicitly convert values. Use `str` when constructing text. `//` begins a comment; it is not integer division. Exponentiation is not implemented. `*` and `**` are never arithmetic-power operators: in a call they unpack a list and a dictionary, and in a parameter list they declare `*args` and `**kwargs`.
+`+` also concatenates two strings or two lists. Mixing numbers with strings, booleans, or other types does not implicitly convert values; use `str`, `int`, `float`, or the `.ToString()`-style methods. `//` begins a comment; it is not integer division. Exponentiation is not implemented. `*` and `**` are never arithmetic-power operators: in a call they unpack a list and a dictionary, and in a parameter list they declare `*args` and `**kwargs`.
 
 `+=`, `-=`, `*=`, and `%=` read an assignable target, apply the matching arithmetic operator, and store the result. They work with the same operand types as `+`, `-`, `*`, and `%`; for example, `items += [next]` appends by list concatenation. Variables, instance fields, and list/dictionary entries are valid targets. The receiver and index expressions are evaluated once. Prefix and postfix `++`/`--` update numeric assignable targets; see [Control Flow](control-flow.md).
 
@@ -90,7 +90,7 @@ fallback 0 present
 false true
 ```
 
-Falsey values are `false`, `null`, zero, and empty strings, lists, and dictionaries. Everything else is truthy, including all instances. `not` returns a boolean. `and` and `or` return one of their operands and only evaluate the right operand when needed.
+Falsey values are `false`, `null`, zero, and empty strings, lists, and dictionaries. Everything else is truthy, including all instances. `bool(value)` and `value.ToBool()` return this truth value. `not` returns a boolean. `and` and `or` return one of their operands and only evaluate the right operand when needed.
 
 ## Precedence Reference
 

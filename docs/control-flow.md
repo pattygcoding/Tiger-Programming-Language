@@ -26,6 +26,45 @@ excellent
 
 Conditions use [truthiness](types-and-operators.md), not just literal booleans. Branches are tested in order, and only the first matching branch executes. `else` is optional. Blocks require braces; parentheses around conditions are optional.
 
+## C-Style Cif and Celse
+
+```tg
+function grade(score, attendance, has_special_approval) {
+    cif (score >= 90 && attendance >= 90) {
+        return "Grade: Excellent";
+    } celse cif ((score >= 80 && attendance >= 80) || has_special_approval) {
+        return "Grade: Pass";
+    } celse {
+        return "Grade: Fail";
+    }
+}
+print(grade(95, 92, false));
+print(grade(70, 85, true));
+print(grade(85, 60, false));
+```
+
+Output:
+
+```text
+Grade: Excellent
+Grade: Pass
+Grade: Fail
+```
+
+`cif` is a C-style alternative to `if`. Its condition must be wrapped in parentheses, and the chain continues with `celse cif (...)` and an optional final `celse`. A `cif` chain cannot mix in `elif`/`else`, and an `if` chain cannot use `celse`.
+
+Inside `cif` and `cfor` headers, `&&` and `||` mean `and` and `or`, with the same short-circuit behavior and precedence: `&&` binds tighter than `||`, and both bind looser than comparisons. Everywhere else, including inside `cif` bodies, use `and`/`or`; `&&` and `||` are syntax errors there. There is no `!` operator; use `not`.
+
+**Expected error:**
+
+```tg
+print(true && false);
+```
+
+```error
+&& is only allowed in cif and cfor headers; use and
+```
+
 ## While
 
 ```tg
@@ -110,14 +149,19 @@ cfor (var index = 0; index < 5; ++index) {
 } else { print(total); }
 var count = 1;
 print(count++, ++count, count--, --count);
+cfor (var step = 0; step < 10 && step * step < 10; step++) {
+    print(step, end=" ");
+}
+print();
 ```
 
 ```text
 8
 1 3 3 1
+0 1 2 3 
 ```
 
-`cfor (initializer; condition; update)` executes the initializer once, tests before each iteration, and runs the update after the body, including after `continue`. Each clause may be empty; an omitted condition means true. `cfor (;;) { break; }` is valid. The initializer may declare a variable; the update may assign or evaluate an expression but cannot declare one. Header variables live in a loop-local scope visible to its body and `else`, not after the loop. Each iteration has a fresh child scope.
+`cfor (initializer; condition; update)` executes the initializer once, tests before each iteration, and runs the update after the body, including after `continue`. Each clause may be empty; an omitted condition means true. Any clause may use `&&` and `||`. `cfor (;;) { break; }` is valid. The initializer may declare a variable; the update may assign or evaluate an expression but cannot declare one. Header variables live in a loop-local scope visible to its body and `else`, not after the loop. Each iteration has a fresh child scope.
 
 Prefix `++value` and `--value` return the updated number. Postfix `value++` and `value--` return the old number. Targets may be mutable variables, fields, or list/dictionary entries; receivers and index expressions are evaluated once. Constants and nonnumeric targets fail. Unlike C's unspecified expression-order cases, Tiger evaluates operands and arguments left to right.
 

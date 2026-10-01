@@ -1,0 +1,34 @@
+Sorted lists
+2 2.5
+[1, 1, 2, 3, 4, 4, 5, 6]
+inputs kept [[1, 4, 5], [1, 3, 4], [2, 6]]
+median 0 2 true
+median 1 2.5 true
+median 2 1 true
+median 3 2 true
+median 4 0 true
+median 5 5.5 true
+median 6 4 true
+median 7 0 true
+median 8 3.5 true
+median 9 2 true
+merge 0 [1, 1, 2, 3, 4, 4, 5, 6] true
+merge 1 [] true
+merge 2 [] true
+merge 3 [5] true
+merge 4 [1, 2, 3, 4, 5, 6, 7, 8, 9] true
+merge 5 [1, 5, 10] true
+merge 6 ["apple", "fig", "kiwi", "pear", "plum"] true
+merge 7 [-3, -2.5, -2.5, 0, 7] true
+random agree 15 of 15
+leaderboard [40, 55, 62, 70, 77, 88, 91, 95, 99]
+best 99 worst 40 median 77
+unique merged [1, 2, 3, 4, 5, 6]
+merged median 3.5 3.5
+stored [1, 2] <builtin algo.mergeKSorted>
+empty true
+unsorted median true
+unsorted merge true
+mixed true
+not nested true
+arity true

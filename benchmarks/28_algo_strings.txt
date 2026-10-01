@@ -1,0 +1,43 @@
+String algorithms
+3
+true
+edit 'horse' -> 'ros': 3 true
+edit 'intention' -> 'execution': 5 true
+edit 'kitten' -> 'sitting': 3 true
+edit '' -> 'tiger': 5 true
+edit 'tiger' -> '': 5 true
+edit 'flaw' -> 'lawn': 2 true
+edit 'sunday' -> 'saturday': 3 true
+edit 'same' -> 'same': 0 true
+edit 'abc' -> 'cba': 2 true
+edit 'Tiger' -> 'tiger': 1 true
+match 'aa' ~ 'a': false true
+match 'aa' ~ 'a*': true true
+match 'ab' ~ '.*': true true
+match 'aab' ~ 'c*a*b': true true
+match 'mississippi' ~ 'mis*is*p*.': false true
+match '' ~ '': true true
+match '' ~ 'c*': true true
+match 'a' ~ '': false true
+match 'ab' ~ '.*c': false true
+match 'aaa' ~ 'ab*a*c*a': true true
+match 'tiger' ~ 't.g.r': true true
+match 'tigers' ~ 't.g.r': false true
+suggest pirnt print (2)
+suggest rnage range (2)
+suggest imput input (1)
+suggest flaot float (2)
+suggest clas class (1)
+suggest whiel while (2)
+suggest retrun return (2)
+suggest cosnt const (2)
+files .*.tg ["main.tg", "test.tg", "math.tg", "t.tg"]
+files t.* ["test.tg", "t.tg"]
+files m.*.tg ["main.tg", "math.tg"]
+random agree 30 30 of 30
+unicode 1 true
+symmetric true
+stored 3 <builtin algo.editDistance>
+bad pattern true
+not string true
+arity true

@@ -1,0 +1,149 @@
+/* Connect Four: a two-player console game reading moves with input(), validating every entry, and detecting wins in all directions. */
+const ROWS = 6;
+const COLS = 7;
+const EMPTY = ".";
+const PLAYERS = ["X", "O"];
+const DIGITS = "0123456789";
+const WHITESPACE = " \t\r\n";
+
+function repeat(text, count) {
+    var out = "";
+    for i in range(count) { out += text; }
+    return out;
+}
+
+function join(items, separator) {
+    var out = "";
+    for i in range(len(items)) {
+        if i > 0 { out += separator; }
+        out += str(items[i]);
+    }
+    return out;
+}
+
+const BORDER = "+" + repeat("-", COLS * 2 - 1) + "+";
+const LABELS = " " + join(range(1, COLS + 1), " ");
+const HEADER = "=== Connect Four ===\n" + "Get four of your pieces in a row to win. Columns are numbered 1-7.\n";
+
+// board[0] is the bottom row.
+function new_board() {
+    var board = [];
+    for row in range(ROWS) {
+        var cells = [];
+        for col in range(COLS) { cells += [EMPTY]; }
+        board += [cells];
+    }
+    return board;
+}
+
+function render(board) {
+    var lines = [LABELS, BORDER];
+    cfor (var row = ROWS - 1; row >= 0; row--) { lines += ["|" + join(board[row], " ") + "|"]; }
+    lines += [BORDER];
+    return join(lines, "\n");
+}
+
+function lowest_empty_row(board, column) {
+    for row in range(ROWS) { if board[row][column] == EMPTY { return row; } }
+    return -1;
+}
+
+function four_from(board, player, row, col, row_step, col_step) {
+    for k in range(4) { if board[row + k * row_step][col + k * col_step] != player { return false; } }
+    return true;
+}
+
+// Checks rows, columns, and both diagonals from every starting cell that fits on the board.
+function has_four(board, player) {
+    for step in [[0, 1], [1, 0], [1, 1], [-1, 1]] {
+        for row in range(ROWS) {
+            for col in range(COLS) {
+                const last_row = row + 3 * step[0];
+                const fits = last_row >= 0 and last_row < ROWS and col + 3 * step[1] < COLS;
+                if fits and four_from(board, player, row, col, step[0], step[1]) { return true; }
+            }
+        }
+    }
+    return false;
+}
+
+function strip(text) {
+    var start = 0;
+    var end = len(text);
+    while start < end and text[start] in WHITESPACE { start++; }
+    while end > start and text[end - 1] in WHITESPACE { end--; }
+    var out = "";
+    cfor (var i = start; i < end; i++) { out += text[i]; }
+    return out;
+}
+
+// An optional sign followed by one or more ASCII digits.
+function is_whole_number(token) {
+    var start = 0;
+    if len(token) > 0 and (token[0] == "+" or token[0] == "-") { start = 1; }
+    if start == len(token) { return false; }
+    cfor (var i = start; i < len(token); i++) { if not (token[i] in DIGITS) { return false; } }
+    return true;
+}
+
+function write(text) { print(text, end=""); }
+
+function prompt(player) { return f"Player {player}, choose a column (1-7): "; }
+
+// Returns the zero-based column, or null once input is closed.
+function ask_column(board, player) {
+    while true {
+        var line = null;
+        try {
+            line = input(prompt(player));
+        } catch (error) {
+            write("\nInput closed. Goodbye.\n");
+            return null;
+        }
+        const token = strip(line);
+        var message = "";
+        cif (token == "") {
+            message = "Invalid input: no column entered.";
+        } celse cif (not is_whole_number(token)) {
+            message = f"Invalid input: \"{token}\" is not a whole number.";
+        } celse {
+            var value = 0;
+            // A number too large to convert is simply out of range.
+            try { value = int(token); } catch (error) { value = COLS + 1; }
+            cif (value < 1 || value > COLS) {
+                message = f"Invalid input: \"{token}\" is out of range (1-7).";
+            } celse cif (lowest_empty_row(board, value - 1) == -1) {
+                message = f"Column {value} is full.";
+            } celse {
+                return value - 1;
+            }
+        }
+        write("\n" + message + "\n");
+    }
+}
+
+function main() {
+    const board = new_board();
+    write(HEADER + "\n" + render(board) + "\n");
+    var moves = 0;
+    var player_index = 0;
+    while true {
+        const player = PLAYERS[player_index];
+        const column = ask_column(board, player);
+        if column == null { return 0; }
+        board[lowest_empty_row(board, column)][column] = player;
+        moves++;
+        write("\n" + render(board) + "\n");
+        if has_four(board, player) {
+            write(f"Player {player} wins!\n");
+            return 0;
+        }
+        if moves == ROWS * COLS {
+            write("It's a tie!\n");
+            return 0;
+        }
+        player_index = 1 - player_index;
+    }
+}
+
+main();
