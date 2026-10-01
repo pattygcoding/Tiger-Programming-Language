@@ -97,7 +97,7 @@ func (scan *scanner) tokens(interpolation bool, depth int) ([]Token, error) {
 			token.Text = string(scan.source[start:scan.pos])
 			token.Kind = Ident
 			switch token.Text {
-			case "const", "var", "function", "class", "super", "this", "public", "private", "protected", "return", "if", "elif", "else", "while", "for", "cfor", "in", "true", "false", "null", "and", "or", "not", "break", "continue", "switch", "case", "default", "try", "catch", "throw", "import", "as":
+			case "const", "var", "function", "class", "extends", "super", "this", "public", "private", "protected", "return", "if", "elif", "else", "while", "for", "cfor", "cif", "celse", "in", "true", "false", "null", "and", "or", "not", "break", "continue", "switch", "case", "default", "try", "catch", "throw", "import", "as":
 				token.Kind = Kind(token.Text)
 			}
 		case current >= '0' && current <= '9':
@@ -180,6 +180,11 @@ func (scan *scanner) tokens(interpolation bool, depth int) ([]Token, error) {
 				if scan.peek(0) == '=' {
 					token.Text += string(scan.advance())
 				}
+			case '&', '|':
+				if scan.peek(0) != current {
+					return nil, token.Errorf("unexpected character %q; did you mean %q?", current, string([]rune{current, current}))
+				}
+				token.Text += string(scan.advance())
 			case '/', '(', ')', '[', ']', '{', '}', ':', ',', ';', '.':
 			default:
 				return nil, token.Errorf("unexpected character %q", current)

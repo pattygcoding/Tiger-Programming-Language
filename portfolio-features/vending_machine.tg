@@ -1,0 +1,139 @@
+/* Vending machine: a state machine using fall-through switch, cif/celse with && and ||, cfor, ++/--, continue, and loop else. */
+const DENOMINATIONS = [100, 25, 10, 5];
+
+function money(cents) {
+    const rest = cents % 100;
+    return f"${int(cents / 100)}.{rest < 10 and "0" or ""}{rest}";
+}
+
+class Machine {
+    var state = "idle";
+    var credit = 0;
+    var sales = 0;
+    var revenue = 0;
+    var products;
+    private var bank = {100: 2, 25: 4, 10: 5, 5: 5};
+
+    Machine(products) {
+        this.products = products;
+    }
+
+    function insert(coin) {
+        cif (not (coin in this.bank)) {
+            print(f"  rejected coin worth {coin} cents");
+            return;
+        } celse cif (this.state == "idle" || this.state == "collecting") {
+            this.credit += coin;
+            this.bank[coin]++;
+            this.state = "collecting";
+            print(f"  credit {money(this.credit)}");
+        } celse {
+            print(f"  cannot take coins while {this.state}");
+        }
+    }
+
+    function select(code) {
+        if not (code in this.products) {
+            print(f"  unknown product {code}");
+            return;
+        }
+        const item = this.products[code];
+        cif (item["stock"] <= 0) {
+            print(f"  {item["name"]} is sold out");
+        } celse cif (this.credit < item["price"] && this.state == "collecting") {
+            print(f"  {item["name"]} costs {money(item["price"])}; insert {money(item["price"] - this.credit)} more");
+        } celse cif (this.credit >= item["price"]) {
+            this.state = "vending";
+            item["stock"]--;
+            this.sales++;
+            this.revenue += item["price"];
+            this.credit -= item["price"];
+            print(f"  vended {item["name"]}");
+            this.refund();
+        } celse {
+            print("  insert coins first");
+        }
+    }
+
+    function refund() {
+        var given = [];
+        var remaining = this.credit;
+        cfor (var i = 0; i < len(DENOMINATIONS) && remaining > 0; i++) {
+            const coin = DENOMINATIONS[i];
+            while remaining >= coin and this.bank[coin] > 0 {
+                remaining -= coin;
+                this.bank[coin]--;
+                given += [coin];
+            }
+        }
+        if this.credit > 0 {
+            print(f"  change {money(this.credit - remaining)} as {given}{remaining > 0 and f", owed {money(remaining)}" or ""}");
+        }
+        this.credit = 0;
+        this.state = "idle";
+    }
+
+    function restock(code, amount) {
+        this.products[code]["stock"] += amount;
+        print(f"  restocked {this.products[code]["name"]} to {this.products[code]["stock"]}");
+    }
+
+    function audit() {
+        print(f"  audit: {this.sales} sales, revenue {money(this.revenue)}, coins {this.bank}");
+    }
+}
+
+const machine = Machine({
+    "A1": {"name": "Tiger Cola", "price": 125, "stock": 2},
+    "A2": {"name": "Stripe Chips", "price": 90, "stock": 1},
+    "B1": {"name": "Jungle Juice", "price": 150, "stock": 0}
+});
+
+function handle(event) {
+    switch event[0] {
+        case "coin":
+            machine.insert(event[1]);
+            break;
+        case "select":
+            machine.select(event[1]);
+            break;
+        case "refund":
+        case "cancel":
+            machine.refund();
+            break;
+        case "service":
+            machine.restock(event[1], event[2]);
+        case "audit":
+            machine.audit();
+            break;
+        default:
+            print(f"  ignored event {event[0]}");
+    }
+}
+
+const events = [
+    ["select", "A1"], ["coin", 100], ["select", "A1"], ["coin", 3], ["coin", 25], ["coin", 25], ["select", "A1"],
+    ["coin", 100], ["select", "B1"], ["cancel"], ["coin", 100], ["select", "A2"],
+    ["coin", 100], ["coin", 100], ["select", "A1"], ["dance"], ["service", "B1", 5], ["coin", 100], ["select", "Z9"], ["refund"]
+];
+
+var step = 0;
+for event in events {
+    step++;
+    if event[0] == "dance" {
+        print(f"{step}. skipping a silly event");
+        continue;
+    }
+    print(f"{step}. {event[0]}{len(event) > 1 and " " + str(event[1]) or ""}");
+    handle(event);
+}
+
+for code in machine.products {
+    if machine.products[code]["stock"] == 0 {
+        print("first empty slot:", code);
+        break;
+    }
+} else {
+    print("every slot has stock");
+}
+print("final state:", machine.state, "with", machine.sales, "sales");

@@ -1,77 +1,86 @@
 const TITLE = "Polymorphic shapes";
 
 class Shape {
-    function init(this, label) {
+    var label;
+
+    Shape(label) {
         this.label = label;
     }
 
-    function area(this) {
+    function area() {
         return 0;
     }
 
-    function perimeter(this) {
+    function perimeter() {
         return 0;
     }
 
-    function describe(this) {
+    function describe() {
         return this.label + ": area=" + str(this.area()) + ", perimeter=" + str(this.perimeter());
     }
 }
 
-class Rectangle(Shape) {
-    function init(this, width, height) {
-        super.init("rectangle");
+class Rectangle extends Shape {
+    var width;
+    var height;
+
+    Rectangle(width, height) {
+        super("rectangle");
         this.width = width;
         this.height = height;
     }
 
-    function area(this) {
+    function area() {
         return this.width * this.height;
     }
 
-    function perimeter(this) {
+    function perimeter() {
         return 2 * (this.width + this.height);
     }
 
-    function scale(this, factor) {
+    function scale(factor) {
         this.width = this.width * factor;
         this.height = this.height * factor;
         return this;
     }
 }
 
-class Square(Rectangle) {
-    function init(this, side) {
-        super.init(side, side);
+class Square extends Rectangle {
+    Square(side) {
+        super(side, side);
         this.label = "square";
     }
 
-    function side(this) {
+    function side() {
         return this.width;
     }
 
-    function describe(this) {
+    function describe() {
         return super.describe() + ", side=" + str(this.side());
     }
 }
 
-class RightTriangle(Shape) {
-    function init(this, base, height, hypotenuse) {
-        super.init("triangle");
+class RightTriangle extends Shape {
+    var base;
+    var height;
+    var hypotenuse;
+
+    RightTriangle(base, height, hypotenuse) {
+        super("triangle");
         this.base = base;
         this.height = height;
         this.hypotenuse = hypotenuse;
     }
 
-    function area(this) {
+    function area() {
         return this.base * this.height / 2;
     }
 
-    function perimeter(this) {
+    function perimeter() {
         return this.base + this.height + this.hypotenuse;
     }
 
-    function scale(this, factor) {
+    function scale(factor) {
         this.base = this.base * factor;
         this.height = this.height * factor;
         this.hypotenuse = this.hypotenuse * factor;

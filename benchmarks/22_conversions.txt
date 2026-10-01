@@ -1,0 +1,17 @@
+Conversions
+int 7 -7 0 15 -3 4 1 0
+float 2 3.25 -0.75 0.5 6 200 1
+str 120.5 true/null [1, "x", [true]] {"k": [1]}
+bool false true false true false false true false true
+empty 0 0 true false
+mixed 8.25 2 2.6666666666666665 2.25
+methods 42 3 6 77 false true
+bits 010100101
+conditions ["falsy", "truthy", "falsy", "truthy", "falsy", "falsy", "truthy", "falsy", "truthy"]
+drained 6
+cif ok
+instance 25C 77 true <Temperature instance> <Plain instance> true
+errors true true true true true
+total 11 true
+round trips [true, true, true, true, true, true]
+counts {1: 3, 2: 1, 3: 1}

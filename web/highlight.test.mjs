@@ -1,32 +1,49 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { tokenize } from "./highlight.mjs";
+import { moduleMembers, tokenize } from "./highlight.mjs";
 
 function tokens(source) {
   return tokenize(source).filter(({ kind }) => kind !== "plain");
 }
 
 test("all reserved words, literals, and built-ins", () => {
-  for (const text of "const var function class super this public private protected return if elif else while for cfor in and or not break continue switch case default try catch throw import as".split(" ")) {
+  for (const text of "const var function class extends super this public private protected return if elif else while for cfor cif celse in and or not break continue switch case default try catch throw import as".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "keyword" }]);
   }
   for (const text of ["true", "false", "null"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "literal" }]);
   }
-  for (const text of ["print", "str", "len", "range", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file"]) {
+  for (const text of ["print", "input", "str", "int", "float", "bool", "len", "range", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "math", "algo"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "builtin" }]);
   }
 });
 
+test("math and algo members are built-ins only after their module", () => {
+  for (const [module, members] of Object.entries(moduleMembers)) {
+    for (const member of members) {
+      assert.deepEqual(tokens(`${module}.${member}(1)`).slice(0, 3), [
+        { text: module, kind: "builtin" },
+        { text: ".", kind: "punctuation" },
+        { text: member, kind: "builtin" },
+      ]);
+    }
+  }
+  assert.deepEqual(tokens("math . sqrt").map(({ kind }) => kind), ["builtin", "punctuation", "builtin"]);
+  assert.deepEqual(tokens(`f"{math.floor(x)}"`)[4], { text: "floor", kind: "builtin" });
+  for (const source of ["sqrt", "point.sqrt", "math.isPrime", "algo.sqrt", "math.tau", "print.max", "math sqrt"]) {
+    assert.equal(tokens(source).at(-1).kind, "identifier", source);
+  }
+});
+
 test("identifiers include Unicode and do not invent type keywords", () => {
-  for (const text of ["def", "number", "string", "bool", "int", "float", "self", "true_value", "printable", "caf\u00e9", "\u53d8\u91cf\u0661"]) {
+  for (const text of ["def", "number", "string", "self", "true_value", "printable", "caf\u00e9", "\u53d8\u91cf\u0661"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "identifier" }]);
   }
 });
 
 test("decimal and exponent numbers, operators, and punctuation", () => {
   assert.deepEqual(tokens("12 3.5 1e2 2E-3 4e+" ).map(({ kind }) => kind), Array(5).fill("number"));
-  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- **".split(" ")) {
+  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- ** && ||".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "operator" }]);
   }
   for (const text of "()[]{}:;,.") {

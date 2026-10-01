@@ -1,17 +1,21 @@
 const TITLE = "Account state and inheritance";
 
 class Account {
-    function init(this, owner, opening) {
+    var owner;
+    var balance;
+    var history;
+
+    Account(owner, opening) {
         this.owner = owner;
         this.balance = opening;
         this.history = [opening];
     }
 
-    function record(this) {
+    function record() {
         this.history = this.history + [this.balance];
     }
 
-    function deposit(this, amount) {
+    function deposit(amount) {
         if amount < 0 {
             return false;
         }
@@ -20,7 +24,7 @@ class Account {
         return true;
     }
 
-    function withdraw(this, amount) {
+    function withdraw(amount) {
         if amount < 0 or amount > this.balance {
             return false;
         }
@@ -29,32 +33,36 @@ class Account {
         return true;
     }
 
-    function summary(this) {
+    function summary() {
         return this.owner + "=" + str(this.balance);
     }
 }
 
-class Savings(Account) {
-    function init(this, owner, opening, percent) {
-        super.init(owner, opening);
+class Savings extends Account {
+    var percent;
+
+    Savings(owner, opening, percent) {
+        super(owner, opening);
         this.percent = percent;
     }
 
-    function interest(this) {
+    function interest() {
         const amount = this.balance * this.percent / 100;
         this.deposit(amount);
         return amount;
     }
 }
 
-class FeeAccount(Account) {
-    function init(this, owner, opening, fee) {
-        super.init(owner, opening);
+class FeeAccount extends Account {
+    var fee;
+    var fees_paid = 0;
+
+    FeeAccount(owner, opening, fee) {
+        super(owner, opening);
         this.fee = fee;
-        this.fees_paid = 0;
     }
 
-    function withdraw(this, amount) {
+    function withdraw(amount) {
         if amount < 0 {
             return false;
         }
@@ -67,11 +75,9 @@ class FeeAccount(Account) {
 }
 
 class Bank {
-    function init(this) {
-        this.accounts = {};
-    }
+    var accounts = {};
 
-    function add(this, account) {
+    function add(account) {
         if account.owner in this.accounts {
             return false;
         }
@@ -79,7 +85,7 @@ class Bank {
         return true;
     }
 
-    function total(this) {
+    function total() {
         var total = 0;
         for owner in this.accounts {
             total = total + this.accounts[owner].balance;
@@ -87,7 +93,7 @@ class Bank {
         return total;
     }
 
-    function transfer(this, source, destination, amount) {
+    function transfer(source, destination, amount) {
         if not source in this.accounts or not destination in this.accounts {
             return false;
         }

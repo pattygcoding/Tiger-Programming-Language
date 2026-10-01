@@ -55,7 +55,7 @@ Start the local playground from the repository root:
 go run ./cmd/web
 ```
 
-Open `http://127.0.0.1:8080`, choose an example or edit the source, and select **Run**. **Stop** terminates the current worker. **Reset** restores the selected example. The editor retains source locally between visits, but variables and objects do not persist across runs.
+Open the URL it prints (`http://127.0.0.1:7171` unless that port is busy), choose an example or edit the source, and select **Run**. **Stop** terminates the current worker. **Reset** restores the selected example. The editor retains source locally between visits, but variables and objects do not persist across runs.
 
 ## Try It
 

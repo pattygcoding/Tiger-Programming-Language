@@ -1,0 +1,142 @@
+/* Game of Life: nested-list grids, wrap-around neighbors, switch-based rules, structural equality, and cycle detection. */
+const WIDTH = 10;
+const HEIGHT = 8;
+
+function empty_grid() {
+    var grid = [];
+    for row in range(HEIGHT) {
+        var cells = [];
+        for col in range(WIDTH) { cells += [false]; }
+        grid += [cells];
+    }
+    return grid;
+}
+
+function seeded(pattern, top, left) {
+    var grid = empty_grid();
+    for cell in pattern {
+        grid[top + cell[0]][left + cell[1]] = true;
+    }
+    return grid;
+}
+
+function neighbors(grid, row, col) {
+    var count = 0;
+    for dr in [-1, 0, 1] {
+        for dc in [-1, 0, 1] {
+            if dr == 0 and dc == 0 { continue; }
+            if grid[(row + dr) % HEIGHT][(col + dc) % WIDTH] { count++; }
+        }
+    }
+    return count;
+}
+
+function step(grid) {
+    var next = empty_grid();
+    for row in range(HEIGHT) {
+        for col in range(WIDTH) {
+            switch neighbors(grid, row, col) {
+                case 3:
+                    next[row][col] = true;
+                    break;
+                case 2:
+                    next[row][col] = grid[row][col];
+                    break;
+                default:
+                    next[row][col] = false;
+            }
+        }
+    }
+    return next;
+}
+
+function population(grid) {
+    var total = 0;
+    for cells in grid {
+        for alive in cells {
+            if alive { total++; }
+        }
+    }
+    return total;
+}
+
+function render(grids, labels) {
+    var header = "";
+    for label in labels {
+        var cell = label;
+        while len(cell) < WIDTH + 3 { cell += " "; }
+        header += cell;
+    }
+    print(header);
+    for row in range(HEIGHT) {
+        var line = "";
+        for grid in grids {
+            for alive in grid[row] { line += alive and "#" or "."; }
+            line += "   ";
+        }
+        print(line);
+    }
+}
+
+const GLIDER = [[0, 1], [1, 2], [2, 0], [2, 1], [2, 2]];
+const BLINKER = [[0, 0], [0, 1], [0, 2]];
+const BLOCK = [[0, 0], [0, 1], [1, 0], [1, 1]];
+const TOAD = [[0, 1], [0, 2], [0, 3], [1, 0], [1, 1], [1, 2]];
+
+var frames = [seeded(GLIDER, 0, 0)];
+cfor (var generation = 1; generation <= 4; generation++) {
+    frames += [step(frames[-1])];
+}
+render(frames, ["gen 0", "gen 1", "gen 2", "gen 3", "gen 4"]);
+print("glider moved one cell down and right:", frames[4] == seeded(GLIDER, 1, 1));
+print();
+
+function find_cycle(name, start, limit) {
+    var history = [start];
+    var current = start;
+    cfor (var generation = 1; generation <= limit; generation++) {
+        current = step(current);
+        for index in range(len(history)) {
+            if history[index] == current {
+                const period = generation - index;
+                print(f"{name}: repeats after {generation} generations (period {period}, population {population(current)})");
+                return period;
+            }
+        }
+        history += [current];
+    }
+    print(f"{name}: no repeat within {limit} generations");
+    return 0;
+}
+
+const periods = {
+    "block": find_cycle("block", seeded(BLOCK, 3, 4), 5),
+    "blinker": find_cycle("blinker", seeded(BLINKER, 3, 3), 5),
+    "toad": find_cycle("toad", seeded(TOAD, 3, 3), 5),
+    "glider": find_cycle("glider", seeded(GLIDER, 0, 0), 12)
+};
+
+var still = [];
+var oscillators = [];
+var travelers = [];
+for name in periods {
+    switch periods[name] {
+        case 0:
+            travelers += [name];
+            break;
+        case 1:
+            still += [name];
+            break;
+        default:
+            oscillators += [name];
+    }
+}
+print("still lifes:", still, "| oscillators:", oscillators, "| travelers:", travelers);
+
+var counts = [];
+var world = seeded(GLIDER, 0, 0);
+for generation in range(8) {
+    counts += [population(world)];
+    world = step(world);
+}
+print("glider population each generation:", counts);

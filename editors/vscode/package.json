@@ -1,0 +1,33 @@
+{
+  "name": "tiger-language",
+  "displayName": "Tiger Language",
+  "description": "Syntax highlighting and editing support for Tiger (.tg) programs.",
+  "version": "0.1.0",
+  "publisher": "tiger-local",
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "tiger",
+        "aliases": ["Tiger", "tiger"],
+        "extensions": [".tg"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tiger",
+        "scopeName": "source.tiger",
+        "path": "./syntaxes/tiger.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.tiger.codeblock",
+        "path": "./syntaxes/tiger.markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": { "meta.embedded.block.tiger": "tiger" }
+      }
+    ]
+  }
+}

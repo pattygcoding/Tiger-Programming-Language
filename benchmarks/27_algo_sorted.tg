@@ -1,0 +1,139 @@
+/* Algo module: medianSorted (partition binary search) and mergeKSorted (min-heap k-way merge), cross-checked against sort-based versions. */
+print("Sorted lists");
+
+var medianValue = algo.medianSorted([1, 3], [2]);
+var secondMedian = algo.medianSorted([1, 2], [3, 4]);
+print(medianValue, secondMedian);
+
+var sortedLists = [
+    [1, 4, 5],
+    [1, 3, 4],
+    [2, 6]
+];
+var mergedResult = algo.mergeKSorted(sortedLists);
+print(mergedResult);
+print("inputs kept", sortedLists);
+
+function slow_median(a, b) {
+    var all = a + b;
+    all.sort();
+    const middle = math.floor(len(all) / 2);
+    if len(all) % 2 == 1 {
+        return all[middle];
+    }
+    return (all[middle - 1] + all[middle]) / 2;
+}
+
+function slow_merge(lists) {
+    var all = [];
+    for items in lists {
+        all += items;
+    }
+    all.sort();
+    return all;
+}
+
+const median_cases = [
+    [[1, 3], [2]],
+    [[1, 2], [3, 4]],
+    [[], [1]],
+    [[2], []],
+    [[0, 0], [0, 0]],
+    [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+    [[1, 3, 5, 7], [2, 4, 6]],
+    [[-10, -5, 0], [1, 2]],
+    [[100], [1, 2, 3, 4, 5]],
+    [[1.5, 2.5], [2]]
+];
+for index in range(len(median_cases)) {
+    const pair = median_cases[index];
+    const fast = algo.medianSorted(pair[0], pair[1]);
+    print("median", index, fast, fast == slow_median(pair[0], pair[1]));
+}
+
+const merge_cases = [
+    [[1, 4, 5], [1, 3, 4], [2, 6]],
+    [],
+    [[], [], []],
+    [[5]],
+    [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+    [[10], [1], [5]],
+    [["pear", "plum"], ["apple", "fig"], ["kiwi"]],
+    [[-2.5, 0], [-3, -2.5, 7]]
+];
+for index in range(len(merge_cases)) {
+    const result = algo.mergeKSorted(merge_cases[index]);
+    print("merge", index, result, str(result) == str(slow_merge(merge_cases[index])));
+}
+
+var seed = 5;
+function next_value() {
+    seed = (seed * 29 + 11) % 97;
+    return seed % 20 - 5;
+}
+var agree = 0;
+for trial in range(15) {
+    var lists = [];
+    for k in range(3) {
+        var items = [];
+        for step in range(trial % 5 + k) {
+            items += [next_value()];
+        }
+        items.sort();
+        lists += [items];
+    }
+    var ok = str(algo.mergeKSorted(lists)) == str(slow_merge(lists));
+    if len(lists[0]) + len(lists[1]) > 0 {
+        ok = ok and algo.medianSorted(lists[0], lists[1]) == slow_median(lists[0], lists[1]);
+    }
+    if ok {
+        agree++;
+    }
+}
+print("random agree", agree, "of 15");
+
+const regions = [[55, 70, 91], [40, 88], [62, 77, 95, 99]];
+const leaderboard = algo.mergeKSorted(regions);
+print("leaderboard", leaderboard);
+print("best", leaderboard[-1], "worst", leaderboard[0], "median", algo.medianSorted(regions[0], regions[2]));
+print("unique merged", algo.removeDuplicates(mergedResult));
+print("merged median", algo.medianSorted(mergedResult, []), slow_median(mergedResult, []));
+
+const merge = algo.mergeKSorted;
+print("stored", merge([[2], [1]]), merge);
+
+try {
+    algo.medianSorted([], []);
+} catch (error) {
+    print("empty", "both lists are empty" in error);
+}
+
+try {
+    algo.medianSorted([3, 1], [2]);
+} catch (error) {
+    print("unsorted median", "first list is not sorted" in error);
+}
+
+try {
+    algo.mergeKSorted([[1], [5, 4]]);
+} catch (error) {
+    print("unsorted merge", "list 1 is not sorted: 4 at index 1 comes after 5" in error);
+}
+
+try {
+    algo.mergeKSorted([[1], ["a"]]);
+} catch (error) {
+    print("mixed", "cannot compare number and string" in error);
+}
+
+try {
+    algo.mergeKSorted([[1], 2]);
+} catch (error) {
+    print("not nested", "expects a list of lists, got number at index 1" in error);
+}
+
+try {
+    algo.medianSorted([1]);
+} catch (error) {
+    print("arity", "expects 2 arguments, got 1" in error);
+}

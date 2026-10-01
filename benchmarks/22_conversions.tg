@@ -1,0 +1,138 @@
+/* Conversions: int/float/str/bool built-ins, To* methods, truthiness, and mixed arithmetic. */
+print("Conversions");
+
+print("int", int(7.9), int(-7.9), int(-0.4), int("  15 "), int("-3"), int("+4"), int(true), int(false));
+print("float", float(2), float("3.25"), float("-0.75"), float(".5"), float("6."), float("2e2"), float(true));
+print("str", str(12) + str(0.5), str(true) + "/" + str(null), str([1, "x", [true]]), str({"k": [1]}));
+print("bool", bool(0), bool(-1), bool(""), bool("0"), bool(null), bool([]), bool([[]]), bool({}), bool({"": 0}));
+print("empty", int(), float(), str() == "", bool());
+
+const whole = int("8");
+const part = float("0.25");
+print("mixed", whole + part, whole * part, whole / int("3.0".ToFloat()), whole % 3 + part);
+
+print("methods", "41".ToInt() + 1, 3.99.ToInt(), "1.5".ToFloat() * 4, 7.ToString() + 7.ToString(), "".ToBool(), "x".ToBool());
+
+const flags = [0, 1, "", "a", null, [], [0], {}, {"k": 1}];
+var bits = "";
+for value in flags {
+    bits = bits + value.ToBool().ToInt().ToString();
+}
+print("bits", bits);
+
+function describe(value) {
+    if value {
+        return "truthy";
+    }
+    return "falsy";
+}
+var summary = [];
+for value in [0, 0.0001, "", " ", null, false, true, [], [null]] {
+    summary += [describe(value)];
+}
+print("conditions", summary);
+
+function rest(items) {
+    var result = [];
+    cfor (var index = 1; index < len(items); index++) {
+        result += [items[index]];
+    }
+    return result;
+}
+var queue = [3, 2, 1];
+var drained = 0;
+while queue {
+    drained += queue[0];
+    queue = rest(queue);
+}
+print("drained", drained);
+
+cif (bool("yes") && not bool("")) {
+    print("cif", "ok");
+} celse {
+    print("cif", "unreachable");
+}
+
+class Temperature {
+    var celsius;
+
+    Temperature(celsius) {
+        this.celsius = celsius;
+    }
+
+    function ToString() {
+        return str(this.celsius) + "C";
+    }
+
+    function ToFloat() {
+        return this.celsius * 9 / 5 + 32;
+    }
+}
+
+class Plain {}
+
+const warm = Temperature(25);
+print("instance", warm.ToString(), warm.ToFloat(), warm.ToBool(), str(warm), Plain().ToString(), bool(Plain()));
+
+function fails(action, expected) {
+    try {
+        action();
+        return false;
+    } catch (error) {
+        return expected in error;
+    }
+}
+function bad_int() {
+    return int("3.5");
+}
+function bad_float() {
+    return float("abc");
+}
+function bad_list() {
+    return int([1]);
+}
+function bad_instance() {
+    return Plain().ToInt();
+}
+function overflow() {
+    return float("1e400");
+}
+print("errors", fails(bad_int, "invalid integer literal"), fails(bad_float, "invalid number literal"), fails(bad_list, "cannot convert list"), fails(bad_instance, "ToInt cannot convert instance"), fails(overflow, "out of range"));
+
+function split(text, separator) {
+    var parts = [];
+    var current = "";
+    for char in text {
+        if char == separator {
+            parts += [current];
+            current = "";
+        } else {
+            current = current + char;
+        }
+    }
+    return parts + [current];
+}
+const records = ["apple,3,0.5", "pear,10,0.25", "fig,4,1.75"];
+var total = 0;
+for record in records {
+    const fields = split(record, ",");
+    total += int(fields[1]) * float(fields[2]);
+}
+print("total", total, str(total).ToFloat() == total);
+
+var round_trips = [];
+for number in [0, 7, -12, 2.5, 1e21, 0.1] {
+    round_trips += [float(str(number)) == number];
+}
+print("round trips", round_trips);
+
+const counts = {};
+for word in ["1", "2", "1", "3", "1"] {
+    const key = int(word);
+    if key in counts {
+        counts[key] += 1;
+    } else {
+        counts[key] = 1;
+    }
+}
+print("counts", counts);

@@ -25,4 +25,4 @@ web:
 	$(GO) run ./cmd/web
 
 wasi:
-	GOOS=wasip1 GOARCH=wasm $(GO) build -o bin/tiger-wasi.wasm ./cmd/wasi
+	GOOS=wasip1 GOARCH=wasm $(GO) build -trimpath -ldflags="-s -w" -o bin/tiger-wasi.wasm ./cmd/wasi

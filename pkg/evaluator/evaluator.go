@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"math"
@@ -27,10 +28,13 @@ type flow struct {
 
 type Evaluator struct {
 	Output      io.Writer
+	Input       io.Reader
 	MaxSteps    int
 	Loader      ModuleLoader
 	FileSystem  FileSystem
 	SourcePath  string
+	reader      *bufio.Reader
+	readerFrom  io.Reader
 	modules     map[string]*object.Module
 	loading     map[string]bool
 	importDepth int
@@ -76,9 +80,10 @@ func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 	if eval.Output == nil {
 		eval.Output = io.Discard
 	}
-	env := object.NewEnvironment(nil)
+	builtins := object.NewEnvironment(nil)
+	eval.builtins(builtins)
+	env := object.NewEnvironment(builtins)
 	env.SourcePath = eval.SourcePath
-	eval.builtins(env)
 	eval.block(program.Statements, env)
 	return nil
 }
@@ -145,6 +150,13 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 			class.Parent, ok = parent.(*object.Class)
 			if !ok {
 				fail(node.Parent, "parent must be a class, got %s", parent.Type())
+			}
+		}
+		if node.Constructor != nil {
+			class.Constructor = &object.Method{
+				Function:    &object.Function{Declaration: node.Constructor, Env: env},
+				Owner:       class,
+				Constructor: true,
 			}
 		}
 		for _, method := range node.Methods {
@@ -306,7 +318,7 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		}
 		return value
 	case *ast.Property:
-		return property(node, eval.expression(node.Receiver, env), env)
+		return eval.property(node, eval.expression(node.Receiver, env), env)
 	case *ast.List:
 		list := &object.List{}
 		for _, element := range node.Elements {
@@ -567,15 +579,6 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 			_, err := fmt.Fprint(eval.Output, strings.Join(parts, " ")+ending)
 			return object.Null{}, err
 		},
-		"str": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
-			if len(keywords) != 0 {
-				return nil, fmt.Errorf("str does not accept keyword arguments")
-			}
-			if len(args) != 1 {
-				return nil, fmt.Errorf("str expects 1 argument, got %d", len(args))
-			}
-			return object.String(object.Format(args[0])), nil
-		},
 		"len": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 			if len(keywords) != 0 {
 				return nil, fmt.Errorf("len does not accept keyword arguments")
@@ -598,7 +601,13 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 	for name, function := range eval.fileBuiltins() {
 		functions[name] = function
 	}
+	functions["input"] = eval.input
+	for name, function := range conversionBuiltins() {
+		functions[name] = function
+	}
 	for name, function := range functions {
 		_ = env.Define(name, &object.Builtin{Name: name, Call: function}, true)
 	}
+	_ = env.Define("math", mathModule(), true)
+	_ = env.Define("algo", algoModule(), true)
 }

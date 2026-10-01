@@ -1,0 +1,40 @@
+Algo inventory
+tally {"oak": 3, "pine": 2, "elm": 1, "birch": 1}
+oak 3 kinds 4
+letters {"m": 1, "i": 4, "s": 4, "p": 2}
+numbers {3: 3, 1: 2, 2: 1, 0: 2}
+flags {true: 3, false: 1, "true": 1}
+empty {} 0
+most common ["oak", 3] ["i", 4]
+matches manual true
+stock {"bolt": 3, "nut": 3, "washer": 1, "screw": 1}
+reorder ["nut:1", "washer:1", "rivet:1"]
+face 1: #|
+face 2: #|
+face 3: ####|
+face 4: |
+face 5: ##|
+face 6: ##|
+podium 100 95 88
+all places [100, 95, 88, 82, 74, 67] unchanged [82, 95, 67, 95, 74, 88, 67, 100]
+agrees with sort true 6
+second 4 null null
+floats 0 -7 3
+names zoe ava zoe
+count ranks 3 2 1
+place 0 true false
+place -2 true false
+place 1.5 true false
+place 7 false true
+place 100 false true
+message true
+mixed true
+bools true
+string place true
+unhashable true
+not list true
+primes [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47] true
+big primes true false true true
+prime places 47 {false: 1, true: 2}
+prime error true
+module <builtin algo.takeInventory> <builtin algo.findPlace>

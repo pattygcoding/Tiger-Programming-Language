@@ -1,0 +1,148 @@
+/* Shape gallery: polymorphism, super calls, the math module, sorting with key functions, and a text chart. */
+const PI = 3.141592653589793;
+
+function fixed(value, places) {
+    const scale = math.pow(10, places);
+    return math.round(value * scale) / scale;
+}
+
+function repeat(text, count) {
+    var result = "";
+    cfor (var i = 0; i < count; i++) { result += text; }
+    return result;
+}
+
+class Shape {
+    var name;
+    Shape(name) {
+        this.name = name;
+    }
+    function area() { throw f"{this.name} must override area()"; }
+    function perimeter() { throw f"{this.name} must override perimeter()"; }
+    function describe() {
+        return f"{this.name}: area {fixed(this.area(), 2)}, perimeter {fixed(this.perimeter(), 2)}";
+    }
+}
+
+class Circle extends Shape {
+    var radius;
+    Circle(radius) {
+        super("circle");
+        this.radius = radius;
+    }
+    function area() { return PI * this.radius * this.radius; }
+    function perimeter() { return 2 * PI * this.radius; }
+}
+
+class Rectangle extends Shape {
+    var width;
+    var height;
+    Rectangle(width, height) {
+        super("rectangle");
+        this.width = width;
+        this.height = height;
+    }
+    function area() { return this.width * this.height; }
+    function perimeter() { return 2 * (this.width + this.height); }
+}
+
+class Square extends Rectangle {
+    Square(side) {
+        super(side, side);
+        this.name = "square";
+    }
+    function describe() {
+        return super.describe() + f", diagonal {fixed(math.sqrt(2) * this.width, 2)}";
+    }
+}
+
+class Triangle extends Shape {
+    var a;
+    var b;
+    var c;
+    Triangle(a, b, c) {
+        super("triangle");
+        if a + b <= c or a + c <= b or b + c <= a { throw f"sides {a}, {b}, {c} cannot form a triangle"; }
+        this.a = a;
+        this.b = b;
+        this.c = c;
+    }
+    function perimeter() { return this.a + this.b + this.c; }
+    function area() {
+        const s = this.perimeter() / 2;
+        return math.sqrt(s * (s - this.a) * (s - this.b) * (s - this.c));
+    }
+}
+
+class RegularPolygon extends Shape {
+    var sides;
+    var radius;
+    RegularPolygon(sides, radius) {
+        super(f"{sides}-gon");
+        this.sides = sides;
+        this.radius = radius;
+    }
+    function vertices() {
+        var points = [];
+        for k in range(this.sides) {
+            const angle = 2 * PI * k / this.sides;
+            points += [[this.radius * math.cos(angle), this.radius * math.sin(angle)]];
+        }
+        return points;
+    }
+    function area() { return this.sides * this.radius * this.radius * math.sin(2 * PI / this.sides) / 2; }
+    function perimeter() { return 2 * this.sides * this.radius * math.sin(PI / this.sides); }
+}
+
+function shoelace(points) {
+    var twice = 0;
+    for i in range(len(points)) {
+        const p = points[i];
+        const q = points[(i + 1) % len(points)];
+        twice += p[0] * q[1] - q[0] * p[1];
+    }
+    return math.abs(twice) / 2;
+}
+
+const gallery = [Circle(1.5), Rectangle(4, 2.5), Square(3), Triangle(3, 4, 5), RegularPolygon(6, 2), RegularPolygon(12, 1)];
+for shape in gallery {
+    print(shape.describe());
+}
+
+const hexagon = gallery[4];
+print("hexagon area by formula", fixed(hexagon.area(), 6), "by shoelace", fixed(shoelace(hexagon.vertices()), 6));
+
+function by_area(shape) { return shape.area(); }
+var ranked = [];
+for shape in gallery {
+    ranked += [shape];
+}
+ranked.sort(key=by_area, reverse=true);
+const largest = ranked[0].area();
+print("Ranked by area:");
+for shape in ranked {
+    const bar = repeat("#", math.round(shape.area() / largest * 30));
+    print(f"  {shape.name}{repeat(" ", 10 - len(shape.name))}{bar} {fixed(shape.area(), 1)}");
+}
+
+var total = 0;
+var edges = 0;
+for shape in gallery {
+    total += shape.area();
+    edges += shape.perimeter();
+}
+print("total area", fixed(total, 3), "mean perimeter", fixed(edges / len(gallery), 3));
+
+for sides in [[1, 2, 5], [2, 2, 3]] {
+    try {
+        print(Triangle(*sides).describe());
+    } catch (error) {
+        print("rejected:", error);
+    }
+}
+
+try {
+    Shape("blob").describe();
+} catch (error) {
+    print("abstract:", error);
+}

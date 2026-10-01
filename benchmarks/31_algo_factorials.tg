@@ -1,0 +1,115 @@
+/* Algo module: factorial and factorialList, cross-checked against recursion and used for combinatorics. */
+print("Factorials");
+
+var target = algo.factorial(5);
+print(target);
+
+// Get every factorial from 0! up to 5!.
+var sequence = algo.factorialList(5);
+print(sequence);
+
+print("small", algo.factorial(0), algo.factorial(1), algo.factorial(2), algo.factorial(3), algo.factorial(7), algo.factorial(10));
+print("large", algo.factorial(12), algo.factorial(15), algo.factorial(18));
+print("whole", algo.factorial(4.0), algo.factorial(int("6")));
+print("list sizes", len(algo.factorialList(0)), algo.factorialList(18).size());
+
+function recursive_factorial(n) {
+    if n < 2 {
+        return 1;
+    }
+    return n * recursive_factorial(n - 1);
+}
+var recursive_matches = true;
+for n in range(0, 19) {
+    if recursive_factorial(n) != algo.factorial(n) {
+        recursive_matches = false;
+    }
+}
+print("recursive", recursive_matches, recursive_factorial(9));
+
+const full = algo.factorialList(18);
+var ratios_ok = true;
+var consistent = true;
+cfor (var i = 0; i < len(full); i++) {
+    if i > 0 and full[i] / full[i - 1] != i {
+        ratios_ok = false;
+    }
+    if full[i] != algo.factorial(i) {
+        consistent = false;
+    }
+}
+print("ratios", ratios_ok, "consistent", consistent);
+
+function choose(n, k) {
+    return algo.factorial(n) / (algo.factorial(k) * algo.factorial(n - k));
+}
+print("choose", choose(5, 2), choose(10, 3), choose(18, 9), choose(6, 0));
+
+var row = [];
+for k in range(7) {
+    row += [choose(6, k)];
+}
+print("pascal", row);
+
+function arrangements(word) {
+    var letters = [];
+    for i in range(len(word)) {
+        letters += [word[i]];
+    }
+    var result = algo.factorial(len(word));
+    const counts = algo.takeInventory(letters);
+    for letter in counts {
+        result = result / algo.factorial(counts[letter]);
+    }
+    return result;
+}
+print("arrangements", arrangements("TIGER"), arrangements("LETTER"), arrangements("BANANA"));
+
+function trailing_zeros(text) {
+    var count = 0;
+    var i = len(text) - 1;
+    while i >= 0 and text[i] == "0" {
+        count++;
+        i--;
+    }
+    return count;
+}
+print("trailing zeros", trailing_zeros(str(algo.factorial(18))), math.floor(18 / 5), trailing_zeros(str(algo.factorial(10))), math.floor(10 / 5));
+print("digits", len(str(algo.factorial(18))), len(str(algo.factorial(10))));
+
+var e = 0;
+for value in algo.factorialList(18) {
+    e += 1 / value;
+}
+print("e", math.round(e * 1000000) / 1000000);
+
+var copy = algo.factorialList(3);
+copy += [0];
+copy[0] = -1;
+print("mutable", copy, algo.factorialList(3));
+
+const generators = [algo.factorial, algo.factorialList];
+for generator in generators {
+    print("value", generator, generator(4));
+}
+
+for bad in [-1, 2.5, 19, 100] {
+    try {
+        algo.factorial(bad);
+        print("unexpected");
+    } catch (error) {
+        print("rejected", bad, "non-negative integer" in error, "too large" in error);
+    }
+}
+
+try {
+    algo.factorialList("5");
+} catch (error) {
+    print("type", "expects a number, got string" in error);
+}
+
+try {
+    algo.factorial();
+} catch (error) {
+    print("arity", "expects 1 argument, got 0" in error);
+}

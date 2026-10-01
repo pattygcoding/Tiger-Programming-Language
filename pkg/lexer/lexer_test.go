@@ -25,12 +25,28 @@ func TestScan(t *testing.T) {
 }
 
 func TestInvalidInput(t *testing.T) {
-	for _, source := range []string{"@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00", "# old comment", "/* unfinished"} {
+	for _, source := range []string{"@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00", "# old comment", "/* unfinished", "&", "|", "& &"} {
 		t.Run(source, func(t *testing.T) {
 			if _, err := Scan(source); err == nil || !strings.Contains(err.Error(), "1:1:") {
 				t.Fatalf("expected positioned error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestCStyleTokens(t *testing.T) {
+	tokens, err := Scan("cif (a && b || c) {} celse {}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Kind{"cif", "(", Ident, "&&", Ident, "||", Ident, ")", "{", "}", "celse", "{", "}", EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("tokens: %#v", tokens)
+	}
+	for index, kind := range want {
+		if tokens[index].Kind != kind {
+			t.Fatalf("token %d: got %s, want %s", index, tokens[index].Kind, kind)
+		}
 	}
 }
 

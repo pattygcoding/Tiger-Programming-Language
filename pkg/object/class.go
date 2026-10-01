@@ -3,10 +3,11 @@ package object
 import "tiger/pkg/ast"
 
 type Class struct {
-	Name    string
-	Parent  *Class
-	Methods map[string]*Method
-	Fields  []*Field
+	Name        string
+	Parent      *Class
+	Constructor *Method
+	Methods     map[string]*Method
+	Fields      []*Field
 }
 
 type Field struct {
@@ -16,8 +17,9 @@ type Field struct {
 }
 
 type Method struct {
-	Function *Function
-	Owner    *Class
+	Function    *Function
+	Owner       *Class
+	Constructor bool
 }
 
 type Instance struct {
@@ -31,8 +33,9 @@ type BoundMethod struct {
 }
 
 type Super struct {
-	Parent   *Class
-	Receiver *Instance
+	Parent      *Class
+	Receiver    *Instance
+	Constructor bool
 }
 
 func (*Class) Type() string       { return "class" }
@@ -44,6 +47,16 @@ func (class *Class) FindMethod(name string) *Method {
 	for current := class; current != nil; current = current.Parent {
 		if method, exists := current.Methods[name]; exists {
 			return method
+		}
+	}
+	return nil
+}
+
+// FindConstructor returns the nearest declared constructor; subclasses without one inherit it.
+func (class *Class) FindConstructor() *Method {
+	for current := class; current != nil; current = current.Parent {
+		if current.Constructor != nil {
+			return current.Constructor
 		}
 	}
 	return nil

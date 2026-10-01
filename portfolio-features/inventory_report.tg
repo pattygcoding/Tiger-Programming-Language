@@ -1,89 +1,126 @@
-const TITLE = "Inventory report";
+/* Inventory report: parsing CSV text with int()/float() conversions, dictionaries, grouping, stable multi-key sorts, and aligned tables. */
+const RAW = "sku,name,category,qty,price\n" +
+    "T-100,Tiger Plush,toys,12,19.99\n" +
+    "T-101,Stripe Socks,apparel,40,7.5\n" +
+    "T-102,Roar Mug,kitchen,0,12\n" +
+    "T-103,Cub Hoodie,apparel,7,39.95\n" +
+    "T-104,Jungle Puzzle,toys,15,24.5\n" +
+    "T-105,Claw Spoon,kitchen,22,4.25\n" +
+    "T-106,Broken Row,toys,lots,3\n" +
+    "T-107,Paw Print Poster,decor,5,15\n" +
+    "T-108,Missing Price,decor,3\n";
 
-const INVENTORY = {
-    "tea": {"price": 4.5, "stock": 12, "reorder": 5},
-    "coffee": {"price": 8, "stock": 3, "reorder": 6},
-    "cocoa": {"price": 6.25, "stock": 7, "reorder": 4}
-};
-
-function inventory_value(items) {
-    var total = 0;
-    for name in items {
-        const item = items[name];
-        total = total + item["price"] * item["stock"];
-    }
-    return total;
-}
-
-function reorder_list(items) {
-    var result = [];
-    for name in items {
-        const item = items[name];
-        if item["stock"] <= item["reorder"] {
-            result = result + [name];
+function split(text, separator) {
+    var parts = [];
+    var current = "";
+    for ch in text {
+        if ch == separator {
+            parts += [current];
+            current = "";
+        } else {
+            current += ch;
         }
     }
-    return result;
+    return parts + [current];
 }
 
-function sell(items, name, amount) {
-    if not name in items {
-        return false;
-    }
-    const item = items[name];
-    if amount > item["stock"] or amount < 0 {
-        return false;
-    }
-    item["stock"] = item["stock"] - amount;
-    return item["price"] * amount;
+function pad(text, width) {
+    var out = str(text);
+    while len(out) < width { out += " "; }
+    return out;
 }
 
-function report(items) {
-    for name in items {
-        const item = items[name];
-        print(name, "stock=", item["stock"], "price=", item["price"]);
-    }
+function pad_left(text, width) {
+    var out = str(text);
+    while len(out) < width { out = " " + out; }
+    return out;
 }
 
-function restock(items, name, amount) {
-    if not name in items or amount < 0 {
-        return false;
-    }
-    items[name]["stock"] = items[name]["stock"] + amount;
-    return items[name]["stock"];
+function money(cents) {
+    const rest = cents % 100;
+    return f"${int(cents / 100)}.{rest < 10 and "0" or ""}{rest}";
 }
 
-function stock_count(items) {
-    var total = 0;
-    for name in items {
-        total = total + items[name]["stock"];
-    }
-    return total;
-}
-
-function price_band(items, minimum) {
-    var result = [];
-    for name in items {
-        if items[name]["price"] >= minimum {
-            result = result + [name];
+var items = [];
+var rejected = [];
+const lines = split(RAW, "\n");
+for number in range(1, len(lines)) {
+    const line = lines[number];
+    if not line { continue; }
+    const cells = split(line, ",");
+    try {
+        if len(cells) != 5 { throw f"expected 5 fields, found {len(cells)}"; }
+        var qty = 0;
+        try {
+            qty = int(cells[3]);
+        } catch (conversion) {
+            throw f"quantity \"{cells[3]}\" is not a whole number";
         }
+        const price = math.round(float(cells[4]) * 100);
+        items += [{"sku": cells[0], "name": cells[1], "category": cells[2], "qty": qty, "price": price, "value": qty * price}];
+    } catch (error) {
+        rejected += [f"line {number + 1} ({cells[0]}): {error}"];
     }
-    return result;
+}
+print(f"parsed {len(items)} items, rejected {len(rejected)}");
+for problem in rejected {
+    print("  !", problem);
 }
 
-print(TITLE);
-report(INVENTORY);
-print("value:", inventory_value(INVENTORY));
-print("reorder:", reorder_list(INVENTORY));
-print("sale tea:", sell(INVENTORY, "tea", 4));
-print("sale coffee:", sell(INVENTORY, "coffee", 9));
-print("missing:", sell(INVENTORY, "water", 1));
-print("restock coffee:", restock(INVENTORY, "coffee", 10));
-print("bad restock:", restock(INVENTORY, "tea", -2));
-print("value after:", inventory_value(INVENTORY));
-print("reorder after:", reorder_list(INVENTORY));
-print("stock count:", stock_count(INVENTORY));
-print("premium:", price_band(INVENTORY, 6));
-INVENTORY["water"] = {"price": 1.5, "stock": 20, "reorder": 8};
-print("new item:", "water" in INVENTORY, len(INVENTORY));
-report(INVENTORY);
+function by_value(item) { return item["value"]; }
+function by_name(item) { return item["name"]; }
+function by_category(item) { return item["category"]; }
+
+var ranked = items + [];
+ranked.sort(key=by_value, reverse=true);
+print();
+print(pad("SKU", 7) + pad("NAME", 18) + pad_left("QTY", 5) + pad_left("PRICE", 9) + pad_left("VALUE", 10));
+for item in ranked {
+    print(pad(item["sku"], 7) + pad(item["name"], 18) + pad_left(item["qty"], 5) + pad_left(money(item["price"]), 9) + pad_left(money(item["value"]), 10));
+}
+
+var groups = {};
+for item in items {
+    const name = item["category"];
+    if not (name in groups) {
+        groups[name] = {"skus": 0, "units": 0, "value": 0};
+    }
+    groups[name]["skus"]++;
+    groups[name]["units"] += item["qty"];
+    groups[name]["value"] += item["value"];
+}
+var names = [];
+for name in groups { names += [name]; }
+names.sort();
+print();
+print("By category:");
+var grand = 0;
+for name in names {
+    const group = groups[name];
+    grand += group["value"];
+    print(f"  {pad(name, 8)} {group["skus"]} skus, {pad_left(group["units"], 3)} units, {pad_left(money(group["value"]), 8)}");
+}
+print(f"  {pad("total", 8)} {pad_left(money(grand), 36)}");
+
+var catalog = items + [];
+catalog.sort(key=by_name);
+catalog.sort(key=by_category);
+print();
+print("Catalog (category, then name):", end=" ");
+var labels = [];
+for item in catalog { labels += [item["category"] + "/" + item["name"]]; }
+print(labels);
+
+print();
+for item in items {
+    if not item["qty"] {
+        print(f"OUT OF STOCK: {item["name"]} - reorder 20");
+        item["qty"] += 20;
+    } elif item["qty"] < 10 {
+        print(f"low stock: {item["name"]} has only {item["qty"]}");
+    }
+}
+
+print();
+print("conversions:", int(" 42 ") + 1, float("2.5e1"), str(7) + "!", (3.9).ToInt(), "12".ToInt() * 2, (0).ToBool(), bool("0"), [].ToBool());
+print("restocked mug:", items[2]["qty"], "units; truthy check", bool(items[2]["qty"]));

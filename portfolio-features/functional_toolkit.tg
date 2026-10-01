@@ -1,0 +1,148 @@
+/* Functional toolkit: closures with private state, higher-order functions, *args/**kwargs, unpacking, and memoization. */
+
+function make_counter(start, step) {
+    var current = start;
+    function next() {
+        current += step;
+        return current;
+    }
+    return next;
+}
+
+const by_one = make_counter(0, 1);
+const by_ten = make_counter(100, 10);
+print("counters", by_one(), by_one(), by_ten(), by_one(), by_ten());
+
+function map(items, transform) {
+    var result = [];
+    for item in items {
+        result += [transform(item)];
+    }
+    return result;
+}
+
+function filter(items, keep) {
+    var result = [];
+    for item in items {
+        if keep(item) {
+            result += [item];
+        }
+    }
+    return result;
+}
+
+function reduce(items, combine, initial) {
+    var total = initial;
+    for item in items {
+        total = combine(total, item);
+    }
+    return total;
+}
+
+function square(x) { return x * x; }
+function is_odd(x) { return x % 2 == 1; }
+function add(a, b) { return a + b; }
+function increment(x) { return x + 1; }
+
+const numbers = range(1, 11);
+print("squares of odds", map(filter(numbers, is_odd), square));
+print("sum of squares", reduce(map(numbers, square), add, 0));
+
+function compose(*functions) {
+    function composed(value) {
+        var result = value;
+        cfor (var i = len(functions) - 1; i >= 0; i--) {
+            result = functions[i](result);
+        }
+        return result;
+    }
+    return composed;
+}
+
+const square_then_increment = compose(increment, square);
+const increment_then_square = compose(square, increment);
+print("compose", square_then_increment(4), increment_then_square(4));
+
+function partial(target, *bound) {
+    function applied(*rest) {
+        const arguments = bound + rest;
+        return target(*arguments);
+    }
+    return applied;
+}
+
+function volume(length, width, height) { return length * width * height; }
+const base_area_six = partial(volume, 2, 3);
+print("partial", base_area_six(4), base_area_six(10));
+
+function memoize(target) {
+    var cache = {};
+    var hits = 0;
+    function remembered(n) {
+        if n in cache {
+            hits++;
+            return cache[n];
+        }
+        const value = target(n);
+        cache[n] = value;
+        return value;
+    }
+    function stats() {
+        return {"entries": len(cache), "hits": hits};
+    }
+    return {"call": remembered, "stats": stats};
+}
+
+var fib = null;
+function slow_fib(n) {
+    if n < 2 {
+        return n;
+    }
+    return fib["call"](n - 1) + fib["call"](n - 2);
+}
+fib = memoize(slow_fib);
+print("fib(70)", fib["call"](70), fib["stats"]());
+
+function make_emitter() {
+    var handlers = {};
+    function on(event, handler) {
+        if not (event in handlers) {
+            handlers[event] = [];
+        }
+        handlers[event] += [handler];
+    }
+    function emit(event, *payload) {
+        var count = 0;
+        if event in handlers {
+            for handler in handlers[event] {
+                handler(*payload);
+                count++;
+            }
+        }
+        return count;
+    }
+    return {"on": on, "emit": emit};
+}
+
+var log = [];
+function greet(user) { log += [f"welcome {user}"]; }
+function audit(user) { log += [f"audit {user}"]; }
+const events = make_emitter();
+events["on"]("login", greet);
+events["on"]("login", audit);
+print("handlers run", events["emit"]("login", "ada"), events["emit"]("logout", "ada"));
+print("log", log);
+
+function describe(name, *tags, **traits) {
+    var parts = [name];
+    for tag in tags {
+        parts += ["#" + tag];
+    }
+    for key in traits {
+        parts += [f"{key}={traits[key]}"];
+    }
+    return parts;
+}
+const profile = {"size": "large", "stripes": 100};
+print(describe("tiger", "wild", "fast", **profile));
+print(describe(*["cub", "playful"], age=1));

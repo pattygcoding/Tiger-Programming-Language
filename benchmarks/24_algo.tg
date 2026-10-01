@@ -1,0 +1,198 @@
+/* Algo module: fibonacci and fibonacciList, cross-checked against hand-written implementations. */
+print("Algo");
+
+var target = algo.fibonacci(6);
+print(target);
+
+// Get the full sequence up to index 6.
+var sequence = algo.fibonacciList(6);
+print(sequence);
+
+print("small", algo.fibonacci(0), algo.fibonacci(1), algo.fibonacci(2), algo.fibonacci(3), algo.fibonacci(10), algo.fibonacci(20));
+print("large", algo.fibonacci(30), algo.fibonacci(40), algo.fibonacci(50));
+print("limit", algo.fibonacci(76), algo.fibonacci(77), algo.fibonacci(78));
+print("lists", algo.fibonacciList(0), algo.fibonacciList(1), algo.fibonacciList(2));
+print("lengths", len(algo.fibonacciList(10)), algo.fibonacciList(78).size());
+print("whole", algo.fibonacci(7.0), algo.fibonacci(int("9")));
+
+function recursive_fib(n) {
+    if n < 2 {
+        return n;
+    }
+    return recursive_fib(n - 1) + recursive_fib(n - 2);
+}
+var recursive_matches = true;
+for n in range(0, 16) {
+    if recursive_fib(n) != algo.fibonacci(n) {
+        recursive_matches = false;
+    }
+}
+print("recursive", recursive_matches, recursive_fib(15));
+
+function iterative_list(n) {
+    var result = [0];
+    var previous = 0;
+    var current = 1;
+    cfor (var index = 1; index <= n; index++) {
+        result += [current];
+        const next = previous + current;
+        previous = current;
+        current = next;
+    }
+    return result;
+}
+print("iterative", str(iterative_list(12)) == str(algo.fibonacciList(12)), iterative_list(12));
+
+const full = algo.fibonacciList(78);
+var consistent = true;
+for index in range(len(full)) {
+    if full[index] != algo.fibonacci(index) {
+        consistent = false;
+    }
+}
+print("consistent", consistent);
+
+var recurrence = true;
+cfor (var position = 2; position < len(full); position++) {
+    if full[position] != full[position - 1] + full[position - 2] {
+        recurrence = false;
+    }
+}
+print("recurrence", recurrence);
+
+var evens = [];
+var even_sum = 0;
+for value in algo.fibonacciList(20) {
+    if value % 2 == 0 {
+        evens += [value];
+        even_sum += value;
+    }
+}
+print("evens", evens, even_sum);
+
+var total = 0;
+for value in algo.fibonacciList(20) {
+    total += value;
+}
+print("sum", total, algo.fibonacci(22) - 1);
+
+const ratio = algo.fibonacci(40) / algo.fibonacci(39);
+print("golden", math.round(ratio * 1000000) / 1000000);
+
+function first_index_above(limit) {
+    const values = algo.fibonacciList(78);
+    for index in range(len(values)) {
+        if values[index] > limit {
+            return index;
+        }
+    }
+    return -1;
+}
+print("first above", first_index_above(100), first_index_above(1000), first_index_above(1000000));
+
+var copy = algo.fibonacciList(4);
+copy += [99];
+copy[0] = -1;
+copy.sort(reverse=true);
+print("mutable", copy, algo.fibonacciList(4));
+
+const generators = [algo.fibonacci, algo.fibonacciList];
+for generator in generators {
+    print("value", generator, generator(5));
+}
+
+print("digits", len(str(algo.fibonacci(78))), len(str(algo.fibonacci(50))));
+
+const bad_inputs = [-1, 2.5, 79, 1000];
+for input_value in bad_inputs {
+    try {
+        algo.fibonacci(input_value);
+        print("unexpected");
+    } catch (error) {
+        print("rejected", input_value, "non-negative integer" in error, "too large" in error);
+    }
+}
+
+try {
+    algo.fibonacciList("6");
+} catch (error) {
+    print("type", "expects a number, got string" in error);
+}
+
+try {
+    algo.fibonacci();
+} catch (error) {
+    print("arity", "expects 1 argument, got 0" in error);
+}
+
+try {
+    algo.fibonacci(n=3);
+} catch (error) {
+    print("keywords", "does not accept keyword arguments" in error);
+}
+
+try {
+    algo.fibonacci = 1;
+} catch (error) {
+    print("read only", "cannot assign" in error);
+}
+
+try {
+    algo.lucas(3);
+} catch (error) {
+    print("missing", "has no export" in error);
+}
+
+function shadow() {
+    const algo = {"fibonacci": 0};
+    return algo["fibonacci"];
+}
+print("shadow", shadow(), algo.fibonacci(12));
+
+const tags = ["red", "blue", "red", "green", "blue", "red"];
+const unique_tags = algo.removeDuplicates(tags);
+print("unique tags", unique_tags, len(tags), len(unique_tags));
+print("dedupe fib", algo.removeDuplicates(algo.fibonacciList(8)));
+print("mixed", algo.removeDuplicates([2, 2.0, "2", true, 1, true, null, null, false]));
+print("nested", algo.removeDuplicates([[1, 2], [2, 1], [1, 2], {"k": 1}, {"k": 1}, {"k": 2}]));
+print("empty", algo.removeDuplicates([]), algo.removeDuplicates([7]));
+
+class Tag {
+    var label;
+    Tag(label) {
+        this.label = label;
+    }
+}
+const shared = Tag("a");
+const instances = algo.removeDuplicates([shared, Tag("a"), shared, shared]);
+print("instances", len(instances), instances[0] == shared);
+
+var rolls = [];
+var seed = 7;
+for step in range(30) {
+    seed = (seed * 13 + 5) % 17;
+    rolls += [seed % 6 + 1];
+}
+var faces = algo.removeDuplicates(rolls);
+faces.sort();
+print("faces", faces);
+
+const pantry = ["rice", "beans", "salt", "rice", "oil"];
+const recipe = ["oil", "garlic", "rice", "rice"];
+print("matches", algo.findMatches(pantry, recipe), algo.findMatches(recipe, pantry));
+print("no matches", algo.findMatches([1, 2], [3, 4]), algo.findMatches([], pantry));
+print("deep matches", algo.findMatches([[1], {"a": [2]}, 3, "3"], [3.0, {"a": [2]}, [1]]));
+print("common fib", algo.findMatches(algo.fibonacciList(15), range(0, 100, 2)));
+
+try {
+    algo.findMatches(pantry);
+} catch (error) {
+    print("matches arity", "expects 2 arguments, got 1" in error);
+}
+
+try {
+    algo.removeDuplicates("hello");
+} catch (error) {
+    print("dedupe type", "expects a list, got string" in error);
+}
+print("module", algo);

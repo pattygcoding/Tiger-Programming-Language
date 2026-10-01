@@ -28,7 +28,7 @@ go build -o bin/tiger.exe ./cmd/tiger
 | `tiger build <file.tg> [-o <executable>]` | Produce a standalone executable |
 | `tiger help`, `tiger -h`, `tiger --help` | Display usage |
 
-Input paths must end in `.tg`. Build accepts `-o` before or after the source path. There is no interactive REPL or standard-input source mode. CLI exit codes are `0` for success, `1` for file/language/build errors, and `2` for invalid arguments.
+Input paths must end in `.tg`. Build accepts `-o` before or after the source path. There is no interactive REPL or standard-input source mode; standard input is passed to the program, where `input()` reads it (for example, `tiger run app.tg < answers.txt`). Standalone executables and the WASI build also read standard input; the browser playground asks for each line in the output pane. CLI exit codes are `0` for success, `1` for file/language/build errors, and `2` for invalid arguments.
 
 ## Standalone Executables
 
@@ -49,7 +49,7 @@ The result needs neither Go, Tiger, the repository, nor the original source file
 go run ./cmd/web
 ```
 
-The helper builds `web/tiger.wasm`, copies the installed toolchain's matching `wasm_exec.js`, and serves the editor at `http://127.0.0.1:8080`. Use `-addr 127.0.0.1:8081` for another port, or `-addr 127.0.0.1:0` to select an available port and print its URL.
+The helper builds `web/tiger.wasm`, copies the installed toolchain's matching `wasm_exec.js`, and serves the editor at `http://127.0.0.1:7171`. If that port is busy, it picks a free port and prints the URL. Use `-addr 127.0.0.1:9000` for a specific port, or `-addr 127.0.0.1:0` to always select an available port.
 
 Build artifacts without serving:
 
@@ -60,21 +60,31 @@ go run ./cmd/web -build-only
 The underlying browser build on POSIX shells is:
 
 ```sh
-GOOS=js GOARCH=wasm go build -o web/tiger.wasm ./cmd/wasm
+GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o web/tiger.wasm ./cmd/wasm
 ```
+
+### Wasm Size
+
+The helper keeps `tiger.wasm` small in three ways:
+
+- `-ldflags="-s -w"` drops the symbol table and DWARF debug data, and `-trimpath` drops local file paths.
+- The interpreter avoids heavyweight standard-library packages such as `regexp` and `math/big`. Number parsing and `algo.isPrime` use small hand-written code instead, which removes roughly 700 KB from the binary.
+- If Binaryen's `wasm-opt` is on `PATH`, the helper also runs `wasm-opt -Oz` with the post-MVP features Go emits enabled. This saves roughly another 7% before compression. Install it from your package manager (for example `brew install binaryen`) or the [Binaryen releases](https://github.com/WebAssembly/binaryen/releases); without it, the step is skipped.
+
+The biggest saving at download time is compression. The stripped binary is about 3.5 MB but about 1 MB with gzip, and smaller still with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable gzip or Brotli for the `application/wasm` content type. The local `go run ./cmd/web` server does not compress.
 
 The Go support script must come from the same toolchain as the Wasm binary. It lives under `lib/wasm` on newer Go releases or `misc/wasm` on older ones; the helper handles both locations.
 
-The browser editor supports examples, Run, Stop, Reset, Clear, source download, and local source persistence. Ctrl+Enter or Cmd+Enter runs the source. Code executes in a worker, where `tigerRun(source)` returns an object with `output` and `error` strings. The bridge is not a main-page global. Each call gets a fresh evaluator environment and a fresh in-memory filesystem, so file I/O in the playground never touches the host disk (see [Files](file-io.md)).
+The browser editor supports examples, Run, Stop, Reset, Clear, source download, and local source persistence. Ctrl+Enter or Cmd+Enter runs the source. Code executes in a worker, where `tigerRun(source)` returns a promise for an object with `output` and `error` strings. While a program runs, output streams to the page as it is printed, and each `input()` call shows a field at the end of the output: type a line and press Enter (or Ctrl+D for end of input) and the program continues. The bridge is not a main-page global. Each call gets a fresh evaluator environment and a fresh in-memory filesystem, so file I/O in the playground never touches the host disk (see [Files](file-io.md)).
 
-For static deployment, publish the contents of `web/` and copy the example scripts into an `examples/` subdirectory beside the HTML. Serve over HTTP(S), not `file://`. No Node.js server or CDN is required. Rebuild the Wasm artifacts after changing the interpreter.
+For static deployment, publish the contents of `web/` and copy the example scripts into an `examples/` subdirectory beside the HTML, and the `portfolio-features/` directory beside it for the Portfolio entries in the example menu. Serve over HTTP(S), not `file://`. No Node.js server or CDN is required. Rebuild the Wasm artifacts after changing the interpreter.
 
 ## WASI Preview 1
 
 WASI is a different host interface from browser `syscall/js`. Use the separate entry point:
 
 ```sh
-GOOS=wasip1 GOARCH=wasm go build -o bin/tiger-wasi.wasm ./cmd/wasi
+GOOS=wasip1 GOARCH=wasm go build -trimpath -ldflags="-s -w" -o bin/tiger-wasi.wasm ./cmd/wasi
 wasmtime run --dir . bin/tiger-wasi.wasm examples/demo.tg
 ```
 
@@ -88,7 +98,7 @@ $previousGOARCH = $env:GOARCH
 try {
     $env:GOOS = "wasip1"
     $env:GOARCH = "wasm"
-    go build -o bin/tiger-wasi.wasm ./cmd/wasi
+    go build -trimpath -ldflags="-s -w" -o bin/tiger-wasi.wasm ./cmd/wasi
 } finally {
     $env:GOOS = $previousGOOS
     $env:GOARCH = $previousGOARCH
@@ -141,7 +151,7 @@ go test ./benchmarks -count=1 -v
 go vet ./...
 ```
 
-The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks nineteen 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
+The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks thirty-one 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
 
 | Make target | Purpose |
 | --- | --- |

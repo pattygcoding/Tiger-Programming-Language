@@ -11,6 +11,9 @@ func Imports(program *Program) []*Import {
 			case *Function:
 				visit(node.Body)
 			case *Class:
+				if node.Constructor != nil {
+					visit(node.Constructor.Body)
+				}
 				for _, method := range node.Methods {
 					visit(method.Body)
 				}

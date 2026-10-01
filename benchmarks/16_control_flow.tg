@@ -1,4 +1,4 @@
-/* Updates, C-style loops, ranges, loop else, and switch fallthrough. */
+/* Updates, C-style loops and conditionals, ranges, loop else, and switch fallthrough. */
 function odd_sum(stop) {
     var total = 0;
     cfor (var index = 0; index < stop; ++index) {
@@ -113,3 +113,59 @@ for row in range(3) {
 }
 
 print("ranges", range(2, 8, 2), range(3, -2, -2));
+
+function grade(score, attendance, approved) {
+    cif (score >= 90 && attendance >= 90) {
+        return "excellent";
+    } celse cif ((score >= 80 && attendance >= 80) || approved) {
+        return "pass";
+    } celse {
+        return "fail";
+    }
+}
+print("grades", grade(95, 91, false), grade(95, 85, false), grade(60, 60, true), grade(80, 79, false));
+
+var probes = 0;
+function probe(result) {
+    probes++;
+    return result;
+}
+cif (probe(false) && probe(true)) {
+    print("unreachable");
+} celse cif (probe(true) || probe(false)) {
+    probes = probes * 10;
+}
+print("short circuit", probes);
+
+var precedence = [];
+cif (true || false && false) {
+    precedence += ["loose or"];
+}
+cif ((true || false) && false) {
+    precedence += ["unreachable"];
+} celse {
+    precedence += ["grouped"];
+}
+print("precedence", precedence);
+
+var squares = [];
+cfor (var n = 1; n <= 20 && n * n <= 30; n++) {
+    squares += [n];
+}
+var continued = [];
+cfor (var k = 0; k < 3 || k % 4 != 0; k++) {
+    continued += [k];
+}
+print("bounded", squares, continued);
+
+var labels = [];
+cfor (var code = 0; code < 4; code++) {
+    cif (code == 0) {
+        labels += ["zero"];
+    } celse cif (code % 2 == 1 && code > 1) {
+        labels += ["odd>1"];
+    } celse {
+        labels += [str(code)];
+    }
+}
+print("labels", labels);

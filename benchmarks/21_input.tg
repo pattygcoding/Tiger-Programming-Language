@@ -1,0 +1,124 @@
+/* Reading standard input with input(): prompts, parsing, loops, and end of input. */
+const DIGITS = {"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9};
+
+function parse_int(text) {
+    var value = 0;
+    var sign = 1;
+    var start = 0;
+    if len(text) > 0 and text[0] == "-" {
+        sign = -1;
+        start = 1;
+    }
+    if start == len(text) {
+        throw "not a number: " + text;
+    }
+    cfor (var index = start; index < len(text); index++) {
+        const char = text[index];
+        if not (char in DIGITS) {
+            throw "not a number: " + text;
+        }
+        value = value * 10 + DIGITS[char];
+    }
+    return sign * value;
+}
+
+function split_words(line) {
+    var words = [];
+    var current = "";
+    for char in line {
+        if char == " " {
+            if current != "" {
+                words += [current];
+                current = "";
+            }
+        } else {
+            current = current + char;
+        }
+    }
+    if current != "" {
+        words += [current];
+    }
+    return words;
+}
+
+function grade(student) {
+    cif (student["score"] >= 90 && student["attendance"] >= 90) {
+        return "excellent";
+    } celse cif (student["score"] >= 80 || student["attendance"] >= 95) {
+        return "pass";
+    } celse {
+        return "fail";
+    }
+}
+
+const user = input("Your name: ");
+print("Welcome, " + user + "!");
+
+const count = parse_int(input("How many students? "));
+print("Reading", count, "students");
+
+var roster = [];
+cfor (var row = 0; row < count; row++) {
+    const fields = split_words(input());
+    roster += [{
+        "name": fields[0],
+        "score": parse_int(fields[1]),
+        "attendance": parse_int(fields[2])
+    }];
+}
+for student in roster {
+    print(student["name"], grade(student));
+}
+
+var results = [];
+while true {
+    const line = input("> ");
+    if line == "end" {
+        break;
+    }
+    const parts = split_words(line);
+    const left = parse_int(parts[1]);
+    const right = parse_int(parts[2]);
+    switch parts[0] {
+        case "add":
+            results += [left + right];
+            break;
+        case "mul":
+            results += [left * right];
+            break;
+        case "sub":
+            results += [left - right];
+            break;
+        default:
+            results += ["?" + parts[0]];
+    }
+}
+print();
+print("results", results);
+
+const spaced = split_words(input());
+print("words", spaced, len(spaced));
+
+try {
+    parse_int(input("Number: "));
+} catch (error) {
+    print("rejected", error);
+}
+
+var total = 0;
+var lines = 0;
+while true {
+    try {
+        total += parse_int(input());
+        lines++;
+    } catch (error) {
+        print("eof", "EOF" in error, lines, total);
+        break;
+    }
+}
+
+try {
+    input("again? ");
+} catch (error) {
+    print("still eof", "EOF when reading a line" in error);
+}

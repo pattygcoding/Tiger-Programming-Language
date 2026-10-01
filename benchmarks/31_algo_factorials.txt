@@ -1,0 +1,24 @@
+Factorials
+120
+[1, 1, 2, 6, 24, 120]
+small 1 1 2 6 5040 3628800
+large 479001600 1307674368000 6402373705728000
+whole 24 720
+list sizes 1 19
+recursive true 362880
+ratios true consistent true
+choose 10 120 48620 1
+pascal [1, 6, 15, 20, 15, 6, 1]
+arrangements 120 180 60
+trailing zeros 3 3 2 2
+digits 16 7
+e 2.718282
+mutable [-1, 1, 2, 6, 0] [1, 1, 2, 6]
+value <builtin algo.factorial> 24
+value <builtin algo.factorialList> [1, 1, 2, 6, 24]
+rejected -1 true false
+rejected 2.5 true false
+rejected 19 false true
+rejected 100 false true
+type true
+arity true

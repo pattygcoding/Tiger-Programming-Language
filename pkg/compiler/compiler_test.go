@@ -10,7 +10,7 @@ import (
 )
 
 func TestStandaloneBuild(t *testing.T) {
-	testStandalone(t, `function square(number) { return number * number; } print(square(9));`, "81\n")
+	testStandalone(t, `function square(number) { return number * number; } print(square(9));`, "", "81\n")
 }
 
 func TestStandaloneOOP(t *testing.T) {
@@ -18,13 +18,14 @@ func TestStandaloneOOP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	testStandalone(t, string(source), "Rex is a Canine.\nRex barks!\nRex fetches the ball.\n")
+	testStandalone(t, string(source), "", "Rex is a Canine.\nRex barks!\nRex fetches the ball.\n")
 }
 
 func TestStandaloneExtendedSyntax(t *testing.T) {
-	testStandalone(t, `class Counter { private var count = 0; function next(this) { return ++this.count; } }
+	testStandalone(t, `class Counter { private var count = 0; function next() { return ++this.count; } }
 const counter = Counter(); cfor (var index = 0; index < 3; index++) { print(f"{counter.next()}"); }
-try { throw range(3); } catch (error) { print(error); }`, "1\n2\n3\n[0, 1, 2]\n")
+try { throw range(3); } catch (error) { print(error); }
+print(input("name? ") + "!");`, "Tiger\n", "1\n2\n3\n[0, 1, 2]\nname? Tiger!\n")
 }
 
 func TestStandaloneImports(t *testing.T) {
@@ -65,7 +66,7 @@ func TestStandaloneImports(t *testing.T) {
 	}
 }
 
-func testStandalone(t *testing.T, source, expected string) {
+func testStandalone(t *testing.T, source, stdin, expected string) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("standalone integration build")
@@ -81,6 +82,7 @@ func testStandalone(t *testing.T, source, expected string) {
 	command := exec.Command(output)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "PATH=")
+	command.Stdin = strings.NewReader(stdin)
 	actual, err := command.CombinedOutput()
 	if err != nil || string(actual) != expected {
 		t.Fatalf("standalone output=%q err=%v", actual, err)

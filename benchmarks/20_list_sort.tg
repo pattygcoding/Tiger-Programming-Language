@@ -1,0 +1,194 @@
+/* Python-style list.sort(): in-place ordering, keys, reverse, stability, and errors. */
+print("List sort");
+
+const numbers = [5, -2, 9, 0, 3.5, -2, 7];
+const alias = numbers;
+const result = numbers.sort();
+print("numbers", numbers);
+print("returns", result);
+print("alias", alias, alias == numbers);
+
+numbers.sort(reverse=true);
+print("descending", numbers);
+numbers.sort(reverse=false);
+print("ascending", numbers);
+numbers.sort(reverse=1);
+print("reverse=1", numbers);
+numbers.sort(reverse=0);
+print("reverse=0", numbers);
+
+const words = ["pear", "Apple", "fig", "banana", "apple", "Fig"];
+words.sort();
+print("words", words);
+
+function by_length(word) { return len(word); }
+const fruits = ["pear", "Apple", "fig", "banana", "kiwi", "Fig", "plum"];
+fruits.sort(key=by_length);
+print("by length", fruits);
+fruits.sort(key=by_length, reverse=true);
+print("longest first", fruits);
+
+var key_calls = 0;
+function counted(value) {
+    key_calls++;
+    return -value;
+}
+const scores = [40, 10, 30, 20, 50];
+scores.sort(key=counted);
+print("negated key", scores, key_calls);
+
+const people = [
+    {"name": "Ada", "age": 36, "team": "core"},
+    {"name": "Bo", "age": 25, "team": "web"},
+    {"name": "Cy", "age": 36, "team": "web"},
+    {"name": "Di", "age": 25, "team": "core"},
+    {"name": "Ed", "age": 41, "team": "core"}
+];
+function by_age(person) { return person["age"]; }
+function by_team(person) { return person["team"]; }
+function team_name(person) { return person["team"] + ":" + person["name"]; }
+function names(records) {
+    var out = [];
+    for record in records {
+        out += [record["name"]];
+    }
+    return out;
+}
+people.sort(key=by_age);
+print("by age", names(people));
+people.sort(key=by_age, reverse=true);
+people.sort(key=by_team);
+print("team then oldest", names(people));
+people.sort(key=team_name);
+print("team:name", names(people));
+
+class Ranker {
+    var weights = {};
+    Ranker(weights) {
+        this.weights = weights;
+    }
+    function weight(item) {
+        return this.weights[item];
+    }
+}
+const ranker = Ranker({"low": 1, "mid": 5, "high": 9});
+const levels = ["mid", "high", "low", "mid"];
+levels.sort(key=ranker.weight);
+print("bound key", levels);
+levels.sort(key=ranker.weight, reverse=true);
+print("bound reverse", levels);
+
+function distance_from(target) {
+    function distance(value) {
+        const gap = value - target;
+        if gap < 0 {
+            return -gap;
+        }
+        return gap;
+    }
+    return distance;
+}
+const points = [1, 9, 4, 6, 5, 10, 0];
+points.sort(key=distance_from(5));
+print("closest to 5", points);
+
+const empty = [];
+empty.sort();
+const single = ["only"];
+single.sort(reverse=true);
+const explicit = [3, 1, 2];
+explicit.sort(key=null);
+print("edges", empty, single, explicit);
+
+const grid = [[3, 1, 2], [9, 7, 8]];
+for row in grid {
+    row.sort();
+}
+const original = [4, 2, 3];
+const copy = original + [];
+copy.sort();
+print("rows", grid, "copy", copy, "original", original);
+
+const mixed = [3, "a", 1];
+try {
+    mixed.sort();
+} catch (error) {
+    print("mixed", "cannot compare" in error, mixed);
+}
+try {
+    [2, 1].sort(true);
+} catch (error) {
+    print("positional", "no positional arguments" in error);
+}
+try {
+    [2, 1].sort(order=1);
+} catch (error) {
+    print("unknown keyword", "does not accept keyword argument" in error);
+}
+try {
+    [2, 1].sort(reverse="yes");
+} catch (error) {
+    print("bad reverse", "reverse must be" in error);
+}
+function wrap(value) { return [value]; }
+try {
+    [2, 1].sort(key=wrap);
+} catch (error) {
+    print("list keys", "cannot compare" in error);
+}
+function picky(value) {
+    if value == 0 {
+        throw "zero key";
+    }
+    return value;
+}
+const guarded = [3, 0, 1];
+try {
+    guarded.sort(key=picky);
+} catch (error) {
+    print("key threw", error, guarded);
+}
+
+var seed = 17;
+var big = [];
+for i in range(200) {
+    seed = (seed * 37 + 11) % 101;
+    big += [seed];
+}
+var low = big[0];
+var high = big[0];
+for value in big {
+    if value < low {
+        low = value;
+    }
+    if value > high {
+        high = value;
+    }
+}
+big.sort();
+var ordered = true;
+for i in range(1, len(big)) {
+    if big[i - 1] > big[i] {
+        ordered = false;
+    }
+}
+print("big", ordered, len(big), big[0] == low, big[-1] == high);
+
+var tagged = [];
+for i in range(60) {
+    tagged += [{"id": i, "bucket": (i * 7) % 5}];
+}
+function by_bucket(entry) { return entry["bucket"]; }
+function stable(entries, step) {
+    for i in range(1, len(entries)) {
+        const gap = (entries[i]["bucket"] - entries[i - 1]["bucket"]) * step;
+        if gap < 0 or (gap == 0 and entries[i - 1]["id"] > entries[i]["id"]) {
+            return false;
+        }
+    }
+    return true;
+}
+tagged.sort(key=by_bucket);
+print("stable", stable(tagged, 1), tagged[0]["id"], tagged[-1]["id"]);
+tagged.sort(key=by_bucket, reverse=true);
+print("reverse stable", stable(tagged, -1), tagged[0]["id"], tagged[-1]["id"]);

@@ -1,0 +1,150 @@
+/* Text studio: string indexing and iteration, f-strings, hand-built string utilities, word statistics, and ciphers. */
+const LOWER = "abcdefghijklmnopqrstuvwxyz";
+const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+var to_upper = {};
+var to_lower = {};
+var position = {};
+for i in range(26) {
+    to_upper[LOWER[i]] = UPPER[i];
+    to_lower[UPPER[i]] = LOWER[i];
+    position[LOWER[i]] = i;
+    position[UPPER[i]] = i;
+}
+
+function convert(text, table) {
+    var out = "";
+    for ch in text {
+        if ch in table {
+            out += table[ch];
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+function is_letter(ch) { return ch in position; }
+function split_words(text) {
+    var words = [];
+    var current = "";
+    for ch in text {
+        if is_letter(ch) or ch == "'" {
+            current += convert(ch, to_lower);
+        } elif current != "" {
+            words += [current];
+            current = "";
+        }
+    }
+    if current != "" {
+        words += [current];
+    }
+    return words;
+}
+
+function join(items, separator) {
+    var out = "";
+    for i in range(len(items)) {
+        if i > 0 {
+            out += separator;
+        }
+        out += str(items[i]);
+    }
+    return out;
+}
+
+function title(text) {
+    var out = "";
+    var start = true;
+    for ch in text {
+        out += start and convert(ch, to_upper) or ch;
+        start = ch == " ";
+    }
+    return out;
+}
+
+function caesar(text, shift) {
+    var out = "";
+    for ch in text {
+        if ch in to_upper {
+            out += LOWER[(position[ch] + shift) % 26];
+        } elif ch in to_lower {
+            out += UPPER[(position[ch] + shift) % 26];
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+function pad(text, width) {
+    var out = text;
+    while len(out) < width { out += " "; }
+    return out;
+}
+
+const passage = "The tiger tiptoed through the tall grass. The grass whispered; the tiger listened. Tigers don't hurry, and tigers don't worry.";
+const words = split_words(passage);
+print(f"{len(passage)} characters, {len(words)} words");
+print("upper:", convert("Tiger 2.0 rocks!", to_upper), "| title:", title("the quick brown tiger"));
+
+var counts = {};
+for word in words {
+    counts[word] = (word in counts and counts[word] or 0) + 1;
+}
+var ranking = [];
+for word in counts {
+    ranking += [[word, counts[word]]];
+}
+function word_of(pair) { return pair[0]; }
+function count_of(pair) { return pair[1]; }
+ranking.sort(key=word_of);
+ranking.sort(key=count_of, reverse=true);
+print("top words:", join(ranking[0], " x"), "|", join(ranking[1], " x"), "|", join(ranking[2], " x"));
+
+var longest = "";
+var letters = 0;
+for word in words {
+    letters += len(word);
+    if len(word) > len(longest) {
+        longest = word;
+    }
+}
+print(f"longest word '{longest}', average length {math.round(letters / len(words) * 100) / 100}");
+
+const secret = caesar("Attack at Dawn, Tiger!", 13);
+print("rot13:", secret, "->", caesar(secret, 13));
+print("shift -3:", caesar("Hello", -3));
+
+function run_length(text) {
+    var out = "";
+    var i = 0;
+    while i < len(text) {
+        var run = 1;
+        while i + run < len(text) and text[i + run] == text[i] {
+            run++;
+        }
+        out += text[i] + str(run);
+        i += run;
+    }
+    return out;
+}
+print("run-length:", run_length("aaabccddddde"));
+
+var lines = [];
+var line = "";
+for word in split_words("tigers are solitary hunters that rely on stealth patience and powerful bursts of speed") {
+    if line != "" and len(line) + 1 + len(word) > 28 {
+        lines += [line];
+        line = word;
+    } else {
+        line = line == "" and word or line + " " + word;
+    }
+}
+lines += [line];
+print("+------------------------------+");
+for row in lines {
+    print(f"| {pad(row, 28)} |");
+}
+print("+------------------------------+");
+print(f"{{braces}} stay literal; tabs\tand \"quotes\" escape; joined: {join(split_words("one two three"), "<")}");

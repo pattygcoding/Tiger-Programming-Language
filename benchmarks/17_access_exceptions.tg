@@ -6,17 +6,17 @@ class Account {
     protected var operations = 0;
     var history = [];
 
-    function init(this, amount) {
+    Account(amount) {
         this.balance = amount;
     }
 
-    private function validate(this, amount) {
+    private function validate(amount) {
         if amount < 0 {
             throw {"reason": "negative", "amount": amount};
         }
     }
 
-    public function deposit(this, amount) {
+    public function deposit(amount) {
         this.validate(amount);
         this.balance = this.balance + amount;
         this.operations++;
@@ -24,11 +24,11 @@ class Account {
         return this.balance;
     }
 
-    function total(this) {
+    function total() {
         return this.balance;
     }
 
-    function reader(this) {
+    function reader() {
         function read() {
             return this.balance;
         }
@@ -36,12 +36,12 @@ class Account {
     }
 }
 
-class AuditedAccount(Account) {
-    function count(this) {
+class AuditedAccount extends Account {
+    function count() {
         return this.operations;
     }
 
-    function deposit(this, amount) {
+    function deposit(amount) {
         return super.deposit(amount);
     }
 }

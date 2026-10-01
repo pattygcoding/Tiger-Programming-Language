@@ -1,0 +1,38 @@
+Palindromes
+true
+true
+bab
+6
+1
+valid 'A man, a plan, a canal: Panama': true
+valid 'race a car': false
+valid '': true
+valid ' ': true
+valid '0P': false
+valid 'Was it a car or a cat I saw?': true
+valid 'No 'x' in Nixon': true
+valid 'Tiger': false
+valid '12321': true
+valid 'Madam, I'm Adam': true
+'': true '' 0 0
+'a': true 'a' 1 0
+'ab': true 'a' 2 1
+'aba': true 'aba' 4 0
+'abca': true 'a' 4 3
+'abc': false 'a' 3 2
+'racecar': true 'racecar' 10 0
+'banana': true 'anana' 10 1
+'abacdfgdcaba': true 'aba' 14 7
+'cbbd': false 'bb' 5 2
+'noonabbad': false 'noon' 13 2
+'aabbaa': true 'aabbaa' 11 0
+'tiger': false 't' 5 4
+'level': true 'level' 7 0
+'deeee': true 'eeee' 11 1
+'cbbcc': true 'cbbc' 8 1
+brute force agrees 16 of 16
+phrases ["Step on no pets", "Never odd or even", "Was it a rat I saw?"]
+long valid true true
+too long true
+not string true
+arity true

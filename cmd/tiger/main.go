@@ -17,9 +17,9 @@ const usage = `Usage:
   tiger help
 `
 
-func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -50,7 +50,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if args[0] == "run" {
-		if err := evaluator.RunFile(filename, stdout); err != nil {
+		if err := evaluator.RunFileWithInput(filename, stdin, stdout); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}

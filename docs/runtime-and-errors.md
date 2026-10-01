@@ -61,16 +61,16 @@ print(settings["host"]);
 dictionary key not found: host
 ```
 
-**Expected error: method receiver declaration.**
+**Expected error: explicit receiver parameter.**
 
 ```tg
 class Invalid {
-    function run() { return 1; }
+    function run(this) { return 1; }
 }
 ```
 
 ```error
-must declare this as its first parameter
+this is implicit in methods and constructors; remove it from the parameter list
 ```
 
 ## Try, Catch, and Throw
@@ -111,6 +111,6 @@ These safeguards are not a memory limit, a wall-clock deadline, or a security gu
 
 Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md), [file input and output](file-io.md), and variadic `*args`/`**kwargs` parameters with `*`/`**` call unpacking, but has no package manager, network API, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or default parameter values. Numbers are float64, not arbitrary-precision integers.
 
-There is no exponentiation. `+=`, `-=`, `*=`, `%=`, `++`/`--`, `break`, `continue`, `switch`, loop `else`, and C-style `cfor` are supported. `//` is a comment marker, not integer division. Classes support one parent, explicit `this`, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
+There is no exponentiation. `+=`, `-=`, `*=`, `%=`, `++`/`--`, `break`, `continue`, `switch`, loop `else`, C-style `cfor`, and `cif`/`celse` (with `&&`/`||` in their headers) are supported. `//` is a comment marker, not integer division. Classes support one parent, implicit `this`, declared fields, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
 
 See [Running and Building](running-and-building.md) for CLI exit codes and host-level execution choices.

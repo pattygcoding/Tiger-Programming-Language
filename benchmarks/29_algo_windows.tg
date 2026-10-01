@@ -1,0 +1,165 @@
+/* Algo module: sliding-window functions cross-checked against brute-force Tiger versions. */
+print("Sliding windows");
+
+print(algo.slidingWindowMax([1, 3, -1, -3, 5, 3, 6, 7], 3));
+print(algo.slidingWindowSumMax([1, 12, -5, -6, 50, 3], 4));
+print(algo.slidingWindowMinLen([2, 3, 1, 2, 4, 3], 7));
+print(algo.slidingWindowLongestUnique("abcabcbb"));
+print(algo.slidingWindowMinSubstring("ADOBECODEBANC", "ABC"));
+
+function brute_max(nums, k) {
+    var result = [];
+    cfor (var start = 0; start + k <= len(nums); start++) {
+        var high = nums[start];
+        cfor (var i = start; i < start + k; i++) {
+            high = math.max(high, nums[i]);
+        }
+        result += [high];
+    }
+    return result;
+}
+
+function brute_sum(nums, k) {
+    var best = null;
+    cfor (var start = 0; start + k <= len(nums); start++) {
+        var sum = 0;
+        cfor (var i = start; i < start + k; i++) {
+            sum += nums[i];
+        }
+        if best == null or sum > best {
+            best = sum;
+        }
+    }
+    return best;
+}
+
+function brute_min_len(nums, target) {
+    var best = 0;
+    for start in range(len(nums)) {
+        var sum = 0;
+        cfor (var end = start; end < len(nums); end++) {
+            sum += nums[end];
+            if sum >= target {
+                if best == 0 or end - start + 1 < best {
+                    best = end - start + 1;
+                }
+                break;
+            }
+        }
+    }
+    return best;
+}
+
+function brute_unique(s) {
+    var best = 0;
+    for start in range(len(s)) {
+        var seen = {};
+        cfor (var end = start; end < len(s); end++) {
+            if s[end] in seen {
+                break;
+            }
+            seen[s[end]] = true;
+            best = math.max(best, end - start + 1);
+        }
+    }
+    return best;
+}
+
+const fixed_cases = [
+    [[1, 3, -1, -3, 5, 3, 6, 7], 3],
+    [[9, 8, 7, 6, 5], 2],
+    [[4], 1],
+    [[-2, -1, -5, -3], 2],
+    [[2, 2, 2, 2], 4],
+    [[1.5, 0.5, 2.5, 1], 2]
+];
+for pair in fixed_cases {
+    const nums = pair[0];
+    const k = pair[1];
+    const highs = algo.slidingWindowMax(nums, k);
+    const best = algo.slidingWindowSumMax(nums, k);
+    print("fixed", k, highs, str(highs) == str(brute_max(nums, k)), best, best == brute_sum(nums, k));
+}
+
+const min_len_cases = [
+    [[2, 3, 1, 2, 4, 3], 7],
+    [[1, 4, 4], 4],
+    [[1, 1, 1, 1, 1, 1, 1, 1], 11],
+    [[1, 2, 3, 4, 5], 11],
+    [[5, 1, 3, 5, 10, 7, 4, 9, 2, 8], 15],
+    [[], 1],
+    [[0, 0, 0, 6], 6]
+];
+for pair in min_len_cases {
+    const fast = algo.slidingWindowMinLen(pair[0], pair[1]);
+    print("min len", pair[1], fast, fast == brute_min_len(pair[0], pair[1]));
+}
+
+for s in ["abcabcbb", "bbbbb", "pwwkew", "", "abba", "tiger tamer", "dvdf"] {
+    const fast = algo.slidingWindowLongestUnique(s);
+    print(f"unique '{s}': {fast} {fast == brute_unique(s)}");
+}
+
+const substring_cases = [
+    ["ADOBECODEBANC", "ABC"],
+    ["a", "a"],
+    ["a", "aa"],
+    ["this is a test string", "tist"],
+    ["aaflslflsldkalskaaa", "aaa"],
+    ["Tiger", "tg"],
+    ["xyz", ""]
+];
+for pair in substring_cases {
+    print(f"window '{pair[1]}' in '{pair[0]}': '{algo.slidingWindowMinSubstring(pair[0], pair[1])}'");
+}
+
+const temps = [18, 21, 19, 25, 24, 22, 27, 26];
+print("3-day highs", algo.slidingWindowMax(temps, 3));
+print("best 3-day total", algo.slidingWindowSumMax(temps, 3), "average", algo.slidingWindowSumMax(temps, 3) / 3);
+
+var seed = 9;
+function next(limit) {
+    seed = (seed * 41 + 13) % 103;
+    return seed % limit;
+}
+var agree = 0;
+for trial in range(20) {
+    var nums = [];
+    for step in range(3 + trial % 7) {
+        nums += [next(9)];
+    }
+    const k = 1 + next(len(nums));
+    var word = "";
+    for step in range(trial % 9) {
+        word += "abcd"[next(4)];
+    }
+    const target = 1 + next(20);
+    if str(algo.slidingWindowMax(nums, k)) == str(brute_max(nums, k)) and algo.slidingWindowSumMax(nums, k) == brute_sum(nums, k) and algo.slidingWindowMinLen(nums, target) == brute_min_len(nums, target) and algo.slidingWindowLongestUnique(word) == brute_unique(word) {
+        agree++;
+    }
+}
+print("random agree", agree, "of 20");
+
+try {
+    algo.slidingWindowMax([1, 2], 3);
+} catch (error) {
+    print("k too big", "k must be a whole number from 1 to 2" in error);
+}
+
+try {
+    algo.slidingWindowMinLen([3, -1], 2);
+} catch (error) {
+    print("negative", "cannot contain negative numbers, got -1 at index 1" in error);
+}
+
+try {
+    algo.slidingWindowMinLen([3], 0);
+} catch (error) {
+    print("target", "target must be positive" in error);
+}
+
+try {
+    algo.slidingWindowLongestUnique(["a"]);
+} catch (error) {
+    print("not string", "expects a string, got list" in error);
+}

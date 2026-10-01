@@ -15,6 +15,7 @@ type parser struct {
 	functionDepth int
 	loopDepth     int
 	switchDepth   int
+	cStyle        int
 	depth         int
 }
 
@@ -113,70 +114,80 @@ func (parse *parser) statement() ast.Stmt {
 		return parse.class(base)
 	case parse.match("function"):
 		name := parse.expect(lexer.Ident).Text
-		parse.expect("(")
-		parameters := []string{}
-		variadic, keyword := "", ""
-		seen := map[string]bool{}
-		if !parse.at(")") {
-			for {
-				parameter := parse.current()
-				star, doubleStar := parse.at("*"), parse.at("**")
-				if star || doubleStar {
-					marker := parse.take()
-					if doubleStar {
-						if keyword != "" {
-							panic(syntaxError{marker.Errorf("function may declare at most one **kwargs parameter")})
-						}
-					} else {
-						if keyword != "" {
-							panic(syntaxError{marker.Errorf("*args cannot follow **kwargs")})
-						}
-						if variadic != "" {
-							panic(syntaxError{marker.Errorf("function may declare at most one *args parameter")})
-						}
-					}
-					declaration := parse.current()
-					if declaration.Kind != lexer.Ident {
-						panic(syntaxError{declaration.Errorf("expected a parameter name after %q", marker.Text)})
-					}
-					parse.take()
-					if seen[declaration.Text] {
-						panic(syntaxError{declaration.Errorf("duplicate parameter %q", declaration.Text)})
-					}
-					seen[declaration.Text] = true
-					if doubleStar {
-						keyword = declaration.Text
-					} else {
-						variadic = declaration.Text
+		return parse.function(base, name)
+	default:
+		return parse.statementTail(base)
+	}
+}
+
+func (parse *parser) function(base ast.Base, name string) *ast.Function {
+	parse.expect("(")
+	parameters := []string{}
+	variadic, keyword := "", ""
+	seen := map[string]bool{}
+	if !parse.at(")") {
+		for {
+			parameter := parse.current()
+			star, doubleStar := parse.at("*"), parse.at("**")
+			if star || doubleStar {
+				marker := parse.take()
+				if doubleStar {
+					if keyword != "" {
+						panic(syntaxError{marker.Errorf("function may declare at most one **kwargs parameter")})
 					}
 				} else {
+					if keyword != "" {
+						panic(syntaxError{marker.Errorf("*args cannot follow **kwargs")})
+					}
 					if variadic != "" {
-						panic(syntaxError{parameter.Errorf("parameter %q cannot follow *args; only **kwargs may follow", parameter.Text)})
+						panic(syntaxError{marker.Errorf("function may declare at most one *args parameter")})
 					}
-					if parse.at("this") {
-						parse.take()
-					} else {
-						parse.expect(lexer.Ident)
-					}
-					if seen[parameter.Text] {
-						panic(syntaxError{parameter.Errorf("duplicate parameter %q", parameter.Text)})
-					}
-					seen[parameter.Text] = true
-					parameters = append(parameters, parameter.Text)
 				}
-				if !parse.match(",") || parse.at(")") {
-					break
+				declaration := parse.current()
+				if declaration.Kind != lexer.Ident {
+					panic(syntaxError{declaration.Errorf("expected a parameter name after %q", marker.Text)})
 				}
+				parse.take()
+				if seen[declaration.Text] {
+					panic(syntaxError{declaration.Errorf("duplicate parameter %q", declaration.Text)})
+				}
+				seen[declaration.Text] = true
+				if doubleStar {
+					keyword = declaration.Text
+				} else {
+					variadic = declaration.Text
+				}
+			} else {
+				if variadic != "" {
+					panic(syntaxError{parameter.Errorf("parameter %q cannot follow *args; only **kwargs may follow", parameter.Text)})
+				}
+				if parse.at("this") {
+					panic(syntaxError{parameter.Errorf("this is implicit in methods and constructors; remove it from the parameter list")})
+				}
+				parse.expect(lexer.Ident)
+				if seen[parameter.Text] {
+					panic(syntaxError{parameter.Errorf("duplicate parameter %q", parameter.Text)})
+				}
+				seen[parameter.Text] = true
+				parameters = append(parameters, parameter.Text)
+			}
+			if !parse.match(",") || parse.at(")") {
+				break
 			}
 		}
-		parse.expect(")")
-		parse.functionDepth++
-		loopDepth, switchDepth := parse.loopDepth, parse.switchDepth
-		parse.loopDepth, parse.switchDepth = 0, 0
-		body := parse.block()
-		parse.loopDepth, parse.switchDepth = loopDepth, switchDepth
-		parse.functionDepth--
-		return &ast.Function{Base: base, Name: name, Parameters: parameters, Variadic: variadic, Keyword: keyword, Body: body}
+	}
+	parse.expect(")")
+	parse.functionDepth++
+	loopDepth, switchDepth := parse.loopDepth, parse.switchDepth
+	parse.loopDepth, parse.switchDepth = 0, 0
+	body := parse.block()
+	parse.loopDepth, parse.switchDepth = loopDepth, switchDepth
+	parse.functionDepth--
+	return &ast.Function{Base: base, Name: name, Parameters: parameters, Variadic: variadic, Keyword: keyword, Body: body}
+}
+
+func (parse *parser) statementTail(base ast.Base) ast.Stmt {
+	switch {
 	case parse.match("return"):
 		if parse.functionDepth == 0 {
 			panic(syntaxError{base.Token.Errorf("return outside a function")})
@@ -199,6 +210,9 @@ func (parse *parser) statement() ast.Stmt {
 		if parse.match("else") {
 			conditional.Else = parse.block()
 		}
+		if parse.at("celse") {
+			panic(syntaxError{parse.current().Errorf("use elif or else after an if block")})
+		}
 		return conditional
 	case parse.match("while"):
 		condition := parse.expression(0)
@@ -213,6 +227,7 @@ func (parse *parser) statement() ast.Stmt {
 	case parse.match("cfor"):
 		loop := &ast.CFor{Base: base}
 		parse.expect("(")
+		parse.cStyle++
 		if !parse.at(";") {
 			loop.Initializer = parse.simpleStatement()
 		}
@@ -228,8 +243,30 @@ func (parse *parser) statement() ast.Stmt {
 			}
 		}
 		parse.expect(")")
+		parse.cStyle--
 		loop.Body, loop.Else = parse.loopBody()
 		return loop
+	case parse.match("cif"):
+		conditional := &ast.If{Base: base}
+		for {
+			parse.expect("(")
+			parse.cStyle++
+			condition := parse.expression(0)
+			parse.cStyle--
+			parse.expect(")")
+			conditional.Branches = append(conditional.Branches, ast.Branch{Condition: condition, Body: parse.block()})
+			if !parse.match("celse") {
+				break
+			}
+			if !parse.match("cif") {
+				conditional.Else = parse.block()
+				break
+			}
+		}
+		if parse.at("else") || parse.at("elif") {
+			panic(syntaxError{parse.current().Errorf("use celse or celse cif after a cif block")})
+		}
+		return conditional
 	case parse.at("break") || parse.at("continue"):
 		kind := parse.take().Text
 		if parse.loopDepth == 0 && (kind == "continue" || parse.switchDepth == 0) {
@@ -313,13 +350,15 @@ func (parse *parser) class(base ast.Base) ast.Stmt {
 	defer func() { parse.depth-- }()
 	name := parse.expect(lexer.Ident)
 	declaration := &ast.Class{Base: base, Name: name.Text}
-	if parse.match("(") {
+	if parse.at("(") {
+		panic(syntaxError{parse.current().Errorf("use 'class %s extends Parent' to declare inheritance", name.Text)})
+	}
+	if parse.match("extends") {
 		parent := parse.expect(lexer.Ident)
 		if parent.Text == name.Text {
 			panic(syntaxError{parent.Errorf("a class cannot inherit from itself")})
 		}
 		declaration.Parent = &ast.Identifier{Base: ast.Base{Token: parent}, Name: parent.Text}
-		parse.expect(")")
 	}
 	parse.expect("{")
 	seen := map[string]bool{}
@@ -329,22 +368,39 @@ func (parse *parser) class(base ast.Base) ast.Stmt {
 			access = parse.take().Text
 		}
 		if parse.at("var") || parse.at("const") {
-			field := parse.statement().(*ast.Assign)
-			name := field.Target.(*ast.Identifier).Name
-			if seen[name] {
-				panic(syntaxError{field.Position().Errorf("duplicate member %q", name)})
+			start := parse.take()
+			name := parse.expect(lexer.Ident)
+			var value ast.Expr
+			if parse.match("=") {
+				value = parse.expression(0)
+			} else if start.Kind == "const" {
+				panic(syntaxError{name.Errorf("const field %q requires an initializer", name.Text)})
 			}
-			seen[name] = true
-			declaration.Fields = append(declaration.Fields, &ast.Field{Base: field.Base, Name: name, Access: access, Constant: field.Constant, Value: field.Value})
+			parse.expect(";")
+			if seen[name.Text] {
+				panic(syntaxError{name.Errorf("duplicate member %q", name.Text)})
+			}
+			seen[name.Text] = true
+			declaration.Fields = append(declaration.Fields, &ast.Field{Base: ast.Base{Token: start}, Name: name.Text, Access: access, Constant: start.Kind == "const", Value: value})
+			continue
+		}
+		if parse.at(lexer.Ident) && parse.current().Text == declaration.Name {
+			start := parse.take()
+			constructor := parse.function(ast.Base{Token: start}, declaration.Name)
+			constructor.Access = access
+			if declaration.Constructor != nil {
+				panic(syntaxError{start.Errorf("duplicate constructor for %s", declaration.Name)})
+			}
+			declaration.Constructor = constructor
 			continue
 		}
 		if !parse.at("function") {
-			panic(syntaxError{parse.current().Errorf("class bodies may only contain methods and field declarations")})
+			panic(syntaxError{parse.current().Errorf("class bodies may only contain a constructor, methods, and field declarations")})
 		}
 		method := parse.statement().(*ast.Function)
 		method.Access = access
-		if len(method.Parameters) == 0 || method.Parameters[0] != "this" {
-			panic(syntaxError{method.Position().Errorf("method %q must declare this as its first parameter", method.Name)})
+		if method.Name == declaration.Name {
+			panic(syntaxError{method.Position().Errorf("declare the constructor as %s(...) without 'function'", declaration.Name)})
 		}
 		if seen[method.Name] {
 			panic(syntaxError{method.Position().Errorf("duplicate method %q", method.Name)})
@@ -372,9 +428,9 @@ func (parse *parser) block() []ast.Stmt {
 
 func precedence(kind lexer.Kind) int {
 	switch kind {
-	case "or":
+	case "or", "||":
 		return 1
-	case "and":
+	case "and", "&&":
 		return 2
 	case "==", "!=", "<", "<=", ">", ">=", "in":
 		return 3
@@ -421,6 +477,10 @@ func (parse *parser) expression(minimum int) ast.Expr {
 	case lexer.Ident, "this":
 		left = &ast.Identifier{Base: base, Name: token.Text}
 	case "super":
+		if parse.at("(") {
+			left = &ast.Super{Base: base}
+			break
+		}
 		parse.expect(".")
 		member := parse.expect(lexer.Ident)
 		left = &ast.Property{Base: ast.Base{Token: member}, Receiver: &ast.Super{Base: base}, Name: member.Text}
@@ -477,7 +537,14 @@ func (parse *parser) expression(minimum int) ast.Expr {
 			left = &ast.Index{Base: base, Collection: left, Key: parse.expression(0)}
 			parse.expect("]")
 		default:
-			left = &ast.Binary{Base: base, Left: left, Operator: operator.Text, Right: parse.expression(precedence(operator.Kind))}
+			text := operator.Text
+			if text == "&&" || text == "||" {
+				if parse.cStyle == 0 {
+					panic(syntaxError{operator.Errorf("%s is only allowed in cif and cfor headers; use %s", text, map[string]string{"&&": "and", "||": "or"}[text])})
+				}
+				text = map[string]string{"&&": "and", "||": "or"}[text]
+			}
+			left = &ast.Binary{Base: base, Left: left, Operator: text, Right: parse.expression(precedence(operator.Kind))}
 		}
 	}
 	return left

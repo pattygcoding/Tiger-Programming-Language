@@ -1,0 +1,149 @@
+/* Turing machine: a sparse two-way tape class, rule tables built with *args, a step-limited simulator, and traced runs. */
+const BLANK = "_";
+
+function pad(text, width) {
+    var out = text;
+    while len(out) < width { out += " "; }
+    return out;
+}
+
+class Tape {
+    private var cells = {};
+    var head = 0;
+    var low = 0;
+    var high = 0;
+
+    Tape(text) {
+        for i in range(len(text)) { this.cells[i] = text[i]; }
+        this.high = math.max(len(text) - 1, 0);
+    }
+
+    function read() { return this.head in this.cells and this.cells[this.head] or BLANK; }
+    function write(symbol) { this.cells[this.head] = symbol; }
+
+    function move(direction) {
+        switch direction {
+            case "L": this.head--; break;
+            case "R": this.head++; break;
+            case "S": break;
+            default: throw f"unknown move '{direction}'";
+        }
+        this.low = math.min(this.low, this.head);
+        this.high = math.max(this.high, this.head);
+    }
+
+    function render() {
+        var out = "";
+        cfor (var i = this.low; i <= this.high; i++) {
+            const symbol = i in this.cells and this.cells[i] or BLANK;
+            out += i == this.head and f"[{symbol}]" or f" {symbol} ";
+        }
+        return out;
+    }
+
+    function content() {
+        var out = "";
+        cfor (var i = this.low; i <= this.high; i++) {
+            if i in this.cells and this.cells[i] != BLANK { out += this.cells[i]; } elif out != "" { out += BLANK; }
+        }
+        while len(out) > 0 and out[-1] == BLANK {
+            var trimmed = "";
+            cfor (var i = 0; i < len(out) - 1; i++) { trimmed += out[i]; }
+            out = trimmed;
+        }
+        return out;
+    }
+
+    function count(symbol) {
+        var total = 0;
+        for i in this.cells { if this.cells[i] == symbol { total++; } }
+        return total;
+    }
+}
+
+class TuringMachine {
+    var name;
+    var start;
+    var halt;
+    private var rules = {};
+
+    TuringMachine(name, start, halt, *rules) {
+        this.name = name;
+        this.start = start;
+        this.halt = halt;
+        for rule in rules {
+            if len(rule) != 5 { throw f"{name}: rules need [state, read, write, move, next], got {rule}"; }
+            this.rules[rule[0] + "," + rule[1]] = [rule[2], rule[3], rule[4]];
+        }
+    }
+
+    function run(input, limit, trace) {
+        const tape = Tape(input);
+        var state = this.start;
+        var steps = 0;
+        while state != this.halt {
+            if steps >= limit { throw f"{this.name}: no halt within {limit} steps"; }
+            const key = state + "," + tape.read();
+            if not (key in this.rules) { throw f"{this.name}: no rule for state '{state}' reading '{tape.read()}'"; }
+            if trace { print(f"  {steps}: {pad(state, 6)}", tape.render()); }
+            const action = this.rules[key];
+            tape.write(action[0]);
+            tape.move(action[1]);
+            state = action[2];
+            steps++;
+        }
+        if trace { print(f"  {steps}: {pad(state, 6)}", tape.render()); }
+        return {"tape": tape, "steps": steps};
+    }
+}
+
+const increment = TuringMachine("binary increment", "right", "done",
+    ["right", "0", "0", "R", "right"], ["right", "1", "1", "R", "right"], ["right", BLANK, BLANK, "L", "carry"],
+    ["carry", "1", "0", "L", "carry"], ["carry", "0", "1", "S", "done"], ["carry", BLANK, "1", "S", "done"]);
+
+print("Binary increment of 1011, traced:");
+increment.run("1011", 50, true);
+for input in ["0", "111", "10011", "11111111"] {
+    const result = increment.run(input, 200, false);
+    print(f"  {input} + 1 = {result["tape"].content()} ({result["steps"]} steps)");
+}
+
+const adder = TuringMachine("unary adder", "scan", "done",
+    ["scan", "1", "1", "R", "scan"], ["scan", "+", "1", "R", "seek_end"],
+    ["seek_end", "1", "1", "R", "seek_end"], ["seek_end", BLANK, BLANK, "L", "erase"],
+    ["erase", "1", BLANK, "S", "done"]);
+for pair in [[3, 2], [5, 4], [0, 3]] {
+    var input = "";
+    for i in range(pair[0]) { input += "1"; }
+    input += "+";
+    for i in range(pair[1]) { input += "1"; }
+    const result = adder.run(input, 500, false);
+    print(f"unary {pair[0]} + {pair[1]}: {input} -> {result["tape"].content()} = {result["tape"].count("1")}");
+}
+
+const beaver2 = TuringMachine("2-state busy beaver", "A", "H",
+    ["A", BLANK, "1", "R", "B"], ["A", "1", "1", "L", "B"],
+    ["B", BLANK, "1", "L", "A"], ["B", "1", "1", "R", "H"]);
+const beaver3 = TuringMachine("3-state busy beaver", "A", "H",
+    ["A", BLANK, "1", "R", "B"], ["A", "1", "1", "R", "H"],
+    ["B", BLANK, BLANK, "R", "C"], ["B", "1", "1", "R", "B"],
+    ["C", BLANK, "1", "L", "C"], ["C", "1", "1", "L", "A"]);
+for beaver in [beaver2, beaver3] {
+    const result = beaver.run("", 1000, false);
+    print(f"{beaver.name}: halted after {result["steps"]} steps with {result["tape"].count("1")} ones:{result["tape"].render()}");
+}
+
+const looping = TuringMachine("runaway", "go", "stop", ["go", BLANK, BLANK, "R", "go"]);
+const broken = TuringMachine("incomplete", "start", "stop", ["start", "1", "1", "R", "start"]);
+for attempt in [[looping, ""], [broken, "112"]] {
+    try {
+        attempt[0].run(attempt[1], 100, false);
+    } catch (error) {
+        print("stopped:", error);
+    }
+}
+try {
+    TuringMachine("bad", "a", "b", ["a", "1", "R"]);
+} catch (error) {
+    print("rejected:", error);
+}

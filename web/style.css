@@ -57,6 +57,7 @@ button.primary:hover:not(:disabled) { background: #10513b; }
 #timing { font-size: 11px; color: var(--muted); margin-left: auto; }
 pre { margin: 0; padding: 24px; font: 13px/1.9 "Cascadia Code", "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 #output { min-height: 180px; max-height: calc(100dvh - 270px); overflow: auto; }
+.stdin { font: inherit; color: var(--accent); caret-color: var(--accent); background: transparent; border: 0; border-bottom: 1px dashed var(--accent); padding: 0; margin: 0; width: 24ch; max-width: 100%; outline: none; }
 #error { color: var(--error); background: #fff0f2; border-top: 1px solid #edc7cd; font-size: 12px; }
 footer { height: 42px; padding: 0 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 @media (max-width: 760px) {

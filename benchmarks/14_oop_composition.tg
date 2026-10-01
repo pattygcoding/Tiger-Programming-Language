@@ -1,30 +1,33 @@
 const TITLE = "Object composition and recursive projects";
 
 class Task {
-    function init(this, title, hours) {
+    var title;
+    var hours;
+    var done = false;
+
+    Task(title, hours) {
         this.title = title;
         this.hours = hours;
-        this.done = false;
     }
 
-    function complete(this) {
+    function complete() {
         this.done = true;
         return this;
     }
 
-    function reopen(this) {
+    function reopen() {
         this.done = false;
         return this;
     }
 
-    function estimate(this) {
+    function estimate() {
         if this.done {
             return 0;
         }
         return this.hours;
     }
 
-    function describe(this) {
+    function describe() {
         if this.done {
             return this.title + ":done";
         }
@@ -33,23 +36,25 @@ class Task {
 }
 
 class Project {
-    function init(this, name) {
+    var name;
+    var tasks = [];
+    var projects = [];
+
+    Project(name) {
         this.name = name;
-        this.tasks = [];
-        this.projects = [];
     }
 
-    function add_task(this, task) {
+    function add_task(task) {
         this.tasks = this.tasks + [task];
         return this;
     }
 
-    function add_project(this, project) {
+    function add_project(project) {
         this.projects = this.projects + [project];
         return this;
     }
 
-    function estimate(this) {
+    function estimate() {
         var total = 0;
         for task in this.tasks {
             total = total + task.estimate();
@@ -60,7 +65,7 @@ class Project {
         return total;
     }
 
-    function find(this, title) {
+    function find(title) {
         for task in this.tasks {
             if task.title == title {
                 return task;
@@ -75,7 +80,7 @@ class Project {
         return null;
     }
 
-    function report(this) {
+    function report() {
         var result = [];
         for task in this.tasks {
             result = result + [task.describe()];
@@ -86,7 +91,7 @@ class Project {
         return result;
     }
 
-    function complete_all(this) {
+    function complete_all() {
         for task in this.tasks {
             task.complete();
         }

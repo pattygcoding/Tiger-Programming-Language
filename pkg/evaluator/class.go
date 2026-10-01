@@ -2,6 +2,8 @@ package evaluator
 
 import (
 	"fmt"
+	"math"
+	"sort"
 	"tiger/pkg/ast"
 	"tiger/pkg/object"
 )
@@ -35,16 +37,25 @@ func memberAccess(node ast.Node, class *object.Class, name string, env *object.E
 	}
 }
 
-func property(node *ast.Property, receiver object.Value, env *object.Environment) object.Value {
+func (eval *Evaluator) property(node *ast.Property, receiver object.Value, env *object.Environment) object.Value {
 	switch typed := receiver.(type) {
 	case object.String:
 		if node.Name == "size" || node.Name == "length" {
 			return lengthMethod(node.Name, object.Number(len([]rune(string(typed)))))
 		}
+		if method := conversionMethod(node.Name, typed); method != nil {
+			return method
+		}
 		fail(node, "string has no property %q", node.Name)
 	case *object.List:
 		if node.Name == "size" || node.Name == "length" {
 			return lengthMethod(node.Name, object.Number(len(typed.Elements)))
+		}
+		if node.Name == "sort" {
+			return eval.sortMethod(node, typed, env)
+		}
+		if method := conversionMethod(node.Name, typed); method != nil {
+			return method
 		}
 		fail(node, "list has no property %q", node.Name)
 	case *object.Module:
@@ -62,6 +73,9 @@ func property(node *ast.Property, receiver object.Value, env *object.Environment
 		if method := typed.Class.FindMethod(node.Name); method != nil {
 			return &object.BoundMethod{Method: method, Receiver: typed}
 		}
+		if method := conversionMethod(node.Name, typed); method != nil {
+			return method
+		}
 		fail(node, "%s has no property %q", typed.Class.Name, node.Name)
 	case *object.Super:
 		if typed.Parent == nil {
@@ -73,6 +87,9 @@ func property(node *ast.Property, receiver object.Value, env *object.Environment
 		}
 		fail(node, "parent class %s has no method %q", typed.Parent.Name, node.Name)
 	default:
+		if method := conversionMethod(node.Name, receiver); method != nil {
+			return method
+		}
 		fail(node, "%s has no properties", receiver.Type())
 	}
 	return object.Null{}
@@ -88,6 +105,77 @@ func lengthMethod(name string, length object.Number) object.Value {
 		}
 		return length, nil
 	}}
+}
+
+// sortMethod mirrors Python's list.sort(*, key=None, reverse=False): in place, stable, returns null.
+func (eval *Evaluator) sortMethod(node *ast.Property, list *object.List, env *object.Environment) object.Value {
+	return &object.Builtin{Name: "sort", Call: func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
+		if len(arguments) != 0 {
+			return nil, fmt.Errorf("sort takes no positional arguments")
+		}
+		var key object.Value = object.Null{}
+		reverse := false
+		for name, value := range keywords {
+			switch name {
+			case "key":
+				key = value
+			case "reverse":
+				switch flag := value.(type) {
+				case object.Bool:
+					reverse = bool(flag)
+				case object.Number:
+					if math.Trunc(float64(flag)) != float64(flag) {
+						return nil, fmt.Errorf("sort reverse must be a boolean or integer")
+					}
+					reverse = flag != 0
+				default:
+					return nil, fmt.Errorf("sort reverse must be a boolean or integer, got %s", value.Type())
+				}
+			default:
+				return nil, fmt.Errorf("sort does not accept keyword argument %q", name)
+			}
+		}
+		items := append([]object.Value{}, list.Elements...)
+		keys := items
+		if _, none := key.(object.Null); !none {
+			keys = make([]object.Value, len(items))
+			for i, item := range items {
+				keys[i] = eval.call(node, key, []object.Value{item}, nil, env)
+			}
+		}
+		order := make([]int, len(items))
+		for i := range order {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(i, j int) bool {
+			left, right := keys[order[i]], keys[order[j]]
+			if reverse {
+				left, right = right, left
+			}
+			return lessThan(node, left, right)
+		})
+		sorted := make([]object.Value, len(items))
+		for i, index := range order {
+			sorted[i] = items[index]
+		}
+		list.Elements = sorted
+		return object.Null{}, nil
+	}}
+}
+
+func lessThan(node ast.Node, left, right object.Value) bool {
+	switch first := left.(type) {
+	case object.Number:
+		if second, ok := right.(object.Number); ok {
+			return first < second
+		}
+	case object.String:
+		if second, ok := right.(object.String); ok {
+			return first < second
+		}
+	}
+	fail(node, "cannot compare %s and %s while sorting", left.Type(), right.Type())
+	return false
 }
 
 // keyword is one evaluated keyword argument in call order. An ordered slice is
@@ -112,17 +200,25 @@ func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []ob
 		return eval.invoke(node, callable, arguments, keywords, nil)
 	case *object.BoundMethod:
 		return eval.invoke(node, callable.Method.Function, arguments, keywords, callable)
+	case *object.Super:
+		if !callable.Constructor {
+			fail(node, "super(...) can only be called inside a constructor")
+		}
+		if callable.Parent == nil {
+			fail(node, "super requires a parent class")
+		}
+		if constructor := callable.Parent.FindConstructor(); constructor != nil {
+			accessible(node, constructor.Function.Declaration.Access, constructor.Owner, env)
+		}
+		eval.construct(node, callable.Parent, callable.Receiver, arguments, keywords)
+		return object.Null{}
 	case *object.Class:
 		instance := &object.Instance{Class: callable, Fields: map[string]object.Value{}}
-		if initializer := callable.FindMethod("init"); initializer != nil {
-			accessible(node, initializer.Function.Declaration.Access, initializer.Owner, env)
+		if constructor := callable.FindConstructor(); constructor != nil {
+			accessible(node, constructor.Function.Declaration.Access, constructor.Owner, env)
 		}
 		eval.initializeFields(instance, callable)
-		if initializer := callable.FindMethod("init"); initializer != nil {
-			eval.call(node, &object.BoundMethod{Method: initializer, Receiver: instance}, arguments, keywords, env)
-		} else if len(arguments) != 0 || len(keywords) != 0 {
-			fail(node, "%s expects 0 arguments", callable.Name)
-		}
+		eval.construct(node, callable, instance, arguments, keywords)
 		return instance
 	default:
 		fail(node, "%s is not callable", function.Type())
@@ -130,12 +226,20 @@ func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []ob
 	return object.Null{}
 }
 
+func (eval *Evaluator) construct(node ast.Node, class *object.Class, instance *object.Instance, arguments []object.Value, keywords []keyword) {
+	constructor := class.FindConstructor()
+	if constructor == nil {
+		if len(arguments) != 0 || len(keywords) != 0 {
+			fail(node, "%s expects 0 arguments; it declares no constructor", class.Name)
+		}
+		return
+	}
+	eval.invoke(node, constructor.Function, arguments, keywords, &object.BoundMethod{Method: constructor, Receiver: instance})
+}
+
 func (eval *Evaluator) invoke(node ast.Node, function *object.Function, arguments []object.Value, keywords []keyword, bound *object.BoundMethod) object.Value {
 	declaration := function.Declaration
 	parameters := declaration.Parameters
-	if bound != nil {
-		parameters = parameters[1:]
-	}
 	fixed := len(parameters)
 	if len(arguments) > fixed && declaration.Variadic == "" {
 		fail(node, "%s expects %d arguments, got %d", declaration.Name, fixed, len(arguments))
@@ -147,7 +251,7 @@ func (eval *Evaluator) invoke(node ast.Node, function *object.Function, argument
 	if bound != nil {
 		scope.AccessClass = bound.Method.Owner
 		check(node, scope.Define("this", bound.Receiver, true))
-		check(node, scope.Define("super", &object.Super{Parent: bound.Method.Owner.Parent, Receiver: bound.Receiver}, true))
+		check(node, scope.Define("super", &object.Super{Parent: bound.Method.Owner.Parent, Receiver: bound.Receiver, Constructor: bound.Method.Constructor}, true))
 	}
 	assigned := make(map[string]bool, fixed)
 	for index, parameter := range parameters {
@@ -214,6 +318,10 @@ func (eval *Evaluator) initializeFields(instance *object.Instance, class *object
 		scope.AccessClass = class
 		check(field.Declaration, scope.Define("this", instance, true))
 		check(field.Declaration, scope.Define("super", &object.Super{Parent: class.Parent, Receiver: instance}, true))
-		instance.Fields[field.Declaration.Name] = eval.expression(field.Declaration.Value, scope)
+		var value object.Value = object.Null{}
+		if field.Declaration.Value != nil {
+			value = eval.expression(field.Declaration.Value, scope)
+		}
+		instance.Fields[field.Declaration.Name] = value
 	}
 }

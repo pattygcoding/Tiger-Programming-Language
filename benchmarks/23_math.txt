@@ -1,0 +1,38 @@
+Math
+ceil 3 2 -2 0 1
+floor 2 2 -3 -1 0
+round 0 2 2 -2 -2 2 8
+abs 12 12 0.25 7
+sqrt 0 1 12 0.5 1.5
+pow 1 256 -8 16 0.25 4 1000000
+min/max 4 9 -1.5 -1 0
+log 0 0.6931 2.3026 -0.6931
+log base 3 10 1.699
+sin 0 0.5 1 0 -1
+cos 1 0.5 0 -1
+tan 0 1 -1 1.5574
+identity true
+distance 5 5 10
+areas 3.14 12.57 314.16
+clamp [0, 0, 42, 100, 100]
+scores 64 91.25 78.95 79 78 79
+stddev 9.983
+interest 1000 1050 1628.89 332.75
+perfect squares [1, 4, 9, 16, 25, 36, 49]
+primes [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+halves [0, 2, 2, 4, 4, 0, -2]
+apply ceil -3
+apply floor -4
+apply round -4
+apply abs 3.5
+by abs [-1, 3, -4, 5, -7]
+caught <builtin math.sqrt> true
+caught <builtin math.log> true
+caught <builtin math.log> true
+pow zero true
+pow huge true
+string arg true
+arity true
+read only true
+shadow 42 7
+module <module math>

@@ -25,11 +25,11 @@ Run [the complete import example](../examples/imports.tg) with `tiger run exampl
 
 Each module has its own lexical environment and built-ins. It cannot see caller-local variables. Its top-level variables, constants, functions, classes, and imported aliases are automatically exported; built-ins and block-local names are not. There is no `export`, wildcard import, or named-import syntax.
 
-The import alias is a constant binding in its current scope. Module properties are read-only from outside: `math.PI = 4;` is an error, even for an exported `var`. Exported functions may update their own module state, and exported collections or instances remain mutable under their ordinary rules. Functions keep their defining environment, so imports inside an exported function remain relative to that function's module.
+The import alias is a constant binding in its current scope; an alias named like a built-in, such as `math` here, shadows the built-in [`math` module](math.md) in that scope. Module properties are read-only from outside: `math.PI = 4;` is an error, even for an exported `var`. Exported functions may update their own module state, and exported collections or instances remain mutable under their ordinary rules. Functions keep their defining environment, so imports inside an exported function remain relative to that function's module.
 
 Imports can appear in ordinary blocks or functions and execute when reached. Successful modules execute once per run, even when imported under different aliases; aliases then refer to the same module instance and live state. Each new execution has a fresh module cache. Circular imports are errors; failed imports are not cached and may be retried. Imports share the caller's execution-step budget and have a maximum nesting depth of 128. Missing files, syntax errors, and initialization failures are reported with source locations and may be caught by a surrounding `try`/`catch`, except uncatchable execution limits.
 
-Imported classes can be constructed with `math.SomeClass()`. To inherit from an imported class, first bind it to a local name (`const Base = module.Base;`), then use `class Child(Base) { ... }`.
+Imported classes can be constructed with `math.SomeClass()`. To inherit from an imported class, first bind it to a local name (`const Base = module.Base;`), then use `class Child extends Base { ... }`.
 
 ## Runtime Differences
 

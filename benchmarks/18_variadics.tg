@@ -91,10 +91,11 @@ function tag_names(**named) {
 }
 
 class Accumulator {
-    function init(this, start, *steps, **options) {
+    var total;
+    var history = [];
+    var label = "acc";
+    Accumulator(start, *steps, **options) {
         this.total = start;
-        this.history = [];
-        this.label = "acc";
         if "label" in options {
             this.label = options["label"];
         }
@@ -103,24 +104,25 @@ class Accumulator {
             this.history = this.history + [this.total];
         }
     }
-    function push(this, *values) {
+    function push(*values) {
         for value in values {
             this.total = this.total + value;
             this.history = this.history + [this.total];
         }
         return this.total;
     }
-    function describe(this) {
+    function describe() {
         return f"{this.label}:{this.total}:{len(this.history)}";
     }
 }
 
-class NamedAccumulator(Accumulator) {
-    function init(this, name, start, *steps, **options) {
-        super.init(start, *steps, **options);
+class NamedAccumulator extends Accumulator {
+    var name;
+    NamedAccumulator(name, start, *steps, **options) {
+        super(start, *steps, **options);
         this.name = name;
     }
-    function describe(this) {
+    function describe() {
         return this.name + " " + super.describe();
     }
 }

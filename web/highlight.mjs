@@ -1,13 +1,23 @@
-const keywords = new Set([
-  "const", "var", "function", "class", "super", "return", "if", "elif", "else",
+export const keywords = new Set([
+  "const", "var", "function", "class", "extends", "super", "return", "if", "elif", "else",
   "while", "for", "in", "and", "or", "not",
-  "cfor", "break", "continue", "switch", "case", "default",
+  "cfor", "cif", "celse", "break", "continue", "switch", "case", "default",
   "this", "public", "private", "protected", "try", "catch", "throw",
   "import", "as",
 ]);
-const literals = new Set(["true", "false", "null"]);
-const builtins = new Set(["print", "str", "len", "range", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file"]);
-const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|\+\+|--|\*\*|[=!<>+*%\-]=|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
+export const literals = new Set(["true", "false", "null"]);
+export const builtins = new Set(["print", "input", "str", "int", "float", "bool", "len", "range", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "math", "algo"]);
+export const moduleMembers = {
+  math: new Set(["ceil", "floor", "round", "sqrt", "abs", "pow", "log", "sin", "cos", "tan", "min", "max"]),
+  algo: new Set([
+    "fibonacci", "fibonacciList", "factorial", "factorialList", "removeDuplicates", "findMatches",
+    "takeInventory", "findPlace", "isPrime", "rainwater", "medianSorted", "mergeKSorted",
+    "editDistance", "regexMatch", "slidingWindowMax", "slidingWindowSumMax", "slidingWindowMinLen",
+    "slidingWindowLongestUnique", "slidingWindowMinSubstring", "palindromeValid", "palindromeCanBeValid",
+    "palindromeLongest", "palindromeCount", "palindromeMinCuts",
+  ]),
+};
+const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[^\r\n]|[^"\\\r\n])*\\?"?|'(?:\\[^\r\n]|[^'\\\r\n])*\\?'?|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]*)?|[\p{L}_][\p{L}\p{Nd}_]*|\+\+|--|\*\*|&&|\|\||[=!<>+*%\-]=|[=<>+*/%\-]|[()[\]{}:;,.]|\s+|[^]/gu;
 
 export function tokenize(source) {
   const result = [];
@@ -33,6 +43,13 @@ export function tokenize(source) {
     if (position > start) result.push({ text: source.slice(start, position), kind: "string" });
   }
 
+  // True for `math.sqrt` / `algo.isPrime`, allowing whitespace around the dot.
+  function isModuleMember(name) {
+    const previous = result.filter(({ text }, index) => index >= result.length - 4 && !/^\s+$/.test(text));
+    const [module, dot] = previous.slice(-2);
+    return dot?.text === "." && module?.kind === "builtin" && moduleMembers[module.text]?.has(name) === true;
+  }
+
   function consume(depth = 0) {
     if (depth < 512 && /^[fF]["']/.test(source.slice(position, position + 2))) {
       formatted(depth + 1);
@@ -52,8 +69,9 @@ export function tokenize(source) {
     else if (keywords.has(text)) kind = "keyword";
     else if (literals.has(text)) kind = "literal";
     else if (builtins.has(text)) kind = "builtin";
+    else if (isModuleMember(text)) kind = "builtin";
     else if (/^[\p{L}_]/u.test(text)) kind = "identifier";
-    else if (/^[=<>!+*/%\-]/.test(text)) kind = "operator";
+    else if (/^(?:[=<>!+*/%\-]|&&|\|\|)/.test(text)) kind = "operator";
     else if (/^[()[\]{}:;,.]/.test(text)) kind = "punctuation";
     result.push({ text, kind });
   }

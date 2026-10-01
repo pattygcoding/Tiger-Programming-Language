@@ -1,31 +1,36 @@
 // Base class definition
 class Animal {
-    function init(this, name, species) {
+    var name;
+    var species;
+
+    Animal(name, species) {
         this.name = name;
         this.species = species;
     }
 
-    function speak(this) {
+    function speak() {
         return this.name + " makes a generic sound.";
     }
 
-    function describe(this) {
+    function describe() {
         return this.name + " is a " + this.species + ".";
     }
 }
 
 // Derived class with inheritance
-class Dog(Animal) {
-    function init(this, name, breed) {
-        super.init(name, "Canine");
+class Dog extends Animal {
+    var breed;
+
+    Dog(name, breed) {
+        super(name, "Canine");
         this.breed = breed;
     }
 
-    function speak(this) {
+    function speak() {
         return this.name + " barks!";
     }
 
-    function fetch(this, item) {
+    function fetch(item) {
         return this.name + " fetches the " + item + ".";
     }
 }
