@@ -2,6 +2,7 @@ package parser
 
 import (
 	"strconv"
+	"strings"
 
 	"tiger/pkg/ast"
 	"tiger/pkg/format"
@@ -16,6 +17,7 @@ type parser struct {
 	functionDepth int
 	loopDepth     int
 	switchDepth   int
+	labels        []string
 	cStyle        int
 	depth         int
 }
@@ -90,6 +92,22 @@ func (parse *parser) enter() {
 	}
 }
 
+// labeledLoop reports whether the parser is at "name:" followed by a loop
+// keyword, which introduces a labeled loop.
+func (parse *parser) labeledLoop() bool {
+	if parse.pos+2 >= len(parse.tokens) {
+		return false
+	}
+	if parse.tokens[parse.pos].Kind != lexer.Ident || parse.tokens[parse.pos+1].Kind != ":" {
+		return false
+	}
+	switch parse.tokens[parse.pos+2].Kind {
+	case "for", "while", "cfor", "do":
+		return true
+	}
+	return false
+}
+
 func (parse *parser) statement() ast.Stmt {
 	base := ast.Base{Token: parse.current()}
 	switch {
@@ -105,26 +123,81 @@ func (parse *parser) statement() ast.Stmt {
 		return &ast.Throw{Base: base, Value: value}
 	case parse.match("try"):
 		statement := &ast.Try{Base: base, Body: parse.block()}
-		parse.expect("catch")
-		parse.expect("(")
-		statement.Name = parse.expect(lexer.Ident).Text
-		parse.expect(")")
-		statement.Catch = parse.block()
+		for parse.match("catch") {
+			clause := ast.Catch{}
+			parse.expect("(")
+			clause.Name = parse.expect(lexer.Ident).Text
+			parse.expect(")")
+			if parse.match("if") {
+				// The guard keyword is consumed here, so the condition may still
+				// contain a conditional expression.
+				clause.Condition = parse.expression(0)
+			}
+			clause.Body = parse.block()
+			statement.Catches = append(statement.Catches, clause)
+		}
+		// "finally" is contextual: it is only special directly after a try or
+		// catch block, so it stays usable as an ordinary identifier elsewhere.
+		// An empty block is still a written finally, so track it separately.
+		hasFinally := false
+		if parse.at(lexer.Ident) && parse.current().Text == "finally" {
+			parse.take()
+			statement.Finally = parse.block()
+			hasFinally = true
+		}
+		if len(statement.Catches) == 0 && !hasFinally {
+			panic(syntaxError{parse.current().Errorf("a try statement needs a catch or finally block")})
+		}
+		return statement
+	case parse.labeledLoop():
+		label := parse.take()
+		parse.expect(":")
+		parse.labels = append(parse.labels, label.Text)
+		statement := parse.statementTail(ast.Base{Token: parse.current()})
+		parse.labels = parse.labels[:len(parse.labels)-1]
+		switch loop := statement.(type) {
+		case *ast.While:
+			loop.Label = label.Text
+		case *ast.For:
+			loop.Label = label.Text
+		case *ast.CFor:
+			loop.Label = label.Text
+		case *ast.DoWhile:
+			loop.Label = label.Text
+		default:
+			panic(syntaxError{label.Errorf("a label must name a loop")})
+		}
 		return statement
 	case parse.match("class"):
 		return parse.class(base)
 	case parse.match("function"):
-		name := parse.expect(lexer.Ident).Text
-		return parse.function(base, name)
+		if parse.at(lexer.Ident) {
+			name := parse.expect(lexer.Ident).Text
+			return parse.function(base, name)
+		}
+		// An anonymous function expression used as a statement, e.g. "function(x) { };".
+		value := parse.signature(base, false)
+		parse.expect(";")
+		return &ast.ExpressionStmt{Base: base, Value: value}
 	default:
 		return parse.statementTail(base)
 	}
 }
 
 func (parse *parser) function(base ast.Base, name string) *ast.Function {
+	declaration := parse.signature(base, true)
+	declaration.Name = name
+	return declaration
+}
+
+// signature parses "(parameters) { body }" for a named or anonymous function.
+// terminator controls whether the body may swallow a trailing ";".
+func (parse *parser) signature(base ast.Base, terminator bool) *ast.Function {
 	parse.expect("(")
 	parameters := []string{}
+	defaults := []ast.Expr{}
 	variadic, keyword := "", ""
+	defaulted := false
 	seen := map[string]bool{}
 	if !parse.at(")") {
 		for {
@@ -170,7 +243,15 @@ func (parse *parser) function(base ast.Base, name string) *ast.Function {
 					panic(syntaxError{parameter.Errorf("duplicate parameter %q", parameter.Text)})
 				}
 				seen[parameter.Text] = true
+				var fallback ast.Expr
+				if parse.match("=") {
+					fallback = parse.expression(0)
+					defaulted = true
+				} else if defaulted {
+					panic(syntaxError{parameter.Errorf("a required parameter cannot follow a defaulted parameter")})
+				}
 				parameters = append(parameters, parameter.Text)
+				defaults = append(defaults, fallback)
 			}
 			if !parse.match(",") || parse.at(")") {
 				break
@@ -179,12 +260,12 @@ func (parse *parser) function(base ast.Base, name string) *ast.Function {
 	}
 	parse.expect(")")
 	parse.functionDepth++
-	loopDepth, switchDepth := parse.loopDepth, parse.switchDepth
-	parse.loopDepth, parse.switchDepth = 0, 0
-	body := parse.block()
-	parse.loopDepth, parse.switchDepth = loopDepth, switchDepth
+	loopDepth, switchDepth, labels := parse.loopDepth, parse.switchDepth, parse.labels
+	parse.loopDepth, parse.switchDepth, parse.labels = 0, 0, nil
+	body := parse.blockBody(terminator)
+	parse.loopDepth, parse.switchDepth, parse.labels = loopDepth, switchDepth, labels
 	parse.functionDepth--
-	return &ast.Function{Base: base, Name: name, Parameters: parameters, Variadic: variadic, Keyword: keyword, Body: body}
+	return &ast.Function{Base: base, Parameters: parameters, Defaults: defaults, Variadic: variadic, Keyword: keyword, Body: body}
 }
 
 func (parse *parser) statementTail(base ast.Base) ast.Stmt {
@@ -196,6 +277,14 @@ func (parse *parser) statementTail(base ast.Base) ast.Stmt {
 		var value ast.Expr
 		if !parse.at(";") {
 			value = parse.expression(0)
+			if parse.at(",") {
+				// "return a, b;" returns the list [a, b].
+				elements := []ast.Expr{value}
+				for parse.match(",") {
+					elements = append(elements, parse.expression(0))
+				}
+				value = &ast.List{Base: base, Elements: elements}
+			}
 		}
 		parse.expect(";")
 		return &ast.Return{Base: base, Value: value}
@@ -219,6 +308,15 @@ func (parse *parser) statementTail(base ast.Base) ast.Stmt {
 		condition := parse.expression(0)
 		body, otherwise := parse.loopBody()
 		return &ast.While{Base: base, Condition: condition, Body: body, Else: otherwise}
+	case parse.match("do"):
+		loop := &ast.DoWhile{Base: base}
+		parse.loopDepth++
+		loop.Body = parse.block()
+		parse.loopDepth--
+		parse.expect("while")
+		loop.Condition = parse.expression(0)
+		parse.expect(";")
+		return loop
 	case parse.match("for"):
 		name := parse.expect(lexer.Ident).Text
 		parse.expect("in")
@@ -270,11 +368,18 @@ func (parse *parser) statementTail(base ast.Base) ast.Stmt {
 		return conditional
 	case parse.at("break") || parse.at("continue"):
 		kind := parse.take().Text
-		if parse.loopDepth == 0 && (kind == "continue" || parse.switchDepth == 0) {
+		label := ""
+		if parse.at(lexer.Ident) {
+			name := parse.take()
+			if !parse.hasLabel(name.Text) {
+				panic(syntaxError{name.Errorf("unknown label %q", name.Text)})
+			}
+			label = name.Text
+		} else if parse.loopDepth == 0 && (kind == "continue" || parse.switchDepth == 0) {
 			panic(syntaxError{base.Token.Errorf("%s outside a loop%s", string(kind), map[bool]string{true: " or switch"}[kind == "break"])})
 		}
 		parse.expect(";")
-		return &ast.Control{Base: base, Kind: kind}
+		return &ast.Control{Base: base, Kind: kind, Label: label}
 	case parse.match("switch"):
 		parse.enter()
 		defer func() { parse.depth-- }()
@@ -314,6 +419,9 @@ func (parse *parser) simpleStatement() ast.Stmt {
 	base := ast.Base{Token: parse.current()}
 	if parse.at("const") || parse.at("var") {
 		constant := parse.take().Kind == "const"
+		if parse.at("[") || parse.at("{") {
+			return parse.destructure(base, constant)
+		}
 		name := parse.expect(lexer.Ident)
 		parse.expect("=")
 		return &ast.Assign{Base: base, Target: &ast.Identifier{Base: ast.Base{Token: name}, Name: name.Text}, Value: parse.expression(0), Constant: constant, Declaration: true}
@@ -327,12 +435,51 @@ func (parse *parser) simpleStatement() ast.Stmt {
 	return &ast.ExpressionStmt{Base: base, Value: value}
 }
 
+// destructure parses "[a, b] = value" or "{name, age} = value".
+func (parse *parser) destructure(base ast.Base, constant bool) ast.Stmt {
+	lookup := parse.at("{")
+	closer := lexer.Kind("]")
+	if lookup {
+		closer = lexer.Kind("}")
+	}
+	parse.take()
+	names := []string{}
+	seen := map[string]bool{}
+	if !parse.at(closer) {
+		for {
+			name := parse.expect(lexer.Ident)
+			if seen[name.Text] {
+				panic(syntaxError{name.Errorf("duplicate destructuring target %q", name.Text)})
+			}
+			seen[name.Text] = true
+			names = append(names, name.Text)
+			if !parse.match(",") || parse.at(closer) {
+				break
+			}
+		}
+	}
+	parse.expect(closer)
+	parse.expect("=")
+	value := parse.expression(0)
+	return &ast.Destructure{Base: base, Names: names, Constant: constant, Value: value, Lookup: lookup}
+}
+
 func (parse *parser) assignmentTarget(value ast.Expr) {
 	switch value.(type) {
 	case *ast.Identifier, *ast.Index, *ast.Property:
 	default:
 		panic(syntaxError{value.Position().Errorf("invalid assignment target")})
 	}
+}
+
+// hasLabel reports whether an enclosing labeled loop is currently in scope.
+func (parse *parser) hasLabel(name string) bool {
+	for _, label := range parse.labels {
+		if label == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (parse *parser) loopBody() ([]ast.Stmt, []ast.Stmt) {
@@ -415,6 +562,13 @@ func (parse *parser) class(base ast.Base) ast.Stmt {
 }
 
 func (parse *parser) block() []ast.Stmt {
+	return parse.blockBody(true)
+}
+
+// blockBody parses "{ statements }". A statement-level block swallows one
+// optional trailing ";", but an anonymous function body must leave it for the
+// enclosing statement.
+func (parse *parser) blockBody(terminator bool) []ast.Stmt {
 	parse.enter()
 	defer func() { parse.depth-- }()
 	parse.expect("{")
@@ -423,7 +577,9 @@ func (parse *parser) block() []ast.Stmt {
 		statements = append(statements, parse.statement())
 	}
 	parse.expect("}")
-	parse.match(";")
+	if terminator {
+		parse.match(";")
+	}
 	return statements
 }
 
@@ -431,18 +587,30 @@ func precedence(kind lexer.Kind) int {
 	switch kind {
 	case "or", "||":
 		return 1
+	case "if":
+		return 1
 	case "and", "&&":
 		return 2
 	case "==", "!=", "<", "<=", ">", ">=", "in":
 		return 3
-	case "+", "-":
+	case "|":
 		return 4
-	case "*", "/", "%":
+	case "^":
 		return 5
-	case "(", "[", ".":
+	case "&":
+		return 6
+	case "<<", ">>":
 		return 7
-	case "++", "--":
+	case "+", "-":
 		return 8
+	case "*", "/", "%", "div":
+		return 9
+	case "**":
+		return 11
+	case "(", "[", ".":
+		return 12
+	case "++", "--":
+		return 13
 	}
 	return 0
 }
@@ -464,17 +632,21 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		for _, part := range token.Parts {
 			if part.Kind == lexer.String {
 				formatted.Parts = append(formatted.Parts, &ast.Literal{Base: ast.Base{Token: part}, Value: part.Text})
-			} else {
-				nested := parser{tokens: part.Parts, depth: parse.depth}
-				formatted.Parts = append(formatted.Parts, nested.expression(0))
-				nested.expect(lexer.EOF)
+				continue
 			}
+			expression, spec := splitFormatSpec(part.Parts)
+			nested := parser{tokens: expression, depth: parse.depth}
+			value := nested.expression(0)
+			nested.expect(lexer.EOF)
+			formatted.Parts = append(formatted.Parts, &ast.Interpolation{Base: ast.Base{Token: part}, Value: value, Spec: spec})
 		}
 		left = formatted
 	case "true", "false":
 		left = &ast.Literal{Base: base, Value: token.Kind == "true"}
 	case "null":
 		left = &ast.Literal{Base: base}
+	case "function":
+		left = parse.signature(base, false)
 	case lexer.Ident, "this":
 		left = &ast.Identifier{Base: base, Name: token.Text}
 	case "super":
@@ -485,14 +657,14 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		parse.expect(".")
 		member := parse.expect(lexer.Ident)
 		left = &ast.Property{Base: ast.Base{Token: member}, Receiver: &ast.Super{Base: base}, Name: member.Text}
-	case "-", "+", "not":
-		binding := 6
+	case "-", "+", "~", "not":
+		binding := 10
 		if token.Kind == "not" {
 			binding = 2
 		}
 		left = &ast.Unary{Base: base, Operator: token.Text, Right: parse.expression(binding)}
 	case "++", "--":
-		target := parse.expression(6)
+		target := parse.expression(11)
 		parse.assignmentTarget(target)
 		left = &ast.Update{Base: base, Target: target, Operator: token.Text, Prefix: true}
 	case "(":
@@ -535,8 +707,12 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		case "(":
 			left = parse.call(base, left)
 		case "[":
-			left = &ast.Index{Base: base, Collection: left, Key: parse.expression(0)}
-			parse.expect("]")
+			left = parse.indexOrSlice(base, left)
+		case "if":
+			// Python-style conditional expression: "value if condition else fallback".
+			condition := parse.expression(0)
+			parse.expect("else")
+			left = &ast.Conditional{Base: base, Condition: condition, Then: left, Else: parse.expression(0)}
 		default:
 			text := operator.Text
 			if text == "&&" || text == "||" {
@@ -545,10 +721,62 @@ func (parse *parser) expression(minimum int) ast.Expr {
 				}
 				text = map[string]string{"&&": "and", "||": "or"}[text]
 			}
-			left = &ast.Binary{Base: base, Left: left, Operator: text, Right: parse.expression(precedence(operator.Kind))}
+			binding := precedence(operator.Kind)
+			if text == "**" {
+				binding--
+			}
+			left = &ast.Binary{Base: base, Left: left, Operator: text, Right: parse.expression(binding)}
 		}
 	}
 	return left
+}
+
+// splitFormatSpec separates the expression tokens of an f-string field from a
+// trailing ":spec" that sits at bracket depth zero.
+func splitFormatSpec(tokens []lexer.Token) ([]lexer.Token, string) {
+	depth := 0
+	for index, token := range tokens {
+		switch token.Kind {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+		case ":":
+			if depth != 0 {
+				continue
+			}
+			var spec strings.Builder
+			for _, piece := range tokens[index+1:] {
+				spec.WriteString(piece.Text)
+			}
+			expression := append([]lexer.Token{}, tokens[:index]...)
+			expression = append(expression, lexer.Token{Kind: lexer.EOF, Line: token.Line, Column: token.Column})
+			return expression, spec.String()
+		}
+	}
+	return tokens, ""
+}
+
+// indexOrSlice parses "collection[key]" or "collection[start:stop:step]".
+func (parse *parser) indexOrSlice(base ast.Base, collection ast.Expr) ast.Expr {
+	var start ast.Expr
+	if !parse.at(":") && !parse.at("]") {
+		start = parse.expression(0)
+	}
+	if !parse.at(":") {
+		parse.expect("]")
+		return &ast.Index{Base: base, Collection: collection, Key: start}
+	}
+	parse.expect(":")
+	slice := &ast.Slice{Base: base, Collection: collection, Start: start}
+	if !parse.at(":") && !parse.at("]") {
+		slice.Stop = parse.expression(0)
+	}
+	if parse.match(":") && !parse.at("]") {
+		slice.Step = parse.expression(0)
+	}
+	parse.expect("]")
+	return slice
 }
 
 func (parse *parser) call(base ast.Base, function ast.Expr) ast.Expr {

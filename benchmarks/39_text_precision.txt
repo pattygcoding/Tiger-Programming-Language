@@ -1,0 +1,56 @@
+== format specifications ==
+3.50
+[    3.50] [3.50    ] [  3.50  ]
+00042 -007    255
+[  cow  ] [    cow] [cow    ]
+0.3333 2 1000000.0
+== a report ==
+widget    12    1.50
+gadget     3   19.99
+total          77.97
+== escapes ==
+Aé中 AB 😀
+1 1
+== raw strings ==
+\d+ \n\t 3
+["1", "22", "333"]
+a-b-c
+== grapheme clusters ==
+3 3
+2 1
+2 1
+2 1
+5 1
+== more format specs ==
+[   0][0   ][ 0  ]
+[   1][1   ][ 1  ]
+[  12][12  ][ 12 ]
+[ 123][123 ][123 ]
+0.5 -0.5 1234.57
+[   1000000] [  -1000000]
+[  a][   ][  true][ null ]
+[longer text         ]
+== escape round trip ==
+!é中😀 4
+["!é中😀"]
+cd
+== grapheme scan ==
+6 4
+1
+1
+2
+2
+[]
+== padding edge cases ==
+[5][]
+[  .  ][-1.0 ]
+== mixed widths ==
+[    a]
+[   bb]
+[  ccc]
+== errors ==
+true
+true
+true
+true
+done

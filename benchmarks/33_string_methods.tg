@@ -1,0 +1,130 @@
+// 33_string_methods.tg - string methods and list.join regression workload.
+//
+// Exercises split (with and without a separator), join, upper, lower, trim,
+// replace, startswith, endswith, find, padStart, and padEnd, plus method
+// chaining, stored method values, Unicode code-point indexes and widths, a
+// word-wrapping helper built from split and join, and every argument,
+// separator, fill, and width error path handled with try/catch.
+
+print("== case and trim ==");
+print("Tiger".upper(), "Tiger".lower());
+print("  spaced  ".trim(), "|", "  spaced  ".trim().size());
+print("MiXeD".upper().lower(), "MiXeD".lower().upper());
+
+print("== split ==");
+print("a,b,c".split(","));
+print("one two\tthree\nfour".split());
+print("a,,b,".split(","));
+print("".split(","), "   ".split());
+print("x".split(), "x".split("x"));
+
+print("== join ==");
+print(["a", "b", "c"].join("-"));
+print([].join(",").size(), ["solo"].join(""));
+print("a,b,c".split(",").join(" | "));
+print(["1", "2", "3"].join(""));
+
+print("== replace ==");
+print("banana".replace("na", "NA"));
+print("banana".replace("na", ""), "banana".replace("x", "y"));
+print("aaa".replace("a", "aa").size());
+
+print("== affixes ==");
+print("Tiger".startswith("Ti"), "Tiger".startswith("ti"));
+print("Tiger".endswith("er"), "Tiger".endswith("Er"));
+print("".startswith(""), "".endswith(""));
+
+print("== find ==");
+print("banana".find("na"), "banana".find("z"));
+print("banana".find(""), "banana".find("banana"));
+print("café".find("é"), "café".find("caf"), "café".size());
+
+print("== padding ==");
+print("7".padStart(3, "0"), "42".padStart(5, "0"));
+print("ab".padEnd(5, "."), "ab".padStart(5));
+print("hello".padStart(3, "*"), "hello".padEnd(3, "*"));
+print("é".padStart(3, "."), "é".padEnd(3, "."));
+
+print("== stored methods and chaining ==");
+const shout = "tiger".upper;
+print(shout(), shout());
+const join_with = ["x", "y"].join;
+print(join_with("-"));
+print("  A,B,C  ".trim().lower().split(",").join("+"));
+
+print("== table building ==");
+const records = ["ada:36:engineer", "alan:41:mathematician", "grace:45:admiral"];
+var names = [];
+for record in records {
+    const fields = record.split(":");
+    names += [fields[0]];
+    print(fields[0].padEnd(6), fields[1].padStart(3), fields[2]);
+}
+print(names.join(", "));
+
+print("== wrapping words ==");
+function wrap(text, width) {
+    var lines = [];
+    var current = "";
+    for word in text.split() {
+        if current == "" {
+            current = word;
+        } elif current.size() + 1 + word.size() <= width {
+            current = current + " " + word;
+        } else {
+            lines += [current];
+            current = word;
+        }
+    }
+    if current != "" {
+        lines += [current];
+    }
+    return lines;
+}
+for line in wrap("the quick brown fox jumps over the lazy dog", 12) {
+    print(line);
+}
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function split_empty() {
+    return "abc".split("");
+}
+function split_argc() {
+    return "abc".split(",", "-");
+}
+function split_type() {
+    return "abc".split(1);
+}
+function replace_argc() {
+    return "abc".replace("a");
+}
+function pad_width() {
+    return "abc".padStart("3");
+}
+function pad_negative() {
+    return "abc".padEnd(-1);
+}
+function pad_fill() {
+    return "abc".padStart(4, "xy");
+}
+function join_element() {
+    return ["a", 2].join(",");
+}
+function join_separator() {
+    return ["a"].join(2);
+}
+print("empty separator" in fails(split_empty), "at most 1 argument" in fails(split_argc));
+print("separator must be a string" in fails(split_type), "expects 2 arguments" in fails(replace_argc));
+print("width must be an integer" in fails(pad_width), "must not be negative" in fails(pad_negative));
+print("fill must be a single character" in fails(pad_fill));
+print("list of strings" in fails(join_element), "separator must be a string" in fails(join_separator));
+
+print("done");

@@ -217,7 +217,7 @@ func TestFormattedStrings(t *testing.T) {
 			t.Errorf("%s: got %q, %v; want %q", test.source, output.String(), err, test.want)
 		}
 	}
-	for _, source := range []string{`print(f"{}");`, `print(f"}");`, `print(f"{1");`, `print(f"unterminated);`, `print(f"{1; 2}");`, `print(f"{1:.2f}");`, `print(f"{1!r}");`} {
+	for _, source := range []string{`print(f"{}");`, `print(f"}");`, `print(f"{1");`, `print(f"unterminated);`, `print(f"{1; 2}");`, `print(f"{1!r}");`} {
 		if err := Run(source, nil); err == nil {
 			t.Errorf("expected error: %s", source)
 		}

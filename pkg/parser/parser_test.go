@@ -47,6 +47,61 @@ func TestInvalidSyntax(t *testing.T) {
 	}
 }
 
+func TestSyntaxGaps(t *testing.T) {
+	program, err := Parse(`const pick = "a" if flag else "b";
+outer: for item in [1, 2] {
+    if item == 1 { continue outer; }
+    break outer;
+}
+do { print(1); } while (false);
+const window = [1, 2, 3][0:2];`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditional, ok := program.Statements[0].(*ast.Assign).Value.(*ast.Conditional)
+	if !ok || conditional.Then == nil || conditional.Condition == nil || conditional.Else == nil {
+		t.Fatalf("conditional expression did not parse: %#v", program.Statements[0])
+	}
+	loop, ok := program.Statements[1].(*ast.For)
+	if !ok || loop.Label != "outer" {
+		t.Fatalf("labeled loop did not parse: %#v", program.Statements[1])
+	}
+	branch := loop.Body[0].(*ast.If).Branches[0].Body[0].(*ast.Control)
+	if branch.Kind != "continue" || branch.Label != "outer" {
+		t.Fatalf("labeled continue did not parse: %#v", branch)
+	}
+	exit := loop.Body[1].(*ast.Control)
+	if exit.Kind != "break" || exit.Label != "outer" {
+		t.Fatalf("labeled break did not parse: %#v", exit)
+	}
+	if _, ok := program.Statements[2].(*ast.DoWhile); !ok {
+		t.Fatalf("do...while did not parse: %#v", program.Statements[2])
+	}
+	slice, ok := program.Statements[3].(*ast.Assign).Value.(*ast.Slice)
+	if !ok || slice.Start == nil || slice.Stop == nil || slice.Step != nil {
+		t.Fatalf("slice did not parse: %#v", program.Statements[3])
+	}
+}
+
+func TestSyntaxGapErrors(t *testing.T) {
+	for _, source := range []string{
+		"print(1 if true);",
+		"print(1 if true else);",
+		"break missing;",
+		"outer: for item in [1] { continue missing; }",
+		"outer: while true { function inner() { break outer; } }",
+		"do { print(1); } while;",
+		"do { print(1); } while true",
+		"for item in [1] { continue 5; }",
+	} {
+		t.Run(source, func(t *testing.T) {
+			if _, err := Parse(source); err == nil {
+				t.Fatal("expected syntax error")
+			}
+		})
+	}
+}
+
 func TestNestingLimit(t *testing.T) {
 	if _, err := Parse(strings.Repeat("(", 600) + "1" + strings.Repeat(")", 600) + ";"); err == nil {
 		t.Fatal("expected nesting error")
@@ -120,7 +175,6 @@ func TestVariadicAndSpreadSyntax(t *testing.T) {
 		`class Item { function method(this, *rest) {} }`,
 		`collect(*numbers, key="value", 2);`,
 		`collect(key="value", *numbers);`,
-		`value = 1 ** 2;`,
 	} {
 		if _, err := Parse(source); err == nil {
 			t.Errorf("expected syntax error: %s", source)
@@ -195,5 +249,115 @@ func TestCStyleConditions(t *testing.T) {
 		if _, err := Parse(source); err == nil || !strings.Contains(err.Error(), message) {
 			t.Errorf("%s: expected %q, got %v", source, message, err)
 		}
+	}
+}
+
+func TestPowerAndBitwisePrecedence(t *testing.T) {
+	value := func(source string) ast.Expr {
+		program, err := Parse(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return program.Statements[0].(*ast.Assign).Value
+	}
+
+	power := value("const power = 2 ** 3 ** 2;").(*ast.Binary)
+	if power.Operator != "**" || power.Right.(*ast.Binary).Operator != "**" {
+		t.Fatalf("** must be right-associative: %#v", power)
+	}
+
+	unary := value("const unary = -2 ** 2;").(*ast.Unary)
+	if unary.Operator != "-" || unary.Right.(*ast.Binary).Operator != "**" {
+		t.Fatalf("unary minus must bind looser than **: %#v", unary)
+	}
+
+	or := value("const bits = 1 | 2 & 3;").(*ast.Binary)
+	if or.Operator != "|" || or.Right.(*ast.Binary).Operator != "&" {
+		t.Fatalf("& must bind tighter than |: %#v", or)
+	}
+
+	shift := value("const shift = 1 + 2 << 3;").(*ast.Binary)
+	if shift.Operator != "<<" || shift.Left.(*ast.Binary).Operator != "+" {
+		t.Fatalf("+ must bind tighter than <<: %#v", shift)
+	}
+
+	comparison := value("const compare = 1 | 2 == 3;").(*ast.Binary)
+	if comparison.Operator != "==" || comparison.Left.(*ast.Binary).Operator != "|" {
+		t.Fatalf("| must bind tighter than ==: %#v", comparison)
+	}
+
+	floor := value("const floor = 6 div 3 * 2;").(*ast.Binary)
+	if floor.Operator != "*" || floor.Left.(*ast.Binary).Operator != "div" {
+		t.Fatalf("div must be left-associative with *: %#v", floor)
+	}
+}
+
+func TestFunctionErgonomicsParsing(t *testing.T) {
+	named, err := Parse(`function f(a, b = 2) { return a; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := named.Statements[0].(*ast.Function)
+	if len(declaration.Parameters) != 2 || declaration.Defaults[0] != nil || declaration.Defaults[1] == nil {
+		t.Fatalf("unexpected defaults: %#v", declaration.Defaults)
+	}
+
+	anonymous, err := Parse(`const f = function(x) { return x; };`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := anonymous.Statements[0].(*ast.Assign).Value.(*ast.Function); value.Name != "" {
+		t.Fatalf("anonymous function has a name: %#v", value)
+	}
+
+	multiple, err := Parse(`function f() { return 1, 2; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := multiple.Statements[0].(*ast.Function).Body[0].(*ast.Return).Value.(*ast.List)
+	if len(body.Elements) != 2 {
+		t.Fatalf("expected a two-element list return: %#v", body)
+	}
+
+	destructured, err := Parse(`const [a, b] = pair();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement := destructured.Statements[0].(*ast.Destructure)
+	if statement.Lookup || len(statement.Names) != 2 || !statement.Constant {
+		t.Fatalf("unexpected destructure: %#v", statement)
+	}
+
+	record, err := Parse(`var {x, y} = record;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lookup := record.Statements[0].(*ast.Destructure); !lookup.Lookup || lookup.Constant {
+		t.Fatalf("unexpected dictionary destructure: %#v", lookup)
+	}
+
+	if _, err := Parse(`function bad(a = 1, b) { return a; }`); err == nil {
+		t.Fatal("expected an error for a required parameter after a defaulted one")
+	}
+}
+
+func TestTryCatchesAndFinally(t *testing.T) {
+	program, err := Parse(`try { print(1); } catch (error) if isinstance(error, "error") { print(2); } finally { print(3); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement := program.Statements[0].(*ast.Try)
+	if len(statement.Catches) != 1 || statement.Catches[0].Condition == nil || len(statement.Finally) == 0 {
+		t.Fatalf("unexpected try: %#v", statement)
+	}
+	if _, err := Parse(`try { } finally { }`); err != nil {
+		t.Fatalf("try/finally must parse: %v", err)
+	}
+	if _, err := Parse(`try { }`); err == nil {
+		t.Fatal("expected an error for a try without catch or finally")
+	}
+	chained, err := Parse(`try { } catch (error) if error["kind"] == "x" { } catch (other) { }`)
+	if err != nil || len(chained.Statements[0].(*ast.Try).Catches) != 2 {
+		t.Fatalf("expected two catch clauses: %v", err)
 	}
 }

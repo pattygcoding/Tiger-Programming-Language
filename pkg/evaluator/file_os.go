@@ -48,3 +48,21 @@ func (OSFileSystem) Exists(name string) (bool, error) {
 	}
 	return !info.IsDir(), nil
 }
+
+// List returns the immediate entries under name. os.ReadDir sorts by filename,
+// so the result is deterministic. Directories are marked with a trailing "/".
+func (OSFileSystem) List(name string) ([]string, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		child := entry.Name()
+		if entry.IsDir() {
+			child += "/"
+		}
+		names = append(names, child)
+	}
+	return names, nil
+}

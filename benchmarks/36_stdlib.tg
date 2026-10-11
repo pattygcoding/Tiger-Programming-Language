@@ -1,0 +1,100 @@
+// 36_stdlib.tg - regression workload for the standard library modules.
+//
+// Covers the random PRNG (seed, int, uniform, random, choice, shuffle), JSON
+// parse and stringify (objects, arrays, scalars, escapes, unicode), the native
+// time module (iso, parts), the RE2 regex helpers, and list_dir over the
+// in-memory filesystem, with every error path handled by try/catch.
+
+print("== random ==");
+random.seed(2024);
+var reproducible_a = [random.int(0, 999999), random.int(0, 999999)];
+random.seed(2024);
+var reproducible_b = [random.int(0, 999999), random.int(0, 999999)];
+print("reproducible", reproducible_a == reproducible_b);
+var in_range = true;
+random.seed(99);
+for index in range(0, 50) {
+    const value = random.int(-5, 5);
+    if value < -5 or value > 5 { in_range = false; }
+}
+print("int range", in_range);
+print("singleton", random.int(7, 7), random.choice(["only"]));
+var cards = [1, 2, 3, 4, 5, 6, 7, 8];
+random.shuffle(cards);
+var sorted_cards = cards + [];
+sorted_cards.sort();
+print("shuffle", sorted_cards);
+var fraction_ok = true;
+random.seed(7);
+for index in range(0, 50) {
+    const value = random.random();
+    if value < 0 or value >= 1 { fraction_ok = false; }
+}
+print("fraction range", fraction_ok);
+
+print("== json ==");
+const config = json.parse("{\"name\": \"tiger\", \"ports\": [80, 443], \"on\": true, \"note\": null}");
+print(config["name"], config["ports"], config["on"], config["note"]);
+print(json.stringify(config));
+print(json.stringify(json.parse("[1, 2.5, -3, 1e3, 0.125]")));
+print(json.stringify({"nested": {"list": [true, false, null]}}));
+print(json.stringify("quote \" slash \\ tab\t"));
+print(json.parse("\"\\u0041\\u00e9\\u4e2d\""));
+const scores = json.parse("{\"ada\": 36, \"alan\": 41}");
+var total = 0;
+for name in scores.keys() { total = total + scores[name]; }
+print("sum", total, json.stringify(scores));
+
+print("== time ==");
+print(time.iso(0), time.iso(946684800), time.iso(1600000000));
+const moment = time.parts(1600000000);
+print(moment["year"], moment["month"], moment["day"], moment["hour"], moment["minute"], moment["second"], moment["weekday"], moment["yearday"]);
+print(time.now() > 0, time.now_ms() > 0);
+
+print("== regex ==");
+print(regex.match("^[a-z]+[0-9]+$", "abc12"), regex.match("z+", "abc"));
+print(regex.find("[0-9]+", "order 42 of 7"), regex.find("[0-9]+", "none"));
+print(regex.findAll("[0-9]+", "1 22 333"));
+print(regex.groups("([a-z]+)@([a-z]+)\\.[a-z]+", "user@host.com"));
+print(regex.replace("[0-9]+", "a1b22c", "#"));
+print(regex.split("[,;]", "a,b;c"));
+
+print("== list_dir ==");
+write_file("app/main.tg", "print(1);");
+write_file("app/lib.tg", "print(2);");
+write_file("README.md", "docs");
+print(list_dir("app"));
+print(list_dir("."));
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function bad_int() {
+    return random.int(5, 1);
+}
+function bad_choice() {
+    return random.choice([]);
+}
+function bad_json() {
+    return json.parse("{oops}");
+}
+function bad_stringify() {
+    return json.stringify({1: "x"});
+}
+function bad_regex() {
+    return regex.match("[", "x");
+}
+function missing_dir() {
+    return list_dir("nope");
+}
+print("low <= high" in fails(bad_int), "empty list" in fails(bad_choice));
+print("json.parse" in fails(bad_json), "requires string keys" in fails(bad_stringify));
+print("invalid pattern" in fails(bad_regex), "file does not exist" in fails(missing_dir));
+
+print("done");

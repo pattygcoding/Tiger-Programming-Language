@@ -1,0 +1,102 @@
+// 39_text_precision.tg - formatting and text-precision features.
+//
+// Exercises f-string format specifications (precision, width, alignment, zero
+// padding, a small report), \x/\u/\U escapes, raw strings used for regex
+// patterns, and graphemes for combining marks, emoji modifiers, flags, and ZWJ
+// sequences, plus the error paths handled with try/catch.
+
+print("== format specifications ==");
+const price = 3.5;
+print(f"{price:.2f}");
+print(f"[{price:>8.2f}]", f"[{price:<8.2f}]", f"[{price:^8.2f}]");
+print(f"{42:05}", f"{-7:04}", f"{255:>6}");
+print(f"[{'cow':^7}]", f"[{'cow':>7}]", f"[{'cow':7}]");
+print(f"{1 / 3:.4f}", f"{2:.0f}", f"{1e6:.1f}");
+
+print("== a report ==");
+const rows = [["widget", 12, 1.5], ["gadget", 3, 19.99]];
+for row in rows {
+    print(f"{row[0]:<8}{row[1]:>4}{row[2]:>8.2f}");
+}
+var total = 0.0;
+for row in rows {
+    total = total + row[1] * row[2];
+}
+print(f"{'total':<8}{'':>4}{total:>8.2f}");
+
+print("== escapes ==");
+print("\u0041\u00e9\u4e2d", "\x41\x42", "\U0001F600");
+print(len("\u0041"), len("\U0001F600"));
+
+print("== raw strings ==");
+print(r"\d+", r"\n\t", len(r"\d+"));
+print(regex.findAll(r"\d+", "1 22 333"));
+print(regex.replace(r"\s+", "a b  c", "-"));
+
+print("== grapheme clusters ==");
+print(len("abc"), len(graphemes("abc")));
+print(len("\U0001F1FA\U0001F1F8"), len(graphemes("\U0001F1FA\U0001F1F8")));
+print(len("e\u0301"), len(graphemes("e\u0301")));
+print(len("\U0001F44D\U0001F3FB"), len(graphemes("\U0001F44D\U0001F3FB")));
+print(len("\U0001F468\u200D\U0001F469\u200D\U0001F467"), len(graphemes("\U0001F468\u200D\U0001F469\u200D\U0001F467")));
+
+print("== more format specs ==");
+for value in [0, 1, 12, 123] {
+    print(f"[{value:>4}][{value:<4}][{value:^4}]");
+}
+print(f"{0.5:.1f}", f"{-0.5:.1f}", f"{1234.5678:.2f}");
+print(f"[{1000000:>10}]", f"[{-1000000:>10.0f}]");
+print(f"[{'a':>3}][{'':>3}][{true:>6}][{null:^6}]");
+print(f"[{'longer text':<20}]");
+
+print("== escape round trip ==");
+const symbols = "\x21\u00e9\u4e2d\U0001F600";
+print(symbols, len(symbols));
+print([symbols] + []);
+print(regex.find(r"[a-z]+", "AB cd EF"));
+
+print("== grapheme scan ==");
+const scanned = "abc\u0301\U0001F1FA\U0001F1F8";
+const clusters = graphemes(scanned);
+print(len(scanned), len(clusters));
+for cluster in clusters {
+    print(len(cluster));
+}
+print(graphemes(""));
+
+print("== padding edge cases ==");
+print(f"[{5:>0}][{'':<0}]");
+print(f"[{'.':^5}][{-1:^5.1f}]");
+
+print("== mixed widths ==");
+for word in ["a", "bb", "ccc"] {
+    print(f"[{word:>5}]");
+}
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function bad_precision() {
+    return f"{1:.2}";
+}
+function not_a_number() {
+    return f"{'x':.2f}";
+}
+function bad_spec() {
+    return f"{1:d}";
+}
+function bad_graphemes() {
+    return graphemes(1);
+}
+print("only '.Nf'" in fails(bad_precision));
+print("requires a number" in fails(not_a_number));
+print("invalid format spec" in fails(bad_spec));
+print("expects a string" in fails(bad_graphemes));
+
+print("done");

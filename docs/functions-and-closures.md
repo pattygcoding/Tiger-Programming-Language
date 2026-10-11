@@ -23,7 +23,7 @@ Output:
 7 null null
 ```
 
-Use `function`, a required parenthesized parameter list, and a braced body. Named parameters fill positionally, and the number of arguments must match exactly unless the declaration is variadic. Duplicate parameter names are syntax errors. There are no default values or anonymous/lambda expressions; declare `*args` and `**kwargs` when a call needs optional arguments.
+Use `function`, a required parenthesized parameter list, and a braced body. Named parameters fill positionally, and the number of arguments must match exactly unless the declaration is variadic or the parameter has a default. Duplicate parameter names are syntax errors. Functions can also be written as anonymous expressions (lambdas); declare `*args` and `**kwargs` when a call needs to collect a variable number of arguments.
 
 Arguments are evaluated left to right. Parameters are local mutable bindings. Calls may pass positional arguments, `name=value` keyword arguments, `*list` to unpack a list positionally, and `**dict` to unpack a dictionary into keyword arguments. A keyword argument binds to a parameter with the same name; when no such parameter exists it goes to `**kwargs`, or the call fails when the declaration has no `**kwargs`. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
 
@@ -47,6 +47,84 @@ cub tags=[] options={"order": "carnivore"}
 ```
 
 `tags` is always a list, empty when no extra positional arguments are supplied. `options` is always a dictionary, and it preserves the order in which the caller wrote the keywords. A function may declare only `*args` or only `**kwargs`; `function total(*values) {}` and `function settings(**fields) {}` are both valid.
+
+## Default Parameters
+
+A parameter may declare a default with `= expression`. When a call omits that argument, the default expression is evaluated in the function's defining environment.
+
+```tg
+function greet(name, greeting = "hello") {
+    return greeting + " " + name;
+}
+function add(a, b = 10, c = 100) {
+    return a + b + c;
+}
+print(greet("world"), greet("world", "hi"), greet(name="ace"));
+print(add(1), add(1, 2), add(1, 2, 3), add(1, c=0));
+```
+
+Output:
+
+```text
+hello world hi world hello ace
+111 103 6 11
+```
+
+Defaults apply after positional and keyword binding, so `greet(name="ace")` fills `greeting` from its default, and `add(1, c=0)` fills `b`. A required parameter cannot follow a defaulted one (a syntax error); `*args` and `**kwargs` may still follow. A short call is an arity error only when a missing parameter has no default.
+
+## Anonymous Functions
+
+`function(params) { ... }` written where a value is expected creates an anonymous function, or lambda. It captures its defining environment exactly like a named function, and it can be stored, passed, or called immediately.
+
+```tg
+const double = function(value) { return value * 2; };
+const words = ["ccc", "a", "bb"];
+words.sort(key=function(word) { return len(word); });
+function make_adder(amount) {
+    return function(value) { return value + amount; };
+}
+print(double(4), words, make_adder(5)(3));
+print(function(a, b = 2) { return a + b; }(4));
+```
+
+Output:
+
+```text
+8 ["a", "bb", "ccc"] 8
+6
+```
+
+Anonymous functions have no name, so diagnostics call them `anonymous function` and printing one shows `<function anonymous>`. Inside a class body, methods and constructors still need a name.
+
+## Multiple Returns and Destructuring
+
+`return a, b;` returns the list `[a, b]`, so one call can produce several values. `const [name, ...] = value;` and `var [name, ...] = value;` unpack a list into named bindings by position, and `const {key, ...} = value;` binds dictionary values by key name.
+
+```tg
+function min_max(values) {
+    var low = values[0];
+    var high = values[0];
+    for value in values {
+        if value < low { low = value; }
+        if value > high { high = value; }
+    }
+    return low, high;
+}
+const [low, high] = min_max([3, 1, 4, 1, 5]);
+const record = {"name": "tiger", "legs": 4};
+const {name, legs} = record;
+print(low, high, min_max([2, 9]));
+print(name, legs);
+```
+
+Output:
+
+```text
+1 5 [2, 9]
+tiger 4
+```
+
+A list must have exactly as many elements as there are names, and a missing dictionary key is an error. Unpacking only declares new bindings; to change existing variables, assign to each one separately.
 
 ## Unpacking Calls
 

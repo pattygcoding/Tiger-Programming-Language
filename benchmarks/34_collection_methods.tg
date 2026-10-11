@@ -1,0 +1,136 @@
+// 34_collection_methods.tg - list and dictionary method regression workload.
+//
+// Exercises list pop/remove/insert/index/extend/reverse/clear/join and
+// dictionary keys/values/items/get/pop/delete/clear, structural equality in
+// remove, insertion-order preservation across deletion, fresh result lists, a
+// stack and a queue built from the methods, key-driven aggregation, and every
+// argument and lookup error path handled with try/catch.
+
+print("== stack and queue ==");
+var stack = [];
+for value in [1, 2, 3, 4] {
+    stack += [value];
+}
+print(stack);
+print(stack.pop(), stack.pop(), stack);
+var queue = [1, 2, 3];
+queue.insert(0, 0);
+const dequeued = queue.pop(0);
+print(queue, dequeued);
+
+print("== insert clamps ==");
+var items = [1, 2];
+items.insert(-9, 0);
+items.insert(-1, 9);
+items.insert(99, 3);
+print(items);
+
+print("== remove and index ==");
+var values = [5, 6, 5, 6];
+values.remove(5);
+print(values, values.index(6), values.index(5), values.index(99));
+var nested = [[1], [2], [1]];
+nested.remove([1]);
+print(nested);
+
+print("== extend and reverse ==");
+var combined = [1];
+combined.extend([2, 3]);
+combined.extend([]);
+combined.reverse();
+print(combined, len(combined));
+combined.clear();
+print(combined, len(combined));
+
+print("== join over methods ==");
+const parts = ["alpha", "beta", "gamma"];
+print(parts.join("|"), parts.index("beta"));
+var mutable = ["x", "y", "z"];
+mutable.remove("y");
+print(mutable.join(""));
+
+print("== dictionary queries ==");
+var scores = {"ada": 36, "alan": 41, "grace": 45};
+print(scores.keys());
+print(scores.values());
+print(scores.items());
+print(scores.get("ada"), scores.get("nobody"), scores.get("nobody", 0));
+
+print("== dictionary deletion order ==");
+scores["edsger"] = 72;
+scores.delete("alan");
+print(scores);
+print(scores.delete("alan"), scores.delete("grace"));
+print(scores);
+scores["grace"] = 46;
+print(scores);
+
+print("== dictionary pop and clear ==");
+print(scores.pop("ada"), scores);
+print(scores.pop("ada", "gone"), scores);
+scores.clear();
+print(scores, len(scores), scores.keys());
+
+print("== fresh result lists ==");
+const config = {"a": 1};
+var keys = config.keys();
+keys += ["b"];
+var entries = config.items();
+entries += [["z", 9]];
+print(config, keys, entries);
+
+print("== keys drive iteration ==");
+const counts = {};
+for word in ["red", "blue", "red", "green", "blue", "red"] {
+    if word in counts {
+        counts[word] = counts[word] + 1;
+    } else {
+        counts[word] = 1;
+    }
+}
+print(counts);
+var order = counts.keys();
+order.sort();
+for key in order {
+    print(key, counts[key]);
+}
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function empty_pop() {
+    return [].pop();
+}
+function range_pop() {
+    return [1].pop(5);
+}
+function bad_index() {
+    return [1].pop(0.5);
+}
+function bad_insert() {
+    return [1].insert(0.5, 2);
+}
+function missing_remove() {
+    return [1].remove(9);
+}
+function bad_extend() {
+    return [1].extend("x");
+}
+function missing_key() {
+    return {}.pop("z");
+}
+function bad_key() {
+    return {}.delete([]);
+}
+print("empty list" in fails(empty_pop), "index out of range" in fails(range_pop));
+print("must be an integer" in fails(bad_index), "index must be an integer" in fails(bad_insert));
+print("value not in list" in fails(missing_remove), "expects a list" in fails(bad_extend));
+print("key not found" in fails(missing_key), "cannot be a dictionary key" in fails(bad_key));
+
+print("done");

@@ -32,6 +32,8 @@ total -= 2;
 total *= 3;
 total %= 8;
 print(total);
+print(2 ** 10, 2 ** 3 ** 2, -2 ** 2, 2 ** -1);
+print(7 div 2, -7 div 2, 7.5 div 2);
 ```
 
 Output:
@@ -42,13 +44,33 @@ Output:
 102 3
 Tiger! [1, 2, 3]
 7
+1024 512 -4 0.5
+3 -4 3
 ```
 
-`+`, `-`, `*`, `/`, and `%` accept numbers. Division always produces a number, so `7 / 2` is `3.5`. Modulo follows the divisor's sign. Division and modulo by zero are errors. Unary `+` and `-` require a number.
+`+`, `-`, `*`, `/`, `%`, `**`, and `div` accept numbers. Division always produces a number, so `7 / 2` is `3.5`. `**` is exponentiation and `div` is floor division, so `7 div 2` is `3` and `-7 div 2` is `-4`. Modulo follows the divisor's sign. Division, floor division, and modulo by zero are errors. `**` is right-associative and binds tighter than unary minus, so `2 ** 3 ** 2` is `512` and `-2 ** 2` is `-4`. A power that overflows to infinity or NaN is an error. Unary `+` and `-` require a number.
 
-`+` also concatenates two strings or two lists. Mixing numbers with strings, booleans, or other types does not implicitly convert values; use `str`, `int`, `float`, or the `.ToString()`-style methods. `//` begins a comment; it is not integer division. Exponentiation is not implemented. `*` and `**` are never arithmetic-power operators: in a call they unpack a list and a dictionary, and in a parameter list they declare `*args` and `**kwargs`.
+`+` also concatenates two strings or two lists. Mixing numbers with strings, booleans, or other types does not implicitly convert values; use `str`, `int`, `float`, or the `.ToString()`-style methods. `//` begins a comment; it is not an operator. A bare `*` or `**` before a name unpacks a list or a dictionary in a call, or declares `*args`/`**kwargs` in a parameter list; `**` between two values is exponentiation. There is no compound `**=` or `div=` form.
 
 `+=`, `-=`, `*=`, and `%=` read an assignable target, apply the matching arithmetic operator, and store the result. They work with the same operand types as `+`, `-`, `*`, and `%`; for example, `items += [next]` appends by list concatenation. Variables, instance fields, and list/dictionary entries are valid targets. The receiver and index expressions are evaluated once. Prefix and postfix `++`/`--` update numeric assignable targets; see [Control Flow](control-flow.md).
+
+## Bitwise Operators
+
+```tg
+print(6 & 3, 6 | 3, 6 ^ 3, ~5);
+print(1 << 4, 256 >> 4, -8 >> 1);
+print(1 | 2 & 3, 1 + 2 << 3);
+```
+
+Output:
+
+```text
+2 7 5 -6
+16 16 -4
+3 24
+```
+
+`&`, `|`, `^`, `~`, `<<`, and `>>` operate on 64-bit two's-complement integers. Each operand is truncated toward zero first, so `6.9 & 3.9` is `2`. `~` is bitwise NOT (`~5` is `-6`), `^` is exclusive or, and `>>` is arithmetic, so `-8 >> 1` is `-4`. A shift count must not be negative, and an operand whose magnitude is too large for 64 bits is an error. Results are converted back to the number type, so a value beyond 2^53 loses precision. `&` binds tighter than `^`, which binds tighter than `|`; shifts bind looser than `+` and `-`, and the bitwise operators bind tighter than comparisons. `^` is not exponentiation; use `**`.
 
 ## Comparison and Equality
 
@@ -100,9 +122,12 @@ Highest precedence first:
 | --- | --- |
 | Postfix `++`, `--` | Update a target and return its old value |
 | Calls `()`, indexing `[]`, member access `.` | Chain left to right |
-| Unary `+`, `-`, prefix `++`, `--` | Bind before multiplication; prefix updates return the new value |
-| `*`, `/`, `%` | Left-associative |
+| `**` | Right-associative exponentiation |
+| Unary `+`, `-`, `~`, prefix `++`, `--` | Bind before multiplication; prefix updates return the new value |
+| `*`, `/`, `%`, `div` | Left-associative |
 | `+`, `-` | Left-associative |
+| `<<`, `>>` | Left-associative |
+| `&`, `^`, `\|` | Each its own level, left-associative; `&` binds tighter than `^`, which binds tighter than `\|` |
 | `==`, `!=`, `<`, `<=`, `>`, `>=`, `in` | Same precedence, left-associative |
 | `not` | Binds less tightly than comparisons |
 | `and` | Short-circuit |

@@ -16,15 +16,15 @@ built-in names can be shadowed and are still colored as built-ins.
 | Keywords | `const var function class extends super this public private protected return if elif else cif celse while for cfor in and or not break continue switch case default try catch throw import as` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
-| Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\\`, `\"`, `\'` are highlighted separately |
+| Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\xHH`, `\uXXXX`, `\UXXXXXXXX`, `\\`, `\"`, `\'` are highlighted separately; an `r`/`R` prefix makes the text raw |
 | Formatted strings | `f`/`F` directly before either quote; string text, `{expression}` tokens, and `{{`/`}}` literal braces |
 | Comments | `//` through the end of the line; `/* ... */` across one or more lines, without nesting |
-| Symbolic operators | `= == != < <= > >= + - * / % ++ -- && \|\|` |
-| Word operators | `and or not in`, styled as keywords |
+| Symbolic operators | `= == != < <= > >= + - * / % ** ++ -- << >> & \| ^ ~ && \|\|` |
+| Word operators | `and or not in div`, styled as keywords |
 | Punctuation | `(` `)` `[` `]` `{` `}` `:` `,` `;` `.` |
 | Identifiers | Unicode letters or `_`, followed by Unicode letters, decimal digits, or `_` |
-| Built-in functions | `print input str int float bool len range open read_file write_file append_file file_exists remove_file math algo` |
-| Module members | Names exported by `math` and `algo` (such as `math.sqrt` or `algo.isPrime`), styled as built-ins only directly after `math.` / `algo.` |
+| Built-in functions | `print input str int float bool len range type isinstance open read_file write_file append_file file_exists remove_file math algo` |
+| Module members | Names exported by `math`, `algo`, `random`, `json`, `time`, and `regex` (such as `math.sqrt` or `algo.isPrime`), styled as built-ins only directly after the module name and a dot |
 
 Tiger is dynamically typed. There are **no reserved primitive-type names or type
 annotations**: `number` and `string` remain identifiers, and `int`, `float`, and `bool` are built-in conversion functions.
@@ -86,7 +86,7 @@ node --test web/highlight.test.mjs editors/vscode/grammar.test.mjs
 ```
 
 `go test ./pkg/evaluator` also checks that `highlight.mjs` and the VS Code grammar
-list exactly the members of the `math` and `algo` modules.
+list exactly the members of the `math`, `algo`, `random`, `json`, `time`, and `regex` modules.
 
 Build the browser runtime from the repository root:
 
@@ -95,7 +95,7 @@ go run ./cmd/web -build-only
 ```
 
 This generates `web/tiger.wasm` and copies the matching Go `wasm_exec.js`.
-The stripped runtime is about 2.9 MB (about 0.8 MB with gzip). Deploy both
+The stripped runtime is about 3.1 MB (about 0.8 MB with gzip). Deploy both
 together with the web assets, including `highlight.mjs`, and serve the
 repository's examples under `/examples/`. Alternatively, start the included server:
 

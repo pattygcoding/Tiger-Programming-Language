@@ -19,4 +19,8 @@ func (OSFileSystem) Exists(name string) (bool, error) {
 	return false, errNoHostFileSystem
 }
 
+func (OSFileSystem) List(name string) ([]string, error) {
+	return nil, errNoHostFileSystem
+}
+
 var errNoHostFileSystem = errors.New("the browser has no host filesystem; use MemoryFileSystem")

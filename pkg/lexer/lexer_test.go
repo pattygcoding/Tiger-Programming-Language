@@ -25,7 +25,7 @@ func TestScan(t *testing.T) {
 }
 
 func TestInvalidInput(t *testing.T) {
-	for _, source := range []string{"@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00", "# old comment", "/* unfinished", "&", "|", "& &"} {
+	for _, source := range []string{"@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00", "# old comment", "/* unfinished"} {
 		t.Run(source, func(t *testing.T) {
 			if _, err := Scan(source); err == nil || !strings.Contains(err.Error(), "1:1:") {
 				t.Fatalf("expected positioned error, got %v", err)

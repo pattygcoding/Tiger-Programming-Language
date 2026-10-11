@@ -65,6 +65,38 @@ print(true && false);
 && is only allowed in cif and cfor headers; use and
 ```
 
+## Conditional Expressions
+
+A conditional expression chooses between two values: `value if condition else fallback`. Only the branch that is selected is evaluated.
+
+```tg
+const count = 7;
+print("even" if count % 2 == 0 else "odd");
+function grade(score) {
+    return "A" if score >= 90 else "B" if score >= 80 else "C";
+}
+print(grade(95), grade(85), grade(70));
+```
+
+Output:
+
+```text
+odd
+A B C
+```
+
+It binds looser than every operator, so `1 + 2 if flag else 3 * 4` means `(1 + 2) if flag else (3 * 4)`, and a chain such as `"a" if one else "b" if two else "c"` groups to the right. Use parentheses when a larger expression should be the condition. Both branches are required.
+
+**Expected error:**
+
+```tg
+print(1 if true);
+```
+
+```error
+expected "else"
+```
+
 ## While
 
 ```tg
@@ -86,6 +118,33 @@ go
 ```
 
 The condition is checked before each iteration, so the body can run zero times. Initialize persistent loop state outside the body; names first created inside an iteration do not survive into the next one. The runtime's execution limit catches many infinite loops, but programs should still have a deliberate termination condition.
+
+## Do While
+
+`do` runs its body first and checks the condition afterward, so the body always runs at least once.
+
+```tg
+var remaining = 3;
+do {
+    print(remaining);
+    remaining = remaining - 1;
+} while (remaining > 0);
+var value = 10;
+do {
+    print("once");
+} while (value < 0);
+```
+
+Output:
+
+```text
+3
+2
+1
+once
+```
+
+The parentheses around the condition are optional. Unlike `while` and `for`, a `do...while` loop has no `else` clause; a `do...while` loop does accept a [label](#early-exit-and-labels).
 
 ## For
 
@@ -115,9 +174,47 @@ second
 
 Lists produce elements, strings produce Unicode code points, and dictionaries produce keys in insertion order. Numbers are not iterable. Each iteration binds its loop variable in a fresh scope; it does not overwrite an outer variable with the same name. See [iteration snapshots](collections.md) for mutation behavior.
 
-## Early Exit with Return
+## Early Exit and Labels
 
 `break` exits the nearest loop or switch. `continue` skips to the next iteration of the nearest loop, including when written inside a switch. Neither can target a loop outside the current function. Use `return` to exit the entire function from nested loops.
+
+Name a loop to leave it from an inner loop: write `name:` before the loop and `break name;` or `continue name;` inside it.
+
+```tg
+outer: for row in range(3) {
+    for column in range(3) {
+        if column == 1 {
+            continue outer;
+        }
+        if row == 2 {
+            break outer;
+        }
+        print(row, column);
+    }
+}
+print("done");
+```
+
+Output:
+
+```text
+0 0
+1 0
+done
+```
+
+A label belongs to the loop it precedes and is visible only inside that loop's body, so an inner loop may reuse the same name and the innermost match wins. `while`, `for`, `cfor`, and `do...while` all accept labels, and a labeled `break` skips the loop's `else` block just like an unlabeled one.
+
+**Expected error:**
+
+```tg
+break missing;
+```
+
+```error
+unknown label "missing"
+```
+
 
 ```tg
 function first_even(values) {

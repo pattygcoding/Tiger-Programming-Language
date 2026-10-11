@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"tiger/pkg/object"
 )
 
 func sortedNames(names map[string]bool) []string {
@@ -29,19 +31,31 @@ func readTestFile(t *testing.T, path string) string {
 
 // The playground highlighter and VS Code grammar must list exactly the math and algo members.
 func TestHighlightersListModuleMembers(t *testing.T) {
-	want := map[string]map[string]bool{"math": {}, "algo": {}}
+	want := map[string]map[string]bool{"math": {}, "algo": {}, "random": {}, "json": {}, "time": {}, "regex": {}}
 	for name := range unaryMath {
 		want["math"][name] = true
 	}
 	for name := range binaryMath {
 		want["math"][name] = true
 	}
-	algo := algoModule()
-	for _, match := range regexp.MustCompile(`env\.Define\("(\w+)"`).FindAllStringSubmatch(readTestFile(t, "algomodule.go"), -1) {
-		if _, ok := algo.Env.GetOwn(match[1]); !ok {
-			t.Fatalf("algo.%s is not defined", match[1])
+	modules := map[string]struct {
+		file  string
+		value *object.Module
+	}{
+		"algo":   {"algomodule.go", algoModule()},
+		"random": {"randommodule.go", randomModule()},
+		"json":   {"jsonmodule.go", jsonModule()},
+		"time":   {"timemodule.go", timeModule()},
+		"regex":  {"regexmodule.go", regexModule()},
+	}
+	defined := regexp.MustCompile(`(?:env\.Define|define)\("(\w+)"`)
+	for module, definition := range modules {
+		for _, match := range defined.FindAllStringSubmatch(readTestFile(t, definition.file), -1) {
+			if _, ok := definition.value.Env.GetOwn(match[1]); !ok {
+				t.Fatalf("%s.%s is not defined", module, match[1])
+			}
+			want[module][match[1]] = true
 		}
-		want["algo"][match[1]] = true
 	}
 
 	playground := readTestFile(t, "../../web/highlight.mjs")
@@ -57,7 +71,7 @@ func TestHighlightersListModuleMembers(t *testing.T) {
 	}
 	grammarMembers := map[string]string{}
 	for _, pattern := range grammar.Repository["module-members"].Patterns {
-		parts := regexp.MustCompile(`\((math|algo)\).*\(([\w|]+)\)\(\?!`).FindStringSubmatch(pattern.Match)
+		parts := regexp.MustCompile(`\((math|algo|random|json|time|regex)\).*\(([\w|]+)\)\(\?!`).FindStringSubmatch(pattern.Match)
 		if parts == nil {
 			t.Fatalf("unrecognized module pattern %q", pattern.Match)
 		}

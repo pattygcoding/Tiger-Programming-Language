@@ -28,6 +28,9 @@ type Function struct {
 type Builtin struct {
 	Name string
 	Call func([]Value, map[string]Value) (Value, error)
+	// HigherOrder marks a callable the evaluator dispatches itself so it can
+	// call back into user code (map, filter, sorted); Call is never used then.
+	HigherOrder bool
 }
 type ReturnValue struct{ Value Value }
 
@@ -105,6 +108,33 @@ func (dict *Dict) Get(key Value) (Value, bool, error) {
 	return dict.Entries[index].Value, true, nil
 }
 
+// Delete removes the entry for key, preserving the insertion order of the
+// remaining entries, and reports whether the key was present.
+func (dict *Dict) Delete(key Value) (bool, error) {
+	hash, err := Hash(key)
+	if err != nil {
+		return false, err
+	}
+	index, exists := dict.indices[hash]
+	if !exists {
+		return false, nil
+	}
+	dict.Entries = append(dict.Entries[:index], dict.Entries[index+1:]...)
+	delete(dict.indices, hash)
+	for offset := index; offset < len(dict.Entries); offset++ {
+		if moved, err := Hash(dict.Entries[offset].Key); err == nil {
+			dict.indices[moved] = offset
+		}
+	}
+	return true, nil
+}
+
+// Clear removes every entry.
+func (dict *Dict) Clear() {
+	dict.Entries = nil
+	dict.indices = map[Key]int{}
+}
+
 func Truthy(value Value) bool {
 	switch typed := value.(type) {
 	case Null:
@@ -122,6 +152,25 @@ func Truthy(value Value) bool {
 	default:
 		return true
 	}
+}
+
+// Error is a structured runtime failure. Message is the bare diagnostic, Kind
+// is a stable category a handler can dispatch on, and Origin is the
+// "file:line:column" (or "line:column") position where it was raised.
+type Error struct {
+	Message string
+	Kind    string
+	Origin  string
+}
+
+func (failure *Error) Type() string { return "error" }
+
+// Text renders the positioned diagnostic, e.g. "1:5: division by zero".
+func (failure *Error) Text() string {
+	if failure.Origin == "" {
+		return failure.Message
+	}
+	return failure.Origin + ": " + failure.Message
 }
 
 func Format(value Value) string { return formatValue(value, map[Value]bool{}, false) }
@@ -162,7 +211,11 @@ func formatValue(value Value, seen map[Value]bool, nested bool) string {
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
 	case *Function:
-		return "<function " + typed.Declaration.Name + ">"
+		name := typed.Declaration.Name
+		if name == "" {
+			name = "anonymous"
+		}
+		return "<function " + name + ">"
 	case *Module:
 		return "<module " + typed.Name + ">"
 	case *File:
@@ -177,6 +230,8 @@ func formatValue(value Value, seen map[Value]bool, nested bool) string {
 		return "<super>"
 	case *Builtin:
 		return "<builtin " + typed.Name + ">"
+	case *Error:
+		return typed.Text()
 	case *ReturnValue:
 		return formatValue(typed.Value, seen, nested)
 	default:

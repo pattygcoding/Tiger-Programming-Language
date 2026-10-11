@@ -1,0 +1,48 @@
+== reductions ==
+108 4 42
+true true
+0 1 3
+apple pear
+== predicates ==
+true false true false
+false true
+== reshape ==
+[[0, "a"], [1, "b"], [2, "c"]]
+[[1, "x"], [2, "y"]]
+[[1, 3, 5], [2, 4, 6]]
+0 red
+1 blue
+== higher order ==
+[8, 16, 30, 32, 46, 84]
+[4, 8, 16, 42]
+[1, 2, 3]
+[5, "x"]
+== sorting ==
+[4, 8, 15, 16, 23, 42]
+[4, 8, 15, 16, 23, 42]
+[42, 23, 16, 15, 8, 4]
+["a", "bb", "ccc"]
+[42, 23, 16, 15, 8, 4]
+4 0
+== pipelines ==
+["charlie"]
+30
+0 alpha
+1 bravo
+2 charlie
+3 delta
+== nested and mixed ==
+[3, 7, 11]
+21
+[["ada", 3], ["alan", 4], ["grace", 5], ["edsger", 6]]
+false
+true
+3 1 13
+[[1, "a"], [2, "b"], [0, "c"]]
+7 2 2
+== errors ==
+true
+true
+true
+true true
+done

@@ -1,0 +1,159 @@
+# Standard Library Additions
+
+[Guide index](README.md) | [Built-ins](builtins.md) | [Files](file-io.md)
+
+Beyond `print`/`len`/conversions and the [`math`](math.md) and [`algo`](algo.md) modules, Tiger ships four more read-only modules — `random`, `json`, `time`, and `regex` — plus the `list_dir` file helper. All are available without an import.
+
+## random
+
+`random` is a deterministic xorshift64* generator. It needs no clock, so it works on every target, including the browser. The default seed is fixed, so an unseeded program produces the same sequence every run; `random.seed(n)` reseeds it.
+
+| Function | Result |
+| --- | --- |
+| `random.seed(n)` | Reseeds the generator; `0` falls back to the default seed |
+| `random.random()` | A number in `[0, 1)` |
+| `random.int(low, high)` | An integer in `[low, high]`, both inclusive |
+| `random.uniform(low, high)` | A number in `[low, high)` |
+| `random.choice(list)` | A random element; an empty list is an error |
+| `random.shuffle(list)` | Shuffles a list in place and returns `null` |
+
+```tg
+random.seed(7);
+var first = [random.int(0, 1000), random.int(0, 1000)];
+random.seed(7);
+var second = [random.int(0, 1000), random.int(0, 1000)];
+print(first == second);
+print(random.int(4, 4), random.choice(["only"]));
+var cards = [1, 2, 3, 4, 5];
+random.shuffle(cards);
+cards.sort();
+print(cards);
+```
+
+Output:
+
+```text
+true
+4 only
+[1, 2, 3, 4, 5]
+```
+
+## json
+
+`json.parse(text)` converts JSON text into Tiger values: objects become dictionaries, arrays become lists, and scalars become strings, numbers, `true`/`false`, or `null`. `json.stringify(value)` produces compact JSON. Dictionaries must have string keys, and cyclic structures are rejected.
+
+```tg
+const config = json.parse("{\"port\": 8080, \"tags\": [\"a\", \"b\"], \"on\": true}");
+print(config["port"], config["tags"]);
+print(json.stringify({"ok": [1, null]}));
+print(json.stringify(json.parse("[1, 2.5, 1e2]")));
+```
+
+Output:
+
+```text
+8080 ["a", "b"]
+{"ok":[1,null]}
+[1,2.5,100]
+```
+
+**Expected error:**
+
+```tg
+json.parse("{oops}");
+```
+
+```error
+json.parse
+```
+
+## time
+
+`time` reads the host clock. It is available on the native CLI, standalone executables, and WASI; the browser build has no clock and raises an error instead. Timestamps are Unix seconds in UTC.
+
+| Function | Result |
+| --- | --- |
+| `time.now()` | Current Unix seconds, with a fractional part |
+| `time.now_ms()` | Current Unix milliseconds |
+| `time.sleep(seconds)` | Pauses for a non-negative number of seconds |
+| `time.iso(seconds)` | `YYYY-MM-DDTHH:MM:SSZ` |
+| `time.parts(seconds)` | A dictionary of `year`, `month`, `day`, `hour`, `minute`, `second`, `weekday` (0 = Sunday), and `yearday` |
+
+```tg
+print(time.iso(0), time.iso(1600000000));
+const moment = time.parts(1600000000);
+print(moment["year"], moment["month"], moment["day"], moment["weekday"]);
+```
+
+Output:
+
+```text
+1970-01-01T00:00:00Z 2020-09-13T12:26:40Z
+2020 9 13 0
+```
+
+## regex
+
+`regex` wraps the standard RE2 engine on native and WASI builds; the browser build omits it and raises an error. Patterns support `.`, character classes, `\d`/`\w`/`\s`, the anchors `^` and `$`, groups, alternation, and repetition. Backreferences and lookaround are not supported.
+
+| Function | Result |
+| --- | --- |
+| `regex.match(pattern, text)` | `true` if the pattern matches anywhere in `text` |
+| `regex.find(pattern, text)` | The first match, or `null` |
+| `regex.findAll(pattern, text)` | Every non-overlapping match, as a list |
+| `regex.groups(pattern, text)` | The capture groups of the first match, or `null` |
+| `regex.replace(pattern, text, replacement)` | `text` with every match replaced |
+| `regex.split(pattern, text)` | The pieces of `text` between matches, as a list |
+
+```tg
+print(regex.match("^\\w+\\d$", "item7"));
+print(regex.find("\\d+", "order 42 shipped"));
+print(regex.findAll("\\d+", "1 22 333"));
+print(regex.groups("(\\w+)@(\\w+)", "user@host"));
+print(regex.replace("\\s+", "a b  c", "-"));
+print(regex.split("\\s+", "a b  c"));
+```
+
+Output:
+
+```text
+true
+42
+["1", "22", "333"]
+["user", "host"]
+a-b-c
+["a", "b", "c"]
+```
+
+**Expected error:**
+
+```tg
+regex.match("[", "x");
+```
+
+```error
+invalid pattern
+```
+
+## list_dir(path)
+
+`list_dir` returns a sorted list of the immediate entries in a directory. On the host filesystem, directory entries end with `/`; the browser's in-memory filesystem holds only files. A missing directory is an error.
+
+```tg
+write_file("notes/a.txt", "alpha");
+write_file("notes/b.txt", "beta");
+write_file("readme.txt", "top");
+print(list_dir("notes"));
+print(list_dir("."));
+```
+
+Output:
+
+```text
+["a.txt", "b.txt"]
+["readme.txt"]
+```
+
+See [Files](file-io.md) for the other file helpers and [Built-ins](builtins.md) for the module list.
+
+[Guide index](README.md) | [Built-ins](builtins.md) | [Files](file-io.md)

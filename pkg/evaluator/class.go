@@ -43,6 +43,9 @@ func (eval *Evaluator) property(node *ast.Property, receiver object.Value, env *
 		if node.Name == "size" || node.Name == "length" {
 			return lengthMethod(node.Name, object.Number(len([]rune(string(typed)))))
 		}
+		if method := stringMethod(node.Name, typed); method != nil {
+			return method
+		}
 		if method := conversionMethod(node.Name, typed); method != nil {
 			return method
 		}
@@ -54,10 +57,21 @@ func (eval *Evaluator) property(node *ast.Property, receiver object.Value, env *
 		if node.Name == "sort" {
 			return eval.sortMethod(node, typed, env)
 		}
+		if method := listMethod(node.Name, typed); method != nil {
+			return method
+		}
 		if method := conversionMethod(node.Name, typed); method != nil {
 			return method
 		}
 		fail(node, "list has no property %q", node.Name)
+	case *object.Dict:
+		if method := dictMethod(node.Name, typed); method != nil {
+			return method
+		}
+		if method := conversionMethod(node.Name, typed); method != nil {
+			return method
+		}
+		fail(node, "dict has no property %q", node.Name)
 	case *object.Module:
 		if value, exists := typed.Env.GetOwn(node.Name); exists {
 			return value
@@ -189,6 +203,11 @@ type keyword struct {
 func (eval *Evaluator) call(node ast.Node, function object.Value, arguments []object.Value, keywords []keyword, env *object.Environment) object.Value {
 	switch callable := function.(type) {
 	case *object.Builtin:
+		if callable.HigherOrder {
+			value, err := eval.callAggregate(node, callable.Name, arguments, keywords, env)
+			check(node, err)
+			return value
+		}
 		table := make(map[string]object.Value, len(keywords))
 		for _, entry := range keywords {
 			table[entry.name] = entry.value
@@ -241,11 +260,12 @@ func (eval *Evaluator) invoke(node ast.Node, function *object.Function, argument
 	declaration := function.Declaration
 	parameters := declaration.Parameters
 	fixed := len(parameters)
+	label := functionLabel(declaration)
 	if len(arguments) > fixed && declaration.Variadic == "" {
-		fail(node, "%s expects %d arguments, got %d", declaration.Name, fixed, len(arguments))
+		fail(node, "%s expects %d arguments, got %d", label, fixed, len(arguments))
 	}
-	if len(arguments) < fixed && declaration.Variadic == "" && len(keywords) == 0 {
-		fail(node, "%s expects %d arguments, got %d", declaration.Name, fixed, len(arguments))
+	if len(arguments) < fixed && declaration.Variadic == "" && len(keywords) == 0 && missingRequired(declaration, len(arguments)) {
+		fail(node, "%s expects %d arguments, got %d", label, fixed, len(arguments))
 	}
 	scope := object.NewEnvironment(function.Env)
 	if bound != nil {
@@ -272,24 +292,29 @@ func (eval *Evaluator) invoke(node ast.Node, function *object.Function, argument
 	for _, entry := range keywords {
 		if contains(parameters, entry.name) {
 			if assigned[entry.name] {
-				fail(node, "%s got multiple values for argument %q", declaration.Name, entry.name)
+				fail(node, "%s got multiple values for argument %q", label, entry.name)
 			}
 			check(node, scope.Define(entry.name, entry.value, false))
 			assigned[entry.name] = true
 			continue
 		}
 		if declaration.Keyword == "" {
-			fail(node, "%s got an unexpected keyword argument %q", declaration.Name, entry.name)
+			fail(node, "%s got an unexpected keyword argument %q", label, entry.name)
 		}
 		if _, exists, _ := collected.Get(object.String(entry.name)); exists {
-			fail(node, "%s got multiple values for keyword argument %q", declaration.Name, entry.name)
+			fail(node, "%s got multiple values for keyword argument %q", label, entry.name)
 		}
 		check(node, collected.Set(object.String(entry.name), entry.value))
 	}
-	for _, parameter := range parameters {
-		if !assigned[parameter] {
-			fail(node, "%s missing required argument %q", declaration.Name, parameter)
+	for index, parameter := range parameters {
+		if assigned[parameter] {
+			continue
 		}
+		if index < len(declaration.Defaults) && declaration.Defaults[index] != nil {
+			check(node, scope.Define(parameter, eval.expression(declaration.Defaults[index], function.Env), false))
+			continue
+		}
+		fail(node, "%s missing required argument %q", label, parameter)
 	}
 	if declaration.Keyword != "" {
 		check(node, scope.Define(declaration.Keyword, collected, false))
@@ -298,6 +323,25 @@ func (eval *Evaluator) invoke(node ast.Node, function *object.Function, argument
 		return result.value
 	}
 	return object.Null{}
+}
+
+// functionLabel names a function in diagnostics, covering anonymous functions.
+func functionLabel(declaration *ast.Function) string {
+	if declaration.Name == "" {
+		return "anonymous function"
+	}
+	return declaration.Name
+}
+
+// missingRequired reports whether any parameter at or after index lacks a
+// default, which decides whether a short call is an arity error.
+func missingRequired(declaration *ast.Function, index int) bool {
+	for position := index; position < len(declaration.Parameters); position++ {
+		if position >= len(declaration.Defaults) || declaration.Defaults[position] == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(names []string, name string) bool {

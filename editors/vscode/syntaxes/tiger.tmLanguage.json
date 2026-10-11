@@ -39,12 +39,14 @@
     },
     "escapes": {
       "patterns": [
-        { "name": "constant.character.escape.tiger", "match": "\\\\[nrt\\\\\"']" },
+        { "name": "constant.character.escape.tiger", "match": "\\\\[nrtuUx\\\\\"']" },
         { "name": "invalid.illegal.escape.tiger", "match": "\\\\." }
       ]
     },
     "strings": {
       "patterns": [
+        { "name": "string.quoted.double.tiger", "match": "([rR])(\")([^\"\\n\\r]*)(\")?", "captures": { "1": { "name": "storage.type.string.tiger" }, "2": { "name": "punctuation.definition.string.begin.tiger" }, "4": { "name": "punctuation.definition.string.end.tiger" } } },
+        { "name": "string.quoted.single.tiger", "match": "([rR])(')([^'\\n\\r]*)(')?", "captures": { "1": { "name": "storage.type.string.tiger" }, "2": { "name": "punctuation.definition.string.begin.tiger" }, "4": { "name": "punctuation.definition.string.end.tiger" } } },
         {
           "name": "string.quoted.double.tiger",
           "begin": "\"",
@@ -148,6 +150,38 @@
             "2": { "name": "punctuation.accessor.tiger" },
             "3": { "name": "support.function.algo.tiger" }
           }
+        },
+        {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(random)\\s*(\\.)\\s*(seed|random|int|uniform|choice|shuffle)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.random.tiger" }
+          }
+        },
+        {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(json)\\s*(\\.)\\s*(parse|stringify)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.json.tiger" }
+          }
+        },
+        {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(time)\\s*(\\.)\\s*(now|now_ms|sleep|iso|parts)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.time.tiger" }
+          }
+        },
+        {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(regex)\\s*(\\.)\\s*(match|find|findAll|groups|replace|split)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.regex.tiger" }
+          }
         }
       ]
     },
@@ -156,9 +190,9 @@
         { "name": "storage.type.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:const|var|function|class|extends)(?![\\p{L}\\p{Nd}_])" },
         { "name": "keyword.control.import.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:import|as)(?![\\p{L}\\p{Nd}_])" },
         { "name": "storage.modifier.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:public|private|protected)(?![\\p{L}\\p{Nd}_])" },
-        { "name": "keyword.control.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:if|elif|else|cif|celse|while|for|cfor|return|break|continue|switch|case|default|try|catch|throw)(?![\\p{L}\\p{Nd}_])" },
+        { "name": "keyword.control.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:if|elif|else|cif|celse|while|do|for|cfor|return|break|continue|switch|case|default|try|catch|finally|throw)(?![\\p{L}\\p{Nd}_])" },
         { "name": "variable.language.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:this|super)(?![\\p{L}\\p{Nd}_])" },
-        { "name": "keyword.operator.word.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:and|or|not|in)(?![\\p{L}\\p{Nd}_])" }
+        { "name": "keyword.operator.word.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:and|or|not|in|div)(?![\\p{L}\\p{Nd}_])" }
       ]
     },
     "literals": {
@@ -167,8 +201,8 @@
     },
     "builtins": {
       "patterns": [
-        { "name": "support.module.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:math|algo)(?![\\p{L}\\p{Nd}_])" },
-        { "name": "support.function.builtin.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:print|input|str|int|float|bool|len|range|open|read_file|write_file|append_file|file_exists|remove_file)(?![\\p{L}\\p{Nd}_])" }
+        { "name": "support.module.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:math|algo|random|json|time|regex)(?![\\p{L}\\p{Nd}_])" },
+        { "name": "support.function.builtin.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:print|input|str|int|float|bool|len|range|type|isinstance|graphemes|sum|min|max|any|all|zip|enumerate|map|filter|sorted|open|read_file|write_file|append_file|file_exists|remove_file|list_dir)(?![\\p{L}\\p{Nd}_])" }
       ]
     },
     "calls": {
@@ -179,7 +213,8 @@
       "patterns": [
         { "name": "keyword.operator.logical.tiger", "match": "&&|\\|\\|" },
         { "name": "keyword.operator.update.tiger", "match": "\\+\\+|--" },
-        { "name": "keyword.operator.unpack.tiger", "match": "\\*\\*" },
+        { "name": "keyword.operator.bitwise.tiger", "match": "<<|>>|&|\\||\\^|~" },
+        { "name": "keyword.operator.power.tiger", "match": "\\*\\*" },
         { "name": "keyword.operator.comparison.tiger", "match": "==|!=|<=|>=|<|>" },
         { "name": "keyword.operator.assignment.compound.tiger", "match": "[+\\-*%]=" },
         { "name": "keyword.operator.assignment.tiger", "match": "=" },

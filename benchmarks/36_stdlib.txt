@@ -1,0 +1,33 @@
+== random ==
+reproducible true
+int range true
+singleton 7 only
+shuffle [1, 2, 3, 4, 5, 6, 7, 8]
+fraction range true
+== json ==
+tiger [80, 443] true null
+{"name":"tiger","ports":[80,443],"on":true,"note":null}
+[1,2.5,-3,1000,0.125]
+{"nested":{"list":[true,false,null]}}
+"quote \" slash \\ tab\t"
+Aé中
+sum 77 {"ada":36,"alan":41}
+== time ==
+1970-01-01T00:00:00Z 2000-01-01T00:00:00Z 2020-09-13T12:26:40Z
+2020 9 13 12 26 40 0 257
+true true
+== regex ==
+true false
+42 null
+["1", "22", "333"]
+["user", "host"]
+a#b#c
+["a", "b", "c"]
+== list_dir ==
+["lib.tg", "main.tg"]
+["README.md"]
+== errors ==
+true true
+true true
+true true
+done

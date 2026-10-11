@@ -10,7 +10,7 @@
 
 ## Wasm size guardrails
 
-`web/tiger.wasm` bundles the whole interpreter, so every package linked into `cmd/wasm` ships to the browser. It currently builds to about 2.9 MB stripped (~0.8 MB gzip). Keep it there.
+`web/tiger.wasm` bundles the whole interpreter, so every package linked into `cmd/wasm` ships to the browser. It currently builds to about 3.1 MB stripped (~0.8 MB gzip). Keep it there.
 
 - **Never import `fmt` in code reachable from `cmd/wasm`.** `fmt` drags in `reflect`, `internal/fmtsort`, and `os`. The runtime packages (`pkg/lexer`, `pkg/parser`, `pkg/object`, `pkg/evaluator`, and anything they import) must use `tiger/pkg/format` for `Sprintf`/`Errorf`. `fmt` is allowed only in native-only code: `cmd/tiger`, `cmd/wasi`, `cmd/web`, and `pkg/compiler`.
 - **Keep host-filesystem code behind `//go:build !js`.** `os`, `path/filepath`, `io/fs`, `time`, `internal/poll`, and non-js `syscall` must not be reachable from `cmd/wasm`. Follow the existing `file_os.go` / `file_js.go` and `modules_os.go` / `modules_js.go` pattern: real implementations under `!js`, small stubs under `js`.

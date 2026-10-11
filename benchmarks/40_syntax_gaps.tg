@@ -1,0 +1,102 @@
+// 40_syntax_gaps.tg - conditional expressions, slicing, loop labels, do...while.
+//
+// A small report built from a table of readings: labels are chosen with
+// conditional expressions, rows and columns are read with slices, nested loops
+// are left with labeled break and continue, and input is walked with do...while.
+
+print("== conditional expressions ==");
+function sign(value) {
+    return "negative" if value < 0 else "zero" if value == 0 else "positive";
+}
+for value in [-2, 0, 5] {
+    print(f"{value:>2} {sign(value)}");
+}
+print(str(3) + ("s" if 3 != 1 else ""));
+
+print("== slicing a table ==");
+const table = [
+    ["north", 4, 12],
+    ["south", 7, 3],
+    ["east", 2, 9],
+    ["west", 5, 6],
+];
+print(table[1:3]);
+print(table[0][1:3]);
+print(table[-2:]);
+for row in table[::-1] {
+    print(row[0], row[1:3]);
+}
+const header = "region   a  b";
+print(header[:6], header[9:], header[::-1]);
+
+print("== summing with slices ==");
+var totals = [];
+for row in table {
+    const values = row[1:];
+    var sum = 0;
+    for value in values {
+        sum = sum + value;
+    }
+    totals = totals + [sum];
+}
+print(totals);
+print(sum(totals), max(totals), min(totals));
+print(totals[::2], totals[::-1]);
+
+print("== labeled break and continue ==");
+outer: for row in table {
+    for value in row[1:] {
+        if value > 10 {
+            print("skip", row[0]);
+            continue outer;
+        }
+        if value < 3 {
+            print("halt at", row[0], value);
+            break outer;
+        }
+    }
+    print("clean", row[0]);
+}
+print("scan done");
+
+print("== do...while ==");
+var attempts = 0;
+do {
+    attempts = attempts + 1;
+    print("attempt", attempts);
+} while (attempts < 3);
+var confirmed = false;
+do {
+    print("confirming");
+    confirmed = true;
+} while (confirmed == false);
+print("confirmed", confirmed);
+
+print("== validation loop ==");
+const samples = [4, -1, 8];
+var index = 0;
+do {
+    const sample = samples[index];
+    index = index + 1;
+    if sample < 0 {
+        print("rejected", sample);
+        continue;
+    }
+    print("accepted", sample);
+} while (index < len(samples));
+
+print("== labeled while ==");
+var rows = 0;
+counting: while rows < 3 {
+    rows = rows + 1;
+    var columns = 0;
+    while true {
+        columns = columns + 1;
+        if columns > rows {
+            continue counting;
+        }
+        print(rows, columns);
+    }
+}
+
+print("done");
