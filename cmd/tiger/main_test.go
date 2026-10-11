@@ -18,6 +18,14 @@ func TestCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Diagnostics report the canonical source path, which the evaluator derives
+	// with filepath.EvalSymlinks. On Windows t.TempDir can return an 8.3 short
+	// name ("RUNNER~1") that EvalSymlinks expands, so resolve the expectation the
+	// same way to keep the test independent of the temp path's spelling.
+	canonicalInvalid := invalid
+	if resolved, err := filepath.EvalSymlinks(invalid); err == nil {
+		canonicalInvalid = resolved
+	}
 	tests := []struct {
 		args     []string
 		code     int
@@ -27,7 +35,7 @@ func TestCLI(t *testing.T) {
 		{nil, 2, "", "Usage:"},
 		{[]string{"unknown", valid}, 2, "", "Usage:"},
 		{[]string{"run", valid}, 0, "hello\n", ""},
-		{[]string{"run", invalid}, 1, "", invalid + ":1:"},
+		{[]string{"run", invalid}, 1, "", canonicalInvalid + ":1:"},
 		{[]string{"run", "missing.tg"}, 1, "", "missing.tg"},
 		{[]string{"run", "wrong.py"}, 2, "", ".tg"},
 		{[]string{"build", valid, "-o"}, 2, "", "output path"},
