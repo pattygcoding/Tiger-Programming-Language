@@ -1,11 +1,12 @@
 package object
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
+
 	"tiger/pkg/ast"
+	"tiger/pkg/format"
 )
 
 type Value interface{ Type() string }
@@ -62,7 +63,7 @@ func Hash(value Value) (Key, error) {
 	switch typed := value.(type) {
 	case Number:
 		if math.IsNaN(float64(typed)) || math.IsInf(float64(typed), 0) {
-			return Key{}, fmt.Errorf("dictionary keys must be finite")
+			return Key{}, format.Errorf("dictionary keys must be finite")
 		}
 		if typed == 0 {
 			typed = 0
@@ -71,7 +72,7 @@ func Hash(value Value) (Key, error) {
 	case String, Bool:
 		return Key{Kind: value.Type(), Text: Format(value)}, nil
 	default:
-		return Key{}, fmt.Errorf("%s cannot be a dictionary key", value.Type())
+		return Key{}, format.Errorf("%s cannot be a dictionary key", value.Type())
 	}
 }
 
@@ -123,9 +124,9 @@ func Truthy(value Value) bool {
 	}
 }
 
-func Format(value Value) string { return format(value, map[Value]bool{}, false) }
+func Format(value Value) string { return formatValue(value, map[Value]bool{}, false) }
 
-func format(value Value, seen map[Value]bool, nested bool) string {
+func formatValue(value Value, seen map[Value]bool, nested bool) string {
 	switch typed := value.(type) {
 	case Number:
 		return strconv.FormatFloat(float64(typed), 'f', -1, 64)
@@ -146,7 +147,7 @@ func format(value Value, seen map[Value]bool, nested bool) string {
 		defer delete(seen, value)
 		parts := make([]string, len(typed.Elements))
 		for index, element := range typed.Elements {
-			parts[index] = format(element, seen, true)
+			parts[index] = formatValue(element, seen, true)
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case *Dict:
@@ -157,7 +158,7 @@ func format(value Value, seen map[Value]bool, nested bool) string {
 		defer delete(seen, value)
 		parts := make([]string, len(typed.Entries))
 		for index, entry := range typed.Entries {
-			parts[index] = format(entry.Key, seen, true) + ": " + format(entry.Value, seen, true)
+			parts[index] = formatValue(entry.Key, seen, true) + ": " + formatValue(entry.Value, seen, true)
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
 	case *Function:
@@ -177,7 +178,7 @@ func format(value Value, seen map[Value]bool, nested bool) string {
 	case *Builtin:
 		return "<builtin " + typed.Name + ">"
 	case *ReturnValue:
-		return format(typed.Value, seen, nested)
+		return formatValue(typed.Value, seen, nested)
 	default:
 		return "null"
 	}

@@ -95,7 +95,8 @@ go run ./cmd/web -build-only
 ```
 
 This generates `web/tiger.wasm` and copies the matching Go `wasm_exec.js`.
-Deploy both together with the web assets, including `highlight.mjs`, and serve the
+The stripped runtime is about 2.9 MB (about 0.8 MB with gzip). Deploy both
+together with the web assets, including `highlight.mjs`, and serve the
 repository's examples under `/examples/`. Alternatively, start the included server:
 
 ```sh

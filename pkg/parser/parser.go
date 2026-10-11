@@ -1,9 +1,10 @@
 package parser
 
 import (
-	"fmt"
 	"strconv"
+
 	"tiger/pkg/ast"
+	"tiger/pkg/format"
 	"tiger/pkg/lexer"
 )
 
@@ -27,7 +28,7 @@ func ParseSource(source, filename string) (program *ast.Program, err error) {
 	tokens, err := lexer.Scan(source)
 	if err != nil {
 		if filename != "" {
-			return nil, fmt.Errorf("%s:%w", filename, err)
+			return nil, format.Errorf("%s:%w", filename, err)
 		}
 		return nil, err
 	}
@@ -77,7 +78,7 @@ func (parse *parser) match(kind lexer.Kind) bool {
 
 func (parse *parser) expect(kind lexer.Kind) lexer.Token {
 	if !parse.at(kind) {
-		panic(syntaxError{parse.current().Errorf("expected %q, found %q", kind, parse.current().Kind)})
+		panic(syntaxError{parse.current().Errorf("expected %q, found %q", string(kind), string(parse.current().Kind))})
 	}
 	return parse.take()
 }
@@ -270,7 +271,7 @@ func (parse *parser) statementTail(base ast.Base) ast.Stmt {
 	case parse.at("break") || parse.at("continue"):
 		kind := parse.take().Text
 		if parse.loopDepth == 0 && (kind == "continue" || parse.switchDepth == 0) {
-			panic(syntaxError{base.Token.Errorf("%s outside a loop%s", kind, map[bool]string{true: " or switch"}[kind == "break"])})
+			panic(syntaxError{base.Token.Errorf("%s outside a loop%s", string(kind), map[bool]string{true: " or switch"}[kind == "break"])})
 		}
 		parse.expect(";")
 		return &ast.Control{Base: base, Kind: kind}
@@ -514,7 +515,7 @@ func (parse *parser) expression(minimum int) ast.Expr {
 		parse.expect("}")
 		left = &ast.Dict{Base: base, Pairs: pairs}
 	default:
-		panic(syntaxError{token.Errorf("expected expression, found %q", token.Kind)})
+		panic(syntaxError{token.Errorf("expected expression, found %q", string(token.Kind))})
 	}
 	for precedence(parse.current().Kind) > minimum {
 		operator := parse.take()

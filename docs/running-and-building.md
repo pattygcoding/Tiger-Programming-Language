@@ -60,18 +60,19 @@ go run ./cmd/web -build-only
 The underlying browser build on POSIX shells is:
 
 ```sh
-GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o web/tiger.wasm ./cmd/wasm
+GOOS=js GOARCH=wasm go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o web/tiger.wasm ./cmd/wasm
 ```
 
 ### Wasm Size
 
-The helper keeps `tiger.wasm` small in three ways:
+The helper keeps `tiger.wasm` small in several ways:
 
-- `-ldflags="-s -w"` drops the symbol table and DWARF debug data, and `-trimpath` drops local file paths.
+- `-ldflags="-s -w -buildid="` drops the symbol table, DWARF debug data, and the build ID, `-trimpath` drops local file paths, and `-buildvcs=false` skips VCS stamping.
+- The browser build never links `fmt`, `reflect`, `os`, `time`, or `path/filepath`. Runtime messages are formatted by the tiny `pkg/format` package, and the host filesystem and file loaders sit behind `//go:build !js` so only the in-memory filesystem and module loaders the playground uses are compiled in. This removed roughly 750 KB.
 - The interpreter avoids heavyweight standard-library packages such as `regexp` and `math/big`. Number parsing and `algo.isPrime` use small hand-written code instead, which removes roughly 700 KB from the binary.
-- If Binaryen's `wasm-opt` is on `PATH`, the helper also runs `wasm-opt -Oz` with the post-MVP features Go emits enabled. This saves roughly another 7% before compression. Install it from your package manager (for example `brew install binaryen`) or the [Binaryen releases](https://github.com/WebAssembly/binaryen/releases); without it, the step is skipped.
+- If Binaryen's `wasm-opt` is on `PATH`, the helper also runs `wasm-opt -Oz --converge` with the post-MVP features Go emits enabled and the debug and producer sections stripped. This saves roughly another 7% before compression. Install it from your package manager (for example `brew install binaryen`) or the [Binaryen releases](https://github.com/WebAssembly/binaryen/releases); without it, the step is skipped.
 
-The biggest saving at download time is compression. The stripped binary is about 3.5 MB but about 1 MB with gzip, and smaller still with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable gzip or Brotli for the `application/wasm` content type. The local `go run ./cmd/web` server does not compress.
+The biggest saving at download time is compression. The stripped binary is about 2.9 MB but about 0.8 MB with gzip, and smaller still with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable gzip or Brotli for the `application/wasm` content type. The local `go run ./cmd/web` server does not compress.
 
 The Go support script must come from the same toolchain as the Wasm binary. It lives under `lib/wasm` on newer Go releases or `misc/wasm` on older ones; the helper handles both locations.
 
@@ -160,7 +161,18 @@ The docs test checks Tiger examples against the output shown in Markdown. The be
 | `make test` | Full Go test suite |
 | `make benchmarks` | Verbose, uncached reference-output checks |
 | `make wasm` | Build browser Wasm and support script |
+| `make wasm-check` | Verify the browser build has no bloating dependencies |
 | `make web` | Build and serve the browser playground |
 | `make wasi` | Build WASI using POSIX environment syntax |
 
 Direct Go commands work without Make. See the [project layout](../README.md) for implementation packages.
+
+## Continuous Integration
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
+
+- `Tests` builds, vets, and runs `go test ./...` on Ubuntu and Windows with Go 1.22 and the latest stable release. That single command covers the unit tests, the documentation examples, the benchmark regression programs, the standalone-build integration tests, and the Wasm guard.
+- `Formatting and verbose suites` checks `gofmt` on Linux and logs the benchmark and documentation suites.
+- `Wasm builds and size guard` builds `GOOS=js` and `GOOS=wasip1`, runs `pkg/wasmcheck` to keep the forbidden packages out of the browser build, and fails if `tiger.wasm` grows past the size budget in the workflow.
+
+Run the same checks locally with `go vet ./...`, `go test ./...`, and `make wasm-check`. See "Wasm size guardrails" in [AGENTS.md](../AGENTS.md) before adding a dependency that the browser build would link.

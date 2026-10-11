@@ -1,13 +1,12 @@
 package evaluator
 
 import (
-	"container/heap"
-	"fmt"
 	"math"
 	"math/bits"
-	"sort"
-	"tiger/pkg/object"
 	"unicode"
+
+	"tiger/pkg/format"
+	"tiger/pkg/object"
 )
 
 // maxFibonacci is the largest index whose Fibonacci number is exact in a float64.
@@ -92,7 +91,7 @@ const maxQuadraticLength = 5000
 func quadraticStringBuiltin(name string, function func([]rune) object.Value) *object.Builtin {
 	return stringsBuiltin(name, 1, false, func(words [][]rune) (object.Value, error) {
 		if len(words[0]) > maxQuadraticLength {
-			return nil, fmt.Errorf("input is too long (%d characters; the limit is %d)", len(words[0]), maxQuadraticLength)
+			return nil, format.Errorf("input is too long (%d characters; the limit is %d)", len(words[0]), maxQuadraticLength)
 		}
 		return function(words[0]), nil
 	})
@@ -197,10 +196,10 @@ func stringsBuiltin(name string, count int, limitCells bool, function func([][]r
 	qualified := "algo." + name
 	return &object.Builtin{Name: qualified, Call: func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(keywords) != 0 {
-			return nil, fmt.Errorf("%s does not accept keyword arguments", qualified)
+			return nil, format.Errorf("%s does not accept keyword arguments", qualified)
 		}
 		if len(args) != count {
-			return nil, fmt.Errorf("%s expects %d argument%s, got %d", qualified, count, map[bool]string{true: "s"}[count != 1], len(args))
+			return nil, format.Errorf("%s expects %d argument%s, got %d", qualified, count, map[bool]string{true: "s"}[count != 1], len(args))
 		}
 		words := make([][]rune, count)
 		cells := 1
@@ -208,19 +207,19 @@ func stringsBuiltin(name string, count int, limitCells bool, function func([][]r
 			text, ok := arg.(object.String)
 			if !ok {
 				if count == 1 {
-					return nil, fmt.Errorf("%s expects a string, got %s", qualified, arg.Type())
+					return nil, format.Errorf("%s expects a string, got %s", qualified, arg.Type())
 				}
-				return nil, fmt.Errorf("%s expects two strings, got %s and %s", qualified, args[0].Type(), args[1].Type())
+				return nil, format.Errorf("%s expects two strings, got %s and %s", qualified, args[0].Type(), args[1].Type())
 			}
 			words[index] = []rune(string(text))
 			cells *= len(words[index]) + 1
 		}
 		if limitCells && cells > maxDPCells {
-			return nil, fmt.Errorf("%s: inputs are too long (%d table cells; the limit is %d)", qualified, cells, maxDPCells)
+			return nil, format.Errorf("%s: inputs are too long (%d table cells; the limit is %d)", qualified, cells, maxDPCells)
 		}
 		result, err := function(words)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", qualified, err)
+			return nil, format.Errorf("%s: %w", qualified, err)
 		}
 		return result, nil
 	}}
@@ -232,7 +231,7 @@ func numbersOf(list *object.List) ([]float64, error) {
 	for index, element := range list.Elements {
 		number, ok := element.(object.Number)
 		if !ok {
-			return nil, fmt.Errorf("nums must contain numbers, got %s at index %d", element.Type(), index)
+			return nil, format.Errorf("nums must contain numbers, got %s at index %d", element.Type(), index)
 		}
 		numbers[index] = float64(number)
 	}
@@ -248,10 +247,10 @@ func windowBuiltin(name string, function func(numbers []float64, k int) object.V
 		}
 		size, ok := rest[0].(object.Number)
 		if !ok {
-			return nil, fmt.Errorf("k must be a number, got %s", rest[0].Type())
+			return nil, format.Errorf("k must be a number, got %s", rest[0].Type())
 		}
 		if math.Trunc(float64(size)) != float64(size) || size < 1 || float64(size) > float64(len(numbers)) {
-			return nil, fmt.Errorf("k must be a whole number from 1 to %d (the length of nums), got %s", len(numbers), object.Format(size))
+			return nil, format.Errorf("k must be a whole number from 1 to %d (the length of nums), got %s", len(numbers), object.Format(size))
 		}
 		return function(numbers, int(size)), nil
 	})
@@ -297,15 +296,15 @@ func slidingWindowMinLen(lists []*object.List, rest []object.Value) (object.Valu
 	}
 	for index, number := range numbers {
 		if number < 0 {
-			return nil, fmt.Errorf("nums cannot contain negative numbers, got %s at index %d", object.Format(object.Number(number)), index)
+			return nil, format.Errorf("nums cannot contain negative numbers, got %s at index %d", object.Format(object.Number(number)), index)
 		}
 	}
 	target, ok := rest[0].(object.Number)
 	if !ok {
-		return nil, fmt.Errorf("target must be a number, got %s", rest[0].Type())
+		return nil, format.Errorf("target must be a number, got %s", rest[0].Type())
 	}
 	if target <= 0 {
-		return nil, fmt.Errorf("target must be positive, got %s", object.Format(target))
+		return nil, format.Errorf("target must be positive, got %s", object.Format(target))
 	}
 	best, left, sum := 0, 0, 0.0
 	for right, number := range numbers {
@@ -394,7 +393,7 @@ func editDistance(first, second []rune) (object.Value, error) {
 func regexMatch(text, pattern []rune) (object.Value, error) {
 	for index, char := range pattern {
 		if char == '*' && (index == 0 || pattern[index-1] == '*') {
-			return nil, fmt.Errorf("* at index %d must follow a character or .", index)
+			return nil, format.Errorf("* at index %d must follow a character or .", index)
 		}
 	}
 	// matches[i][j] reports whether text[i:] matches pattern[j:].
@@ -422,10 +421,10 @@ func sortedNumbers(label string, list *object.List) ([]float64, error) {
 	for index, element := range list.Elements {
 		number, ok := element.(object.Number)
 		if !ok {
-			return nil, fmt.Errorf("%s must contain numbers, got %s at index %d", label, element.Type(), index)
+			return nil, format.Errorf("%s must contain numbers, got %s at index %d", label, element.Type(), index)
 		}
 		if index > 0 && float64(number) < numbers[index-1] {
-			return nil, fmt.Errorf("%s is not sorted: %s at index %d comes after %s", label, object.Format(number), index, object.Format(object.Number(numbers[index-1])))
+			return nil, format.Errorf("%s is not sorted: %s at index %d comes after %s", label, object.Format(number), index, object.Format(object.Number(numbers[index-1])))
 		}
 		numbers[index] = float64(number)
 	}
@@ -447,7 +446,7 @@ func medianSorted(lists []*object.List, _ []object.Value) (object.Value, error) 
 	}
 	m, n := len(first), len(second)
 	if m+n == 0 {
-		return nil, fmt.Errorf("both lists are empty")
+		return nil, format.Errorf("both lists are empty")
 	}
 	half := (m + n + 1) / 2
 	low, high := 0, m
@@ -481,7 +480,7 @@ func medianSorted(lists []*object.List, _ []object.Value) (object.Value, error) 
 			return object.Number((left + math.Min(rightA, rightB)) / 2), nil
 		}
 	}
-	return nil, fmt.Errorf("lists must be sorted")
+	return nil, format.Errorf("lists must be sorted")
 }
 
 type mergeItem struct {
@@ -491,8 +490,7 @@ type mergeItem struct {
 
 type mergeHeap []mergeItem
 
-func (h mergeHeap) Len() int { return len(h) }
-func (h mergeHeap) Less(i, j int) bool {
+func (h mergeHeap) less(i, j int) bool {
 	if lessValue(h[i].value, h[j].value) {
 		return true
 	}
@@ -509,13 +507,55 @@ func lessValue(left, right object.Value) bool {
 	}
 	return left.(object.String) < right.(object.String)
 }
-func (h mergeHeap) Swap(i, j int)  { h[i], h[j] = h[j], h[i] }
-func (h *mergeHeap) Push(item any) { *h = append(*h, item.(mergeItem)) }
-func (h *mergeHeap) Pop() any {
+
+// init heapifies the cursors in place.
+func (h *mergeHeap) init() {
+	for start := len(*h)/2 - 1; start >= 0; start-- {
+		h.down(start)
+	}
+}
+
+// push adds a cursor and restores the heap order.
+func (h *mergeHeap) push(item mergeItem) {
+	*h = append(*h, item)
+	for child := len(*h) - 1; child > 0; {
+		parent := (child - 1) / 2
+		if !(*h).less(child, parent) {
+			break
+		}
+		(*h)[child], (*h)[parent] = (*h)[parent], (*h)[child]
+		child = parent
+	}
+}
+
+// pop removes the smallest cursor and restores the heap order.
+func (h *mergeHeap) pop() mergeItem {
 	old := *h
-	item := old[len(old)-1]
-	*h = old[:len(old)-1]
+	last := len(old) - 1
+	old[0], old[last] = old[last], old[0]
+	item := old[last]
+	*h = old[:last]
+	h.down(0)
 	return item
+}
+
+func (h *mergeHeap) down(index int) {
+	size := len(*h)
+	for {
+		left := 2*index + 1
+		if left >= size {
+			return
+		}
+		smallest := left
+		if right := left + 1; right < size && (*h).less(right, left) {
+			smallest = right
+		}
+		if !(*h).less(smallest, index) {
+			return
+		}
+		(*h)[smallest], (*h)[index] = (*h)[index], (*h)[smallest]
+		index = smallest
+	}
 }
 
 // mergeKSorted merges with a min-heap of one cursor per list in O(N log k); ties keep list order.
@@ -526,21 +566,21 @@ func mergeKSorted(lists []*object.List, _ []object.Value) (object.Value, error) 
 	for position, element := range lists[0].Elements {
 		inner, ok := element.(*object.List)
 		if !ok {
-			return nil, fmt.Errorf("expects a list of lists, got %s at index %d", element.Type(), position)
+			return nil, format.Errorf("expects a list of lists, got %s at index %d", element.Type(), position)
 		}
 		for index, value := range inner.Elements {
 			switch value.(type) {
 			case object.Number, object.String:
 			default:
-				return nil, fmt.Errorf("list %d must contain numbers or strings, got %s at index %d", position, value.Type(), index)
+				return nil, format.Errorf("list %d must contain numbers or strings, got %s at index %d", position, value.Type(), index)
 			}
 			if kind == "" {
 				kind = value.Type()
 			} else if value.Type() != kind {
-				return nil, fmt.Errorf("cannot compare %s and %s (list %d, index %d)", kind, value.Type(), position, index)
+				return nil, format.Errorf("cannot compare %s and %s (list %d, index %d)", kind, value.Type(), position, index)
 			}
 			if index > 0 && lessValue(value, inner.Elements[index-1]) {
-				return nil, fmt.Errorf("list %d is not sorted: %s at index %d comes after %s", position, object.Format(value), index, object.Format(inner.Elements[index-1]))
+				return nil, format.Errorf("list %d is not sorted: %s at index %d comes after %s", position, object.Format(value), index, object.Format(inner.Elements[index-1]))
 			}
 		}
 		sources = append(sources, append([]object.Value(nil), inner.Elements...))
@@ -552,13 +592,13 @@ func mergeKSorted(lists []*object.List, _ []object.Value) (object.Value, error) 
 			*cursors = append(*cursors, mergeItem{source[0], position, 0})
 		}
 	}
-	heap.Init(cursors)
+	cursors.init()
 	merged := make([]object.Value, 0, total)
-	for cursors.Len() > 0 {
-		item := heap.Pop(cursors).(mergeItem)
+	for len(*cursors) > 0 {
+		item := cursors.pop()
 		merged = append(merged, item.value)
 		if next := item.index + 1; next < len(sources[item.list]) {
-			heap.Push(cursors, mergeItem{sources[item.list][next], item.list, next})
+			cursors.push(mergeItem{sources[item.list][next], item.list, next})
 		}
 	}
 	return &object.List{Elements: merged}, nil
@@ -570,10 +610,10 @@ func rainwater(lists []*object.List, _ []object.Value) (object.Value, error) {
 	for index, element := range lists[0].Elements {
 		number, ok := element.(object.Number)
 		if !ok {
-			return nil, fmt.Errorf("heights must be numbers, got %s at index %d", element.Type(), index)
+			return nil, format.Errorf("heights must be numbers, got %s at index %d", element.Type(), index)
 		}
 		if number < 0 {
-			return nil, fmt.Errorf("heights cannot be negative, got %s at index %d", object.Format(number), index)
+			return nil, format.Errorf("heights cannot be negative, got %s at index %d", object.Format(number), index)
 		}
 		heights[index] = float64(number)
 	}
@@ -603,20 +643,20 @@ const maxExactInteger = 9007199254740991
 func isPrime(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 	const name = "algo.isPrime"
 	if len(keywords) != 0 {
-		return nil, fmt.Errorf("%s does not accept keyword arguments", name)
+		return nil, format.Errorf("%s does not accept keyword arguments", name)
 	}
 	if len(args) != 1 {
-		return nil, fmt.Errorf("%s expects 1 argument, got %d", name, len(args))
+		return nil, format.Errorf("%s expects 1 argument, got %d", name, len(args))
 	}
 	number, ok := args[0].(object.Number)
 	if !ok {
-		return nil, fmt.Errorf("%s expects an integer, got %s", name, args[0].Type())
+		return nil, format.Errorf("%s expects an integer, got %s", name, args[0].Type())
 	}
 	if math.Trunc(float64(number)) != float64(number) {
-		return nil, fmt.Errorf("%s expects an integer, got %s", name, object.Format(number))
+		return nil, format.Errorf("%s expects an integer, got %s", name, object.Format(number))
 	}
 	if math.Abs(float64(number)) > maxExactInteger {
-		return nil, fmt.Errorf("%s: %s is too large; the maximum is %d", name, object.Format(number), maxExactInteger)
+		return nil, format.Errorf("%s: %s is too large; the maximum is %d", name, object.Format(number), maxExactInteger)
 	}
 	return object.Bool(number > 1 && isPrime64(uint64(number))), nil
 }
@@ -698,30 +738,30 @@ func takeInventory(lists []*object.List, _ []object.Value) (object.Value, error)
 func findPlace(lists []*object.List, rest []object.Value) (object.Value, error) {
 	number, ok := rest[0].(object.Number)
 	if !ok {
-		return nil, fmt.Errorf("place must be a number, got %s", rest[0].Type())
+		return nil, format.Errorf("place must be a number, got %s", rest[0].Type())
 	}
 	if number < 1 || math.Trunc(float64(number)) != float64(number) {
-		return nil, fmt.Errorf("place must be a positive whole number, got %s", object.Format(number))
+		return nil, format.Errorf("place must be a positive whole number, got %s", object.Format(number))
 	}
 	values := uniqueWhere(lists[0], func(object.Value) bool { return true })
 	for _, value := range values {
 		if _, isNumber := value.(object.Number); !isNumber {
 			if _, isString := value.(object.String); !isString {
-				return nil, fmt.Errorf("cannot rank %s values; use numbers or strings", value.Type())
+				return nil, format.Errorf("cannot rank %s values; use numbers or strings", value.Type())
 			}
 		}
 		if value.Type() != values[0].Type() {
-			return nil, fmt.Errorf("cannot compare %s and %s", values[0].Type(), value.Type())
+			return nil, format.Errorf("cannot compare %s and %s", values[0].Type(), value.Type())
 		}
 	}
 	if float64(number) > float64(len(values)) {
-		return nil, fmt.Errorf("place %s is out of range; the list has %d distinct value%s", object.Format(number), len(values), map[bool]string{true: "s"}[len(values) != 1])
+		return nil, format.Errorf("place %s is out of range; the list has %d distinct value%s", object.Format(number), len(values), map[bool]string{true: "s"}[len(values) != 1])
 	}
-	sort.Slice(values, func(i, j int) bool {
-		if left, ok := values[i].(object.Number); ok {
-			return left > values[j].(object.Number)
+	stableSort(values, func(left, right object.Value) bool {
+		if first, ok := left.(object.Number); ok {
+			return first > right.(object.Number)
 		}
-		return values[i].(object.String) > values[j].(object.String)
+		return left.(object.String) > right.(object.String)
 	})
 	return values[int(number)-1], nil
 }
@@ -777,22 +817,22 @@ func listBuiltin(name string, arity, listCount int, function func([]*object.List
 	qualified := "algo." + name
 	return &object.Builtin{Name: qualified, Call: func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(keywords) != 0 {
-			return nil, fmt.Errorf("%s does not accept keyword arguments", qualified)
+			return nil, format.Errorf("%s does not accept keyword arguments", qualified)
 		}
 		if len(args) != arity {
-			return nil, fmt.Errorf("%s expects %d argument%s, got %d", qualified, arity, map[bool]string{true: "s"}[arity != 1], len(args))
+			return nil, format.Errorf("%s expects %d argument%s, got %d", qualified, arity, map[bool]string{true: "s"}[arity != 1], len(args))
 		}
 		lists := make([]*object.List, listCount)
 		for index, arg := range args[:listCount] {
 			list, ok := arg.(*object.List)
 			if !ok {
-				return nil, fmt.Errorf("%s expects a list, got %s", qualified, arg.Type())
+				return nil, format.Errorf("%s expects a list, got %s", qualified, arg.Type())
 			}
 			lists[index] = list
 		}
 		result, err := function(lists, args[listCount:])
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", qualified, err)
+			return nil, format.Errorf("%s: %w", qualified, err)
 		}
 		return result, nil
 	}}
@@ -803,20 +843,20 @@ func sequenceBuiltin(name string, limit int, list bool, terms func(n int) []obje
 	qualified := "algo." + name
 	return &object.Builtin{Name: qualified, Call: func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(keywords) != 0 {
-			return nil, fmt.Errorf("%s does not accept keyword arguments", qualified)
+			return nil, format.Errorf("%s does not accept keyword arguments", qualified)
 		}
 		if len(args) != 1 {
-			return nil, fmt.Errorf("%s expects 1 argument, got %d", qualified, len(args))
+			return nil, format.Errorf("%s expects 1 argument, got %d", qualified, len(args))
 		}
 		index, ok := args[0].(object.Number)
 		if !ok {
-			return nil, fmt.Errorf("%s expects a number, got %s", qualified, args[0].Type())
+			return nil, format.Errorf("%s expects a number, got %s", qualified, args[0].Type())
 		}
 		if index < 0 || math.Trunc(float64(index)) != float64(index) {
-			return nil, fmt.Errorf("%s expects a non-negative integer, got %s", qualified, object.Format(index))
+			return nil, format.Errorf("%s expects a non-negative integer, got %s", qualified, object.Format(index))
 		}
 		if index > object.Number(limit) {
-			return nil, fmt.Errorf("%s: index %s is too large; the maximum is %d", qualified, object.Format(index), limit)
+			return nil, format.Errorf("%s: index %s is too large; the maximum is %d", qualified, object.Format(index), limit)
 		}
 		sequence := terms(int(index))
 		if list {

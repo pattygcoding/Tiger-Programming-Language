@@ -49,19 +49,30 @@ func main() {
 }
 
 func buildWasm() error {
-	// -s -w drop the symbol table and DWARF data, which the browser never uses.
-	command := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", "web/tiger.wasm", "./cmd/wasm")
+	// -s -w drop the symbol table and DWARF data, -buildid drops the build ID,
+	// and -buildvcs skips VCS stamping; the browser never uses any of it.
+	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -buildid=", "-o", "web/tiger.wasm", "./cmd/wasm")
 	command.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm", "CGO_ENABLED=0")
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("build Wasm: %w\n%s", err, output)
 	}
 	if optimizer, err := exec.LookPath("wasm-opt"); err == nil {
-		// Go's Wasm output uses these post-MVP features, so wasm-opt must allow them.
-		command := exec.Command(optimizer, "-Oz", "--enable-bulk-memory", "--enable-sign-ext", "--enable-nontrapping-float-to-int", "web/tiger.wasm", "-o", "web/tiger.wasm")
+		// Go's Wasm output uses these post-MVP features, so wasm-opt must allow
+		// them. -Oz with --converge and the strip passes gives the smallest file.
+		// Optimize to a temporary file so a failure never corrupts tiger.wasm.
+		optimized := "web/tiger.wasm.opt"
+		command := exec.Command(optimizer, "-Oz", "--converge",
+			"--strip-debug", "--strip-dwarf", "--strip-producers",
+			"--enable-bulk-memory", "--enable-sign-ext", "--enable-nontrapping-float-to-int",
+			"web/tiger.wasm", "-o", optimized)
 		if output, err := command.CombinedOutput(); err != nil {
-			return fmt.Errorf("wasm-opt: %w\n%s", err, output)
+			_ = os.Remove(optimized)
+			fmt.Printf("wasm-opt skipped: %v\n%s", err, output)
+		} else if err := os.Rename(optimized, "web/tiger.wasm"); err != nil {
+			return err
+		} else {
+			fmt.Println("Optimized web/tiger.wasm with wasm-opt -Oz")
 		}
-		fmt.Println("Optimized web/tiger.wasm with wasm-opt -Oz")
 	}
 	root, err := exec.Command("go", "env", "GOROOT").Output()
 	if err != nil {

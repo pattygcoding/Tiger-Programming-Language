@@ -1,17 +1,14 @@
 package evaluator
 
 import (
-	"bufio"
 	"errors"
-	"fmt"
 	"io"
-	"io/fs"
 	"math"
-	"os"
 	"path"
 	"strings"
 
 	"tiger/pkg/ast"
+	"tiger/pkg/format"
 	"tiger/pkg/object"
 )
 
@@ -36,21 +33,21 @@ func ParseFileMode(mode string) (FileMode, error) {
 		switch mode[index] {
 		case 'b', 'B':
 			if flag.Binary || base == "" {
-				return FileMode{}, fmt.Errorf("invalid mode %q", mode)
+				return FileMode{}, format.Errorf("invalid mode %q", mode)
 			}
 			flag.Binary = true
 		case '+':
 			if plus || base == "" {
-				return FileMode{}, fmt.Errorf("invalid mode %q", mode)
+				return FileMode{}, format.Errorf("invalid mode %q", mode)
 			}
 			plus = true
 		case 'r', 'R', 'w', 'W', 'a', 'A':
 			if base != "" {
-				return FileMode{}, fmt.Errorf("invalid mode %q", mode)
+				return FileMode{}, format.Errorf("invalid mode %q", mode)
 			}
 			base = strings.ToLower(string(mode[index]))
 		default:
-			return FileMode{}, fmt.Errorf("invalid mode %q", mode)
+			return FileMode{}, format.Errorf("invalid mode %q", mode)
 		}
 	}
 	switch base {
@@ -61,7 +58,7 @@ func ParseFileMode(mode string) (FileMode, error) {
 	case "a":
 		flag.Write, flag.Append, flag.Create = true, true, true
 	default:
-		return FileMode{}, fmt.Errorf("invalid mode %q", mode)
+		return FileMode{}, format.Errorf("invalid mode %q", mode)
 	}
 	if plus {
 		flag.Read, flag.Write = true, true
@@ -85,46 +82,6 @@ type FileSystem interface {
 	Open(name string, mode FileMode) (FileHandle, error)
 	Remove(name string) error
 	Exists(name string) (bool, error)
-}
-
-// OSFileSystem reads and writes the host operating system's files.
-type OSFileSystem struct{}
-
-func (OSFileSystem) Open(name string, mode FileMode) (FileHandle, error) {
-	flags := os.O_RDONLY
-	switch {
-	case mode.Read && mode.Write:
-		flags = os.O_RDWR
-	case mode.Write:
-		flags = os.O_WRONLY
-	}
-	if mode.Create {
-		flags |= os.O_CREATE
-	}
-	if mode.Truncate {
-		flags |= os.O_TRUNC
-	}
-	if mode.Append {
-		flags |= os.O_APPEND
-	}
-	handle, err := os.OpenFile(name, flags, 0644)
-	if err != nil {
-		return nil, err
-	}
-	return handle, nil
-}
-
-func (OSFileSystem) Remove(name string) error { return os.Remove(name) }
-
-func (OSFileSystem) Exists(name string) (bool, error) {
-	info, err := os.Stat(name)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	return !info.IsDir(), nil
 }
 
 // MemoryFileSystem keeps files in memory. Browser builds use it because a
@@ -152,7 +109,7 @@ func (filesystem *MemoryFileSystem) Open(name string, mode FileMode) (FileHandle
 	}
 	entry, exists := filesystem.entries[key]
 	if !exists && !mode.Create {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+		return nil, &pathError{Op: "open", Path: name, Err: ErrNotExist}
 	}
 	if !exists {
 		entry = &memoryFile{name: key}
@@ -176,7 +133,7 @@ func (filesystem *MemoryFileSystem) Remove(name string) error {
 		return err
 	}
 	if _, exists := filesystem.entries[key]; !exists {
-		return &fs.PathError{Op: "remove", Path: name, Err: fs.ErrNotExist}
+		return &pathError{Op: "remove", Path: name, Err: ErrNotExist}
 	}
 	delete(filesystem.entries, key)
 	return nil
@@ -193,11 +150,11 @@ func (filesystem *MemoryFileSystem) Exists(name string) (bool, error) {
 
 func memoryKey(name string) (string, error) {
 	if strings.TrimSpace(name) == "" {
-		return "", fmt.Errorf("path must not be empty")
+		return "", format.Errorf("path must not be empty")
 	}
 	key := path.Clean(strings.ReplaceAll(name, "\\", "/"))
 	if key == "." || key == "/" {
-		return "", fmt.Errorf("invalid path %q", name)
+		return "", format.Errorf("invalid path %q", name)
 	}
 	return strings.TrimPrefix(key, "/"), nil
 }
@@ -236,11 +193,11 @@ func (file *memoryFile) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		base = int64(len(file.data))
 	default:
-		return 0, fmt.Errorf("invalid seek origin %d", whence)
+		return 0, format.Errorf("invalid seek origin %d", whence)
 	}
 	position := base + offset
 	if position < 0 {
-		return 0, fmt.Errorf("negative seek position %d", position)
+		return 0, format.Errorf("negative seek position %d", position)
 	}
 	file.offset = position
 	return position, nil
@@ -259,7 +216,7 @@ type openFile struct {
 	name   string
 	mode   FileMode
 	handle FileHandle
-	reader *bufio.Reader
+	reader *bufferedReader
 	closed bool
 }
 
@@ -281,7 +238,7 @@ func (eval *Evaluator) openHandle(name, mode string) (*openFile, error) {
 	}
 	file := &openFile{name: name, mode: flag, handle: handle}
 	if flag.Read {
-		file.reader = bufio.NewReader(handle)
+		file.reader = newBufferedReader(handle)
 	}
 	return file, nil
 }
@@ -299,7 +256,7 @@ func (file *openFile) readText(size int64) (string, error) {
 		return "", errFileClosed
 	}
 	if !file.mode.Read {
-		return "", fmt.Errorf("file %q is not open for reading", file.name)
+		return "", format.Errorf("file %q is not open for reading", file.name)
 	}
 	var data []byte
 	var err error
@@ -319,7 +276,7 @@ func (file *openFile) readLine() (string, error) {
 		return "", errFileClosed
 	}
 	if !file.mode.Read {
-		return "", fmt.Errorf("file %q is not open for reading", file.name)
+		return "", format.Errorf("file %q is not open for reading", file.name)
 	}
 	text, err := file.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
@@ -347,7 +304,7 @@ func (file *openFile) writeText(text string) (int, error) {
 		return 0, errFileClosed
 	}
 	if !file.mode.Write {
-		return 0, fmt.Errorf("file %q is not open for writing", file.name)
+		return 0, format.Errorf("file %q is not open for writing", file.name)
 	}
 	count, err := io.WriteString(file.handle, text)
 	if file.reader != nil {
@@ -429,12 +386,12 @@ func fileProperty(node *ast.Property, file *object.File) object.Value {
 func fileMethod(name string, file *openFile) object.Value {
 	return &object.Builtin{Name: name, Call: func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(keywords) != 0 {
-			return nil, fmt.Errorf("file %s does not accept keyword arguments", name)
+			return nil, format.Errorf("file %s does not accept keyword arguments", name)
 		}
 		switch name {
 		case "read":
 			if len(arguments) > 1 {
-				return nil, fmt.Errorf("read expects 0 or 1 arguments, got %d", len(arguments))
+				return nil, format.Errorf("read expects 0 or 1 arguments, got %d", len(arguments))
 			}
 			size := int64(-1)
 			if len(arguments) == 1 {
@@ -451,7 +408,7 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.String(text), nil
 		case "readline":
 			if len(arguments) != 0 {
-				return nil, fmt.Errorf("readline expects 0 arguments, got %d", len(arguments))
+				return nil, format.Errorf("readline expects 0 arguments, got %d", len(arguments))
 			}
 			text, err := file.readLine()
 			if err != nil {
@@ -460,16 +417,16 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.String(text), nil
 		case "readlines":
 			if len(arguments) != 0 {
-				return nil, fmt.Errorf("readlines expects 0 arguments, got %d", len(arguments))
+				return nil, format.Errorf("readlines expects 0 arguments, got %d", len(arguments))
 			}
 			return file.readLines()
 		case "write":
 			if len(arguments) != 1 {
-				return nil, fmt.Errorf("write expects 1 argument, got %d", len(arguments))
+				return nil, format.Errorf("write expects 1 argument, got %d", len(arguments))
 			}
 			text, ok := arguments[0].(object.String)
 			if !ok {
-				return nil, fmt.Errorf("write expects a string, got %s", arguments[0].Type())
+				return nil, format.Errorf("write expects a string, got %s", arguments[0].Type())
 			}
 			count, err := file.writeText(string(text))
 			if err != nil {
@@ -478,16 +435,16 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.Number(count), nil
 		case "writelines":
 			if len(arguments) != 1 {
-				return nil, fmt.Errorf("writelines expects 1 argument, got %d", len(arguments))
+				return nil, format.Errorf("writelines expects 1 argument, got %d", len(arguments))
 			}
 			list, ok := arguments[0].(*object.List)
 			if !ok {
-				return nil, fmt.Errorf("writelines expects a list, got %s", arguments[0].Type())
+				return nil, format.Errorf("writelines expects a list, got %s", arguments[0].Type())
 			}
 			for _, element := range list.Elements {
 				text, ok := element.(object.String)
 				if !ok {
-					return nil, fmt.Errorf("writelines expects a list of strings, got %s", element.Type())
+					return nil, format.Errorf("writelines expects a list of strings, got %s", element.Type())
 				}
 				if _, err := file.writeText(string(text)); err != nil {
 					return nil, err
@@ -496,7 +453,7 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.Null{}, nil
 		case "flush":
 			if len(arguments) != 0 {
-				return nil, fmt.Errorf("flush expects 0 arguments, got %d", len(arguments))
+				return nil, format.Errorf("flush expects 0 arguments, got %d", len(arguments))
 			}
 			if err := file.flush(); err != nil {
 				return nil, err
@@ -504,7 +461,7 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.Null{}, nil
 		case "close":
 			if len(arguments) != 0 {
-				return nil, fmt.Errorf("close expects 0 arguments, got %d", len(arguments))
+				return nil, format.Errorf("close expects 0 arguments, got %d", len(arguments))
 			}
 			if err := file.close(); err != nil {
 				return nil, err
@@ -512,7 +469,7 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.Null{}, nil
 		case "seek":
 			if len(arguments) < 1 || len(arguments) > 2 {
-				return nil, fmt.Errorf("seek expects 1 or 2 arguments, got %d", len(arguments))
+				return nil, format.Errorf("seek expects 1 or 2 arguments, got %d", len(arguments))
 			}
 			offset, err := fileInteger(arguments[0], "seek offset")
 			if err != nil {
@@ -525,7 +482,7 @@ func fileMethod(name string, file *openFile) object.Value {
 					return nil, err
 				}
 				if whence < 0 || whence > 2 {
-					return nil, fmt.Errorf("seek origin must be 0, 1, or 2, got %d", whence)
+					return nil, format.Errorf("seek origin must be 0, 1, or 2, got %d", whence)
 				}
 			}
 			position, err := file.seek(offset, int(whence))
@@ -535,7 +492,7 @@ func fileMethod(name string, file *openFile) object.Value {
 			return object.Number(position), nil
 		case "tell":
 			if len(arguments) != 0 {
-				return nil, fmt.Errorf("tell expects 0 arguments, got %d", len(arguments))
+				return nil, format.Errorf("tell expects 0 arguments, got %d", len(arguments))
 			}
 			position, err := file.tell()
 			if err != nil {
@@ -543,14 +500,14 @@ func fileMethod(name string, file *openFile) object.Value {
 			}
 			return object.Number(position), nil
 		}
-		return nil, fmt.Errorf("file has no property %q", name)
+		return nil, format.Errorf("file has no property %q", name)
 	}}
 }
 
 func fileInteger(value object.Value, label string) (int64, error) {
 	number, ok := value.(object.Number)
 	if !ok || math.IsNaN(float64(number)) || math.IsInf(float64(number), 0) || math.Trunc(float64(number)) != float64(number) || math.Abs(float64(number)) > 9007199254740991 {
-		return 0, fmt.Errorf("%s must be a safe integer", label)
+		return 0, format.Errorf("%s must be a safe integer", label)
 	}
 	return int64(number), nil
 }
@@ -559,20 +516,20 @@ func (eval *Evaluator) fileBuiltins() map[string]func([]object.Value, map[string
 	return map[string]func([]object.Value, map[string]object.Value) (object.Value, error){
 		"open": func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
 			if len(keywords) != 0 {
-				return nil, fmt.Errorf("open does not accept keyword arguments")
+				return nil, format.Errorf("open does not accept keyword arguments")
 			}
 			if len(arguments) < 1 || len(arguments) > 2 {
-				return nil, fmt.Errorf("open expects 1 or 2 arguments, got %d", len(arguments))
+				return nil, format.Errorf("open expects 1 or 2 arguments, got %d", len(arguments))
 			}
 			name, ok := arguments[0].(object.String)
 			if !ok {
-				return nil, fmt.Errorf("open expects a path string, got %s", arguments[0].Type())
+				return nil, format.Errorf("open expects a path string, got %s", arguments[0].Type())
 			}
 			mode := "r"
 			if len(arguments) == 2 {
 				text, ok := arguments[1].(object.String)
 				if !ok {
-					return nil, fmt.Errorf("open mode must be a string, got %s", arguments[1].Type())
+					return nil, format.Errorf("open mode must be a string, got %s", arguments[1].Type())
 				}
 				mode = string(text)
 			}
@@ -650,32 +607,32 @@ func (eval *Evaluator) writeHandle(name, text, mode string) (object.Value, error
 
 func filePathArgument(name string, arguments []object.Value, keywords map[string]object.Value) (string, error) {
 	if len(keywords) != 0 {
-		return "", fmt.Errorf("%s does not accept keyword arguments", name)
+		return "", format.Errorf("%s does not accept keyword arguments", name)
 	}
 	if len(arguments) != 1 {
-		return "", fmt.Errorf("%s expects 1 argument, got %d", name, len(arguments))
+		return "", format.Errorf("%s expects 1 argument, got %d", name, len(arguments))
 	}
 	path, ok := arguments[0].(object.String)
 	if !ok {
-		return "", fmt.Errorf("%s expects a path string, got %s", name, arguments[0].Type())
+		return "", format.Errorf("%s expects a path string, got %s", name, arguments[0].Type())
 	}
 	return string(path), nil
 }
 
 func fileTextArguments(name string, arguments []object.Value, keywords map[string]object.Value) (string, string, error) {
 	if len(keywords) != 0 {
-		return "", "", fmt.Errorf("%s does not accept keyword arguments", name)
+		return "", "", format.Errorf("%s does not accept keyword arguments", name)
 	}
 	if len(arguments) != 2 {
-		return "", "", fmt.Errorf("%s expects 2 arguments, got %d", name, len(arguments))
+		return "", "", format.Errorf("%s expects 2 arguments, got %d", name, len(arguments))
 	}
 	path, ok := arguments[0].(object.String)
 	if !ok {
-		return "", "", fmt.Errorf("%s expects a path string, got %s", name, arguments[0].Type())
+		return "", "", format.Errorf("%s expects a path string, got %s", name, arguments[0].Type())
 	}
 	text, ok := arguments[1].(object.String)
 	if !ok {
-		return "", "", fmt.Errorf("%s expects a string value, got %s", name, arguments[1].Type())
+		return "", "", format.Errorf("%s expects a string value, got %s", name, arguments[1].Type())
 	}
 	return string(path), string(text), nil
 }

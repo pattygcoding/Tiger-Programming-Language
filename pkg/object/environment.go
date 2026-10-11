@@ -1,6 +1,6 @@
 package object
 
-import "fmt"
+import "tiger/pkg/format"
 
 type binding struct {
 	value    Value
@@ -43,7 +43,7 @@ func NewEnvironment(parent *Environment) *Environment {
 
 func (env *Environment) Define(name string, value Value, constant bool) error {
 	if _, exists := env.bindings[name]; exists {
-		return fmt.Errorf("%q is already declared in this scope", name)
+		return format.Errorf("%q is already declared in this scope", name)
 	}
 	env.bindings[name] = binding{value: value, constant: constant}
 	return nil
@@ -62,16 +62,16 @@ func (env *Environment) Get(name string) (Value, error) {
 	if owner := env.resolve(name); owner != nil {
 		return owner.bindings[name].value, nil
 	}
-	return nil, fmt.Errorf("undefined name %q", name)
+	return nil, format.Errorf("undefined name %q", name)
 }
 
 func (env *Environment) Assign(name string, value Value) error {
 	owner := env.resolve(name)
 	if owner == nil {
-		return fmt.Errorf("undefined name %q; declare it with const or var before assignment", name)
+		return format.Errorf("undefined name %q; declare it with const or var before assignment", name)
 	}
 	if owner.bindings[name].constant {
-		return fmt.Errorf("cannot reassign const %q", name)
+		return format.Errorf("cannot reassign const %q", name)
 	}
 	owner.bindings[name] = binding{value: value}
 	return nil

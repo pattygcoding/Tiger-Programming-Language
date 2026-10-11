@@ -4,7 +4,7 @@ ifeq ($(OS),Windows_NT)
 EXE := .exe
 endif
 
-.PHONY: build run test benchmarks wasm web wasi
+.PHONY: build run test benchmarks wasm wasm-check web wasi
 
 build:
 	$(GO) build -o bin/tiger$(EXE) ./cmd/tiger
@@ -20,6 +20,9 @@ benchmarks:
 
 wasm:
 	$(GO) run ./cmd/web -build-only
+
+wasm-check:
+	$(GO) test ./pkg/wasmcheck -count=1 -v
 
 web:
 	$(GO) run ./cmd/web

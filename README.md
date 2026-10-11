@@ -50,10 +50,10 @@ go run ./cmd/web -build-only
 The underlying Wasm build command on POSIX shells is:
 
 ```sh
-GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o web/tiger.wasm ./cmd/wasm
+GOOS=js GOARCH=wasm go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o web/tiger.wasm ./cmd/wasm
 ```
 
-`-ldflags="-s -w"` strips symbols and debug data. If Binaryen's `wasm-opt` is on `PATH`, `go run ./cmd/web` also runs `wasm-opt -Oz`. Serve `tiger.wasm` with gzip or Brotli: the binary is about 3.5 MB but about 1 MB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
+`-ldflags="-s -w -buildid="` strips symbols, debug data, and the build ID, and `-buildvcs=false` skips VCS stamping. If Binaryen's `wasm-opt` is on `PATH`, `go run ./cmd/web` also runs `wasm-opt -Oz --converge` with the post-MVP feature flags enabled. The interpreter also keeps `fmt`, `reflect`, `os`, and `time` out of the browser build, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 2.9 MB but about 0.8 MB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
 
 In PowerShell, set `$env:GOOS = "js"` and `$env:GOARCH = "wasm"` before the build, then remove them with `Remove-Item Env:GOOS, Env:GOARCH`. Always pair the generated Wasm with `wasm_exec.js` from the same Go toolchain (`lib/wasm` on newer Go releases, `misc/wasm` on older ones). The helper handles this automatically.
 
@@ -157,6 +157,7 @@ cmd/tiger/       Native CLI
 cmd/wasm/        Browser syscall/js bridge
 cmd/wasi/        WASI interpreter
 cmd/web/         Cross-platform Wasm build and HTTP helper
+pkg/format/     Tiny message formatting and errors (keeps fmt/reflect out of Wasm)
 pkg/lexer/      Tokens and scanning
 pkg/parser/     Pratt parser and syntax validation
 pkg/ast/        AST declarations
