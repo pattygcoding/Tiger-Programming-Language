@@ -1,12 +1,12 @@
 package evaluator
 
 import (
-	"bufio"
-	"fmt"
 	"io"
 	"math"
 	"strings"
+
 	"tiger/pkg/ast"
+	"tiger/pkg/format"
 	"tiger/pkg/object"
 	"tiger/pkg/parser"
 )
@@ -33,7 +33,7 @@ type Evaluator struct {
 	Loader      ModuleLoader
 	FileSystem  FileSystem
 	SourcePath  string
-	reader      *bufio.Reader
+	reader      *bufferedReader
 	readerFrom  io.Reader
 	modules     map[string]*object.Module
 	loading     map[string]bool
@@ -88,8 +88,8 @@ func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 	return nil
 }
 
-func fail(node ast.Node, format string, args ...any) {
-	panic(runtimeError{err: node.Position().Errorf(format, args...)})
+func fail(node ast.Node, template string, args ...any) {
+	panic(runtimeError{err: node.Position().Errorf(template, args...)})
 }
 
 func check(node ast.Node, err error) {
@@ -556,7 +556,7 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 	functions := map[string]func([]object.Value, map[string]object.Value) (object.Value, error){
 		"range": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 			if len(keywords) != 0 {
-				return nil, fmt.Errorf("range does not accept keyword arguments")
+				return nil, format.Errorf("range does not accept keyword arguments")
 			}
 			return rangeValues(args)
 		},
@@ -564,11 +564,11 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 			ending := "\n"
 			for name, value := range keywords {
 				if name != "end" {
-					return nil, fmt.Errorf("print does not accept keyword argument %q", name)
+					return nil, format.Errorf("print does not accept keyword argument %q", name)
 				}
 				text, ok := value.(object.String)
 				if !ok {
-					return nil, fmt.Errorf("print end must be a string, got %s", value.Type())
+					return nil, format.Errorf("print end must be a string, got %s", value.Type())
 				}
 				ending = string(text)
 			}
@@ -576,15 +576,15 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 			for index, value := range args {
 				parts[index] = object.Format(value)
 			}
-			_, err := fmt.Fprint(eval.Output, strings.Join(parts, " ")+ending)
+			_, err := io.WriteString(eval.Output, strings.Join(parts, " ")+ending)
 			return object.Null{}, err
 		},
 		"len": func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 			if len(keywords) != 0 {
-				return nil, fmt.Errorf("len does not accept keyword arguments")
+				return nil, format.Errorf("len does not accept keyword arguments")
 			}
 			if len(args) != 1 {
-				return nil, fmt.Errorf("len expects 1 argument, got %d", len(args))
+				return nil, format.Errorf("len expects 1 argument, got %d", len(args))
 			}
 			switch value := args[0].(type) {
 			case object.String:
@@ -594,7 +594,7 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 			case *object.Dict:
 				return object.Number(len(value.Entries)), nil
 			default:
-				return nil, fmt.Errorf("len does not accept %s", value.Type())
+				return nil, format.Errorf("len does not accept %s", value.Type())
 			}
 		},
 	}

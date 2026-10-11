@@ -1,30 +1,31 @@
 package main
 
 import (
-	"bytes"
-	"fmt"
+	"errors"
 	"io"
 	"syscall/js"
+
 	"tiger/pkg/evaluator"
 )
 
-// limitedOutput caps output at 1 MiB and streams each write to the optional tigerOutput hook.
-type limitedOutput struct{ bytes.Buffer }
+// limitedOutput caps output at 1 MiB and streams each write to the optional
+// tigerOutput hook.
+type limitedOutput struct {
+	data []byte
+}
 
 func (output *limitedOutput) Write(content []byte) (int, error) {
-	if output.Len()+len(content) > 1<<20 {
-		return 0, fmt.Errorf("output limit exceeded (1 MiB)")
+	if len(output.data)+len(content) > 1<<20 {
+		return 0, errors.New("output limit exceeded (1 MiB)")
 	}
 	if hook := js.Global().Get("tigerOutput"); hook.Type() == js.TypeFunction {
 		hook.Invoke(string(content))
 	}
-	return output.Buffer.Write(content)
+	output.data = append(output.data, content...)
+	return len(content), nil
 }
 
-// WriteString shadows bytes.Buffer.WriteString, which io.WriteString would otherwise call directly.
-func (output *limitedOutput) WriteString(text string) (int, error) {
-	return output.Write([]byte(text))
-}
+func (output *limitedOutput) String() string { return string(output.data) }
 
 // browserInput blocks the running program until tigerProvideInput delivers a line; null means end of input.
 type browserInput struct {
@@ -55,7 +56,7 @@ type browserLoader struct{}
 func (browserLoader) Resolve(importer, requested string) (string, error) {
 	result := js.Global().Call("tigerResolveModule", importer, requested)
 	if message := result.Get("error").String(); message != "" {
-		return "", fmt.Errorf("%s", message)
+		return "", errors.New(message)
 	}
 	return result.Get("path").String(), nil
 }
@@ -63,7 +64,7 @@ func (browserLoader) Resolve(importer, requested string) (string, error) {
 func (browserLoader) Load(filename string) (string, error) {
 	result := js.Global().Call("tigerLoadModule", filename)
 	if message := result.Get("error").String(); message != "" {
-		return "", fmt.Errorf("%s", message)
+		return "", errors.New(message)
 	}
 	return result.Get("source").String(), nil
 }

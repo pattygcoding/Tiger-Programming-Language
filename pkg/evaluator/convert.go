@@ -1,10 +1,11 @@
 package evaluator
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
+
+	"tiger/pkg/format"
 	"tiger/pkg/object"
 )
 
@@ -53,7 +54,7 @@ func toInt(name string, value object.Value) (object.Value, error) {
 	case object.String:
 		text := strings.TrimSpace(string(typed))
 		if !isIntegerLiteral(text) {
-			return nil, fmt.Errorf("%s: invalid integer literal %s", name, strconv.Quote(string(typed)))
+			return nil, format.Errorf("%s: invalid integer literal %s", name, strconv.Quote(string(typed)))
 		}
 		number, err := parseFinite(name, text)
 		if err != nil {
@@ -61,7 +62,7 @@ func toInt(name string, value object.Value) (object.Value, error) {
 		}
 		return number.(object.Number) + 0, nil
 	}
-	return nil, fmt.Errorf("%s cannot convert %s", name, value.Type())
+	return nil, format.Errorf("%s cannot convert %s", name, value.Type())
 }
 
 func toFloat(name string, value object.Value) (object.Value, error) {
@@ -73,17 +74,17 @@ func toFloat(name string, value object.Value) (object.Value, error) {
 	case object.String:
 		text := strings.TrimSpace(string(typed))
 		if !isFloatLiteral(text) {
-			return nil, fmt.Errorf("%s: invalid number literal %s", name, strconv.Quote(string(typed)))
+			return nil, format.Errorf("%s: invalid number literal %s", name, strconv.Quote(string(typed)))
 		}
 		return parseFinite(name, text)
 	}
-	return nil, fmt.Errorf("%s cannot convert %s", name, value.Type())
+	return nil, format.Errorf("%s cannot convert %s", name, value.Type())
 }
 
 func parseFinite(name, text string) (object.Value, error) {
 	number, err := strconv.ParseFloat(text, 64)
 	if err != nil || math.IsInf(number, 0) {
-		return nil, fmt.Errorf("%s: %s is out of range", name, text)
+		return nil, format.Errorf("%s: %s is out of range", name, text)
 	}
 	return object.Number(number), nil
 }
@@ -117,7 +118,7 @@ func conversionBuiltins() map[string]func([]object.Value, map[string]object.Valu
 		conversion := conversion
 		functions[conversion.builtin] = func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 			if len(keywords) != 0 {
-				return nil, fmt.Errorf("%s does not accept keyword arguments", conversion.builtin)
+				return nil, format.Errorf("%s does not accept keyword arguments", conversion.builtin)
 			}
 			switch len(args) {
 			case 0:
@@ -125,7 +126,7 @@ func conversionBuiltins() map[string]func([]object.Value, map[string]object.Valu
 			case 1:
 				return conversion.convert(conversion.builtin, args[0])
 			}
-			return nil, fmt.Errorf("%s expects at most 1 argument, got %d", conversion.builtin, len(args))
+			return nil, format.Errorf("%s expects at most 1 argument, got %d", conversion.builtin, len(args))
 		}
 	}
 	return functions
@@ -139,7 +140,7 @@ func conversionMethod(name string, receiver object.Value) object.Value {
 	}
 	return &object.Builtin{Name: name, Call: func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(args) != 0 || len(keywords) != 0 {
-			return nil, fmt.Errorf("%s expects 0 arguments", name)
+			return nil, format.Errorf("%s expects 0 arguments", name)
 		}
 		return conversion.convert(name, receiver)
 	}}

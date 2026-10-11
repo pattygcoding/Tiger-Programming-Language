@@ -1,8 +1,9 @@
 package evaluator
 
 import (
-	"fmt"
 	"math"
+
+	"tiger/pkg/format"
 	"tiger/pkg/object"
 )
 
@@ -39,7 +40,7 @@ var binaryMath = map[string]func(float64, float64) (float64, error){
 			return 0, errMathDomain
 		}
 		if math.IsInf(result, 0) {
-			return 0, fmt.Errorf("math range error")
+			return 0, format.Errorf("math range error")
 		}
 		return result, nil
 	},
@@ -47,7 +48,7 @@ var binaryMath = map[string]func(float64, float64) (float64, error){
 	"max": func(a, b float64) (float64, error) { return math.Max(a, b), nil },
 }
 
-var errMathDomain = fmt.Errorf("math domain error")
+var errMathDomain = format.Errorf("math domain error")
 
 func mathModule() *object.Module {
 	env := object.NewEnvironment(nil)
@@ -66,22 +67,22 @@ func mathBuiltin(name string, arity int, function func([]float64) (float64, erro
 	qualified := "math." + name
 	return &object.Builtin{Name: qualified, Call: func(args []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(keywords) != 0 {
-			return nil, fmt.Errorf("%s does not accept keyword arguments", qualified)
+			return nil, format.Errorf("%s does not accept keyword arguments", qualified)
 		}
 		if len(args) != arity {
-			return nil, fmt.Errorf("%s expects %d argument%s, got %d", qualified, arity, map[bool]string{true: "s"}[arity != 1], len(args))
+			return nil, format.Errorf("%s expects %d argument%s, got %d", qualified, arity, map[bool]string{true: "s"}[arity != 1], len(args))
 		}
 		numbers := make([]float64, arity)
 		for index, arg := range args {
 			number, ok := arg.(object.Number)
 			if !ok {
-				return nil, fmt.Errorf("%s expects a number, got %s", qualified, arg.Type())
+				return nil, format.Errorf("%s expects a number, got %s", qualified, arg.Type())
 			}
 			numbers[index] = float64(number)
 		}
 		result, err := function(numbers)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", qualified, err)
+			return nil, format.Errorf("%s: %w", qualified, err)
 		}
 		return object.Number(result + 0), nil
 	}}

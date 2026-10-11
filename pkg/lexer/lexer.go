@@ -1,9 +1,10 @@
 package lexer
 
 import (
-	"fmt"
 	"strconv"
 	"unicode"
+
+	"tiger/pkg/format"
 )
 
 type Kind string
@@ -26,11 +27,12 @@ type Token struct {
 	Source string
 }
 
-func (token Token) Errorf(format string, args ...any) error {
+func (token Token) Errorf(template string, args ...any) error {
+	message := format.Sprintf(template, args...)
 	if token.Source != "" {
-		return fmt.Errorf("%s:%d:%d: %s", token.Source, token.Line, token.Column, fmt.Sprintf(format, args...))
+		return format.Errorf("%s:%d:%d: %s", token.Source, token.Line, token.Column, message)
 	}
-	return fmt.Errorf("%d:%d: %s", token.Line, token.Column, fmt.Sprintf(format, args...))
+	return format.Errorf("%d:%d: %s", token.Line, token.Column, message)
 }
 
 type scanner struct {

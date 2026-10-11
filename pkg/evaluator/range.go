@@ -1,20 +1,21 @@
 package evaluator
 
 import (
-	"fmt"
 	"math"
+
+	"tiger/pkg/format"
 	"tiger/pkg/object"
 )
 
 func rangeValues(arguments []object.Value) (object.Value, error) {
 	if len(arguments) < 1 || len(arguments) > 3 {
-		return nil, fmt.Errorf("range expects 1 to 3 arguments, got %d", len(arguments))
+		return nil, format.Errorf("range expects 1 to 3 arguments, got %d", len(arguments))
 	}
 	values := make([]int64, len(arguments))
 	for index, argument := range arguments {
 		number, ok := argument.(object.Number)
 		if !ok || math.IsNaN(float64(number)) || math.IsInf(float64(number), 0) || math.Trunc(float64(number)) != float64(number) || math.Abs(float64(number)) > 9007199254740991 {
-			return nil, fmt.Errorf("range arguments must be safe integers (absolute value <= 9007199254740991)")
+			return nil, format.Errorf("range arguments must be safe integers (absolute value <= 9007199254740991)")
 		}
 		values[index] = int64(number)
 	}
@@ -26,7 +27,7 @@ func rangeValues(arguments []object.Value) (object.Value, error) {
 		step = values[2]
 	}
 	if step == 0 {
-		return nil, fmt.Errorf("range step cannot be zero")
+		return nil, format.Errorf("range step cannot be zero")
 	}
 	count := int64(0)
 	if step > 0 && start < stop {
@@ -36,7 +37,7 @@ func rangeValues(arguments []object.Value) (object.Value, error) {
 		count = (start-stop-1)/(-step) + 1
 	}
 	if count > 1_000_000 {
-		return nil, fmt.Errorf("range exceeds 1000000 elements")
+		return nil, format.Errorf("range exceeds 1000000 elements")
 	}
 	list := &object.List{Elements: make([]object.Value, int(count))}
 	for index := range list.Elements {

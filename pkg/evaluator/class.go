@@ -1,10 +1,10 @@
 package evaluator
 
 import (
-	"fmt"
 	"math"
-	"sort"
+
 	"tiger/pkg/ast"
+	"tiger/pkg/format"
 	"tiger/pkg/object"
 )
 
@@ -98,10 +98,10 @@ func (eval *Evaluator) property(node *ast.Property, receiver object.Value, env *
 func lengthMethod(name string, length object.Number) object.Value {
 	return &object.Builtin{Name: name, Call: func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(keywords) != 0 {
-			return nil, fmt.Errorf("%s does not accept keyword arguments", name)
+			return nil, format.Errorf("%s does not accept keyword arguments", name)
 		}
 		if len(arguments) != 0 {
-			return nil, fmt.Errorf("%s expects 0 arguments, got %d", name, len(arguments))
+			return nil, format.Errorf("%s expects 0 arguments, got %d", name, len(arguments))
 		}
 		return length, nil
 	}}
@@ -111,7 +111,7 @@ func lengthMethod(name string, length object.Number) object.Value {
 func (eval *Evaluator) sortMethod(node *ast.Property, list *object.List, env *object.Environment) object.Value {
 	return &object.Builtin{Name: "sort", Call: func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
 		if len(arguments) != 0 {
-			return nil, fmt.Errorf("sort takes no positional arguments")
+			return nil, format.Errorf("sort takes no positional arguments")
 		}
 		var key object.Value = object.Null{}
 		reverse := false
@@ -125,14 +125,14 @@ func (eval *Evaluator) sortMethod(node *ast.Property, list *object.List, env *ob
 					reverse = bool(flag)
 				case object.Number:
 					if math.Trunc(float64(flag)) != float64(flag) {
-						return nil, fmt.Errorf("sort reverse must be a boolean or integer")
+						return nil, format.Errorf("sort reverse must be a boolean or integer")
 					}
 					reverse = flag != 0
 				default:
-					return nil, fmt.Errorf("sort reverse must be a boolean or integer, got %s", value.Type())
+					return nil, format.Errorf("sort reverse must be a boolean or integer, got %s", value.Type())
 				}
 			default:
-				return nil, fmt.Errorf("sort does not accept keyword argument %q", name)
+				return nil, format.Errorf("sort does not accept keyword argument %q", name)
 			}
 		}
 		items := append([]object.Value{}, list.Elements...)
@@ -147,12 +147,12 @@ func (eval *Evaluator) sortMethod(node *ast.Property, list *object.List, env *ob
 		for i := range order {
 			order[i] = i
 		}
-		sort.SliceStable(order, func(i, j int) bool {
-			left, right := keys[order[i]], keys[order[j]]
+		stableSort(order, func(left, right int) bool {
+			first, second := keys[left], keys[right]
 			if reverse {
-				left, right = right, left
+				first, second = second, first
 			}
-			return lessThan(node, left, right)
+			return lessThan(node, first, second)
 		})
 		sorted := make([]object.Value, len(items))
 		for i, index := range order {
