@@ -40,6 +40,32 @@ type FormattedString struct {
 	Parts []Expr
 }
 
+// Interpolation is one "{expression[:spec]}" field of a formatted string.
+type Interpolation struct {
+	Base
+	Value Expr
+	Spec  string
+}
+
+// Conditional is the "value if condition else fallback" expression. Only the
+// selected branch is evaluated.
+type Conditional struct {
+	Base
+	Condition Expr
+	Then      Expr
+	Else      Expr
+}
+
+// Slice is "collection[start:stop:step]" on a list or a string. A nil bound
+// means "the default for this step".
+type Slice struct {
+	Base
+	Collection Expr
+	Start      Expr
+	Stop       Expr
+	Step       Expr
+}
+
 type Identifier struct {
 	Base
 	Name string
@@ -131,10 +157,26 @@ type Function struct {
 	Access     string
 	Name       string
 	Parameters []string
-	Variadic   string
-	Keyword    string
-	Body       []Stmt
+	// Defaults runs parallel to Parameters; a nil entry means the parameter is
+	// required, and a non-nil entry is the default value expression.
+	Defaults []Expr
+	Variadic string
+	Keyword  string
+	Body     []Stmt
 }
+
+// Destructure binds several names from a list or dictionary value, as in
+// "const [a, b] = pair();" or "var {name, age} = record;". Lookup selects
+// dictionary keys instead of list positions.
+type Destructure struct {
+	Base
+	Names    []string
+	Constant bool
+	Value    Expr
+	Lookup   bool
+}
+
+func (*Destructure) statement() {}
 
 type Class struct {
 	Base
@@ -171,6 +213,7 @@ type If struct {
 
 type While struct {
 	Base
+	Label     string
 	Condition Expr
 	Body      []Stmt
 	Else      []Stmt
@@ -178,6 +221,7 @@ type While struct {
 
 type For struct {
 	Base
+	Label    string
 	Name     string
 	Iterable Expr
 	Body     []Stmt
@@ -186,6 +230,7 @@ type For struct {
 
 type CFor struct {
 	Base
+	Label       string
 	Initializer Stmt
 	Condition   Expr
 	Update      Stmt
@@ -193,9 +238,19 @@ type CFor struct {
 	Else        []Stmt
 }
 
+// DoWhile runs its body once and then repeats for as long as its condition
+// holds.
+type DoWhile struct {
+	Base
+	Label     string
+	Condition Expr
+	Body      []Stmt
+}
+
 type Control struct {
 	Base
-	Kind string
+	Kind  string
+	Label string
 }
 
 type Throw struct {
@@ -205,9 +260,17 @@ type Throw struct {
 
 type Try struct {
 	Base
-	Body  []Stmt
-	Name  string
-	Catch []Stmt
+	Body    []Stmt
+	Catches []Catch
+	Finally []Stmt
+}
+
+// Catch is one catch clause. A nil Condition matches every error; otherwise the
+// clause matches only when the condition is truthy after binding Name.
+type Catch struct {
+	Name      string
+	Condition Expr
+	Body      []Stmt
 }
 
 type Case struct {
@@ -223,6 +286,9 @@ type Switch struct {
 
 func (*Literal) expression()         {}
 func (*FormattedString) expression() {}
+func (*Interpolation) expression()   {}
+func (*Conditional) expression()     {}
+func (*Slice) expression()           {}
 func (*Identifier) expression()      {}
 func (*Unary) expression()           {}
 func (*Update) expression()          {}
@@ -236,12 +302,14 @@ func (*Dict) expression()            {}
 func (*ExpressionStmt) statement()   {}
 func (*Assign) statement()           {}
 func (*Function) statement()         {}
+func (*Function) expression()        {}
 func (*Class) statement()            {}
 func (*Return) statement()           {}
 func (*If) statement()               {}
 func (*While) statement()            {}
 func (*For) statement()              {}
 func (*CFor) statement()             {}
+func (*DoWhile) statement()          {}
 func (*Control) statement()          {}
 func (*Switch) statement()           {}
 func (*Throw) statement()            {}

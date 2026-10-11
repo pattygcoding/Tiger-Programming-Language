@@ -21,11 +21,15 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | `index out of range` | List or string index exceeds bounds | Check `len` before indexing |
 | `index must be an integer` | Index is fractional or not numeric | Use an integer-valued number |
 | `dictionary key not found` | Missing dictionary entry | Check `key in dictionary` first |
+| `pop from empty list` / `remove: value not in list` | No element to remove | Check `len` or `value in items` first |
+| `pop: key not found` | Dictionary `pop` used a missing key | Use `get`/`delete`, or pass a default |
 | `expects ... arguments` | Function, constructor, or method arity mismatch | Match the declared parameters; omit bound `this`; use `*args` for extra positional arguments |
 | `missing required argument` | A variadic function did not receive a required named parameter | Pass the missing argument positionally or by keyword |
 | `unexpected keyword argument` | A keyword argument has no matching parameter | Match a parameter name or declare `**kwargs` |
 | `multiple values for argument` | One parameter received both a positional and a keyword argument | Pass each value once |
 | `duplicate keyword argument` | A keyword name was supplied twice, directly or through `**` | Remove the repeated name |
+| `type expects 1 argument` | `type` or `isinstance` was called with the wrong number of arguments | Pass the value, and for `isinstance` a type name |
+| `isinstance: unknown type name` | `isinstance` name is not one that `type` returns | Use a name from the [`type` reference](builtins.md#typevalue-isinstancevalue-name) |
 | `cannot unpack ... expected a list` | A `*` argument expanded to a non-list | Spread a list instead |
 | `cannot unpack ... expected a dictionary` | A `**` argument expanded to a non-dictionary | Spread a dictionary with string keys |
 | `has no property` | Instance member does not exist | Initialize the field or check the method name |
@@ -90,7 +94,49 @@ must be positive -2
 true
 ```
 
-`throw expression;` raises any Tiger value, including `null`. `try { ... } catch (name) { ... }` catches thrown values unchanged, or ordinary runtime errors as positioned message strings. The catch binding is mutable and local. Try and catch blocks have separate scopes. Rethrow with `throw name;`; bare `throw;` is not supported. Errors in a catch propagate to an outer handler. Returns, breaks, and continues pass through try/catch normally. There is no `finally`, typed catch, or `except`.
+`throw expression;` raises any Tiger value, including `null`. `try { ... } catch (name) { ... }` catches thrown values unchanged. A caught runtime error is a structured `error` value: `error["message"]` is the bare diagnostic, `error["kind"]` is a stable category, and `error["origin"]` is the `file:line:column` (or `line:column`) position. `print(error)` and `str(error)` show the positioned diagnostic, and `"text" in error` checks whether that text contains a substring, so older code keeps working. Kinds include `zero division`, `math domain`, `math range`, `numeric range`, `constant reassignment`, `duplicate declaration`, `undefined name`, `index range`, `index type`, `missing key`, `not indexable`, `unsupported operands`, and `missing file`; anything unmatched is `runtime error`. The catch binding is mutable and local. Try and catch blocks have separate scopes. Rethrow with `throw name;`; bare `throw;` is not supported. Errors in a catch propagate to an outer handler. Returns, breaks, and continues pass through try/catch normally.
+
+## Finally
+
+```tg
+var closed = false;
+try {
+    throw "boom";
+} catch (error) {
+    closed = true;
+} finally {
+    print("cleanup");
+}
+print("closed", closed);
+```
+
+```text
+cleanup
+closed true
+```
+
+`finally { ... }` runs on every exit path: normal completion, a caught error, an uncaught error, a `return`, and a `break` or `continue`. A `try` may have `finally` without `catch`, and may chain several `catch` clauses before `finally`. A `return`, `break`, or `continue` inside `finally` overrides any in-flight error, and an error raised in `finally` replaces the original. Resource-limit errors skip `finally`.
+
+## Typed Catch
+
+```tg
+function classify(value) {
+    try {
+        return [10, 20][value];
+    } catch (error) if isinstance(error, "error") and error["kind"] == "index range" {
+        return "range";
+    } catch (error) {
+        return "other";
+    }
+}
+print(classify(1), classify(5));
+```
+
+```text
+20 range
+```
+
+Each `catch` clause may carry an `if condition` guard, evaluated with the binding in scope; the first clause whose guard is truthy, or that has no guard, runs. Combined with `error["kind"]`, this dispatches on the failure category instead of matching message text. Clauses are tried in order, so a plain `catch (error)` works as the fallback. An error that no clause matches propagates to an outer handler after any `finally` runs.
 
 Uncaught throws stop execution and report `uncaught throw: ...` at the throw position. Parsing errors cannot be caught because parsing precedes execution. Execution-step and evaluation-depth limits cannot be caught. Output and mutations before an error are not rolled back.
 
@@ -109,8 +155,8 @@ These safeguards are not a memory limit, a wall-clock deadline, or a security gu
 
 ## Current Language Boundaries
 
-Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md), [file input and output](file-io.md), and variadic `*args`/`**kwargs` parameters with `*`/`**` call unpacking, but has no package manager, network API, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, type annotations, destructuring, or default parameter values. Numbers are float64, not arbitrary-precision integers.
+Tiger borrows ideas from Python but is not a Python compatibility layer. It supports [file-based modules](modules.md), [file input and output](file-io.md), and variadic `*args`/`**kwargs` parameters with `*`/`**` call unpacking, but has no package manager, network API, asynchronous syntax, generators, tuples, sets, slicing, comprehensions, or type annotations. Numbers are float64, not arbitrary-precision integers.
 
-There is no exponentiation. `+=`, `-=`, `*=`, `%=`, `++`/`--`, `break`, `continue`, `switch`, loop `else`, C-style `cfor`, and `cif`/`celse` (with `&&`/`||` in their headers) are supported. `//` is a comment marker, not integer division. Classes support one parent, implicit `this`, declared fields, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
+`**` is exponentiation, `div` is floor division, and `&`, `|`, `^`, `~`, `<<`, and `>>` are bitwise operators over 64-bit integers. `+=`, `-=`, `*=`, `%=`, `++`/`--`, `break`, `continue`, `switch`, loop `else`, C-style `cfor`, and `cif`/`celse` (with `&&`/`||` in their headers) are supported. `//` begins a comment; it is not floor division. Classes support one parent, implicit `this`, declared fields, public-by-default members, and `private`/`protected` restrictions; not static members, decorators, multiple parents, or operator overloading.
 
 See [Running and Building](running-and-building.md) for CLI exit codes and host-level execution choices.

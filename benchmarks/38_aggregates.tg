@@ -1,0 +1,101 @@
+// 38_aggregates.tg - aggregate and higher-order built-ins.
+//
+// Exercises sum, min/max over a list and over arguments, any/all, enumerate,
+// zip, map, filter, and non-mutating sorted (plain, reversed, and keyed), the
+// item's hand-written reduction compared against sum/min, a few pipelines, and
+// every error path handled with try/catch.
+
+print("== reductions ==");
+const values = [4, 8, 15, 16, 23, 42];
+print(sum(values), min(values), max(values));
+var total = 0;
+var smallest = values[0];
+for value in values {
+    total = total + value;
+    if value < smallest { smallest = value; }
+}
+print(total == sum(values), smallest == min(values));
+print(sum([]), min(3, 1, 2), max(3, 1, 2));
+print(min(["pear", "apple"]), max(["pear", "apple"]));
+
+print("== predicates ==");
+print(any([0, "", 3]), any([0, ""]), all([1, "x"]), all([1, 0]));
+print(any([]), all([]));
+
+print("== reshape ==");
+print(enumerate(["a", "b", "c"]));
+print(zip([1, 2, 3], ["x", "y"]));
+print(zip([1, 2], [3, 4], [5, 6]));
+for pair in enumerate(["red", "blue"]) {
+    print(pair[0], pair[1]);
+}
+
+print("== higher order ==");
+const doubled = map(values, function(value) { return value * 2; });
+print(doubled);
+const evens = filter(values, function(value) { return value % 2 == 0; });
+print(evens);
+print(map(["a", "bb", "ccc"], len));
+print(filter([0, "", 5, null, "x"], function(value) { return value; }));
+
+print("== sorting ==");
+print(sorted(values));
+print(values);
+print(sorted(values, reverse=true));
+print(sorted(["ccc", "a", "bb"], key=len));
+print(sorted(values, key=function(value) { return -value; }));
+const ordered = sorted(values);
+ordered[0] = 0;
+print(values[0], ordered[0]);
+
+print("== pipelines ==");
+const words = ["delta", "alpha", "charlie", "bravo"];
+print(sorted(filter(words, function(word) { return len(word) > 5; })));
+print(sum(map([1, 2, 3, 4], function(value) { return value * value; })));
+for pair in enumerate(sorted(words)) {
+    print(pair[0], pair[1]);
+}
+
+print("== nested and mixed ==");
+const matrix = [[1, 2], [3, 4], [5, 6]];
+print(map(matrix, sum));
+print(sum(map(matrix, sum)));
+const names = ["ada", "alan", "grace", "edsger"];
+print(zip(names, map(names, len)));
+print(any(map(names, function(name) { return len(name) > 6; })));
+print(all(map([1, 2, 3], function(value) { return value > 0; })));
+const tally = [3, 1, 3, 2, 1, 3];
+print(max(tally), min(tally), sum(tally));
+print(sorted(enumerate(["c", "a", "b"]), key=function(pair) { return pair[1]; }));
+print(sum([1.5, 2.5, 3.0]), min([2, 2]), max([2, 2]));
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function bad_sum() {
+    return sum([1, "x"]);
+}
+function empty_extreme() {
+    return min([]);
+}
+function mixed_compare() {
+    return max([1, "a"]);
+}
+function bad_zip() {
+    return zip([1], 2);
+}
+function bad_map() {
+    return map([1], 2);
+}
+print("expects numbers" in fails(bad_sum));
+print("empty sequence" in fails(empty_extreme));
+print("cannot compare" in fails(mixed_compare));
+print("expects lists" in fails(bad_zip), "not callable" in fails(bad_map));
+
+print("done");

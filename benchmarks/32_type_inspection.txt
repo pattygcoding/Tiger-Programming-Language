@@ -1,0 +1,53 @@
+== scalars ==
+number number string bool bool null
+== collections ==
+list list dict dict
+== callables ==
+function builtin builtin builtin
+== classes ==
+class instance bound method
+Rex barks
+== modules and files ==
+module module
+file
+typed
+false
+== isinstance ==
+true false true
+true true false
+true true false
+true false true
+true false true
+true false
+true true
+== list of names ==
+true true false
+true true
+false false
+== classify ==
+["scalar", "scalar", "scalar", "text", "text", "null", "collection", "collection", "callable", "callable", "object", "object", "module"]
+number -> scalar
+number -> scalar
+bool -> scalar
+string -> text
+string -> text
+null -> null
+list -> collection
+dict -> collection
+function -> callable
+builtin -> callable
+class -> object
+instance -> object
+module -> module
+type of true is bool
+== diagnostics agree with type() ==
+true true
+true true
+== shadowing ==
+shadowed number
+== errors ==
+true true
+true true
+true true
+true true
+done

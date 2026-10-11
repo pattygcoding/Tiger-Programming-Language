@@ -69,10 +69,10 @@ The helper keeps `tiger.wasm` small in several ways:
 
 - `-ldflags="-s -w -buildid="` drops the symbol table, DWARF debug data, and the build ID, `-trimpath` drops local file paths, and `-buildvcs=false` skips VCS stamping.
 - The browser build never links `fmt`, `reflect`, `os`, `time`, or `path/filepath`. Runtime messages are formatted by the tiny `pkg/format` package, and the host filesystem and file loaders sit behind `//go:build !js` so only the in-memory filesystem and module loaders the playground uses are compiled in. This removed roughly 750 KB.
-- The interpreter avoids heavyweight standard-library packages such as `regexp` and `math/big`. Number parsing and `algo.isPrime` use small hand-written code instead, which removes roughly 700 KB from the binary.
+- The browser build avoids heavyweight standard-library packages such as `regexp` and `math/big`: the `regex` and `time` modules are native/WASI-only behind `//go:build !js`, the `json` parser is hand-written, and number parsing and `algo.isPrime` use small hand-written code instead. This removes roughly 700 KB from the browser binary.
 - If Binaryen's `wasm-opt` is on `PATH`, the helper also runs `wasm-opt -Oz --converge` with the post-MVP features Go emits enabled and the debug and producer sections stripped. This saves roughly another 7% before compression. Install it from your package manager (for example `brew install binaryen`) or the [Binaryen releases](https://github.com/WebAssembly/binaryen/releases); without it, the step is skipped.
 
-The biggest saving at download time is compression. The stripped binary is about 2.9 MB but about 0.8 MB with gzip, and smaller still with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable gzip or Brotli for the `application/wasm` content type. The local `go run ./cmd/web` server does not compress.
+The biggest saving at download time is compression. The stripped binary is about 3.1 MB but about 0.8 MB with gzip, and smaller still with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable gzip or Brotli for the `application/wasm` content type. The local `go run ./cmd/web` server does not compress.
 
 The Go support script must come from the same toolchain as the Wasm binary. It lives under `lib/wasm` on newer Go releases or `misc/wasm` on older ones; the helper handles both locations.
 
@@ -152,7 +152,7 @@ go test ./benchmarks -count=1 -v
 go vet ./...
 ```
 
-The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks thirty-one 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
+The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks forty 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
 
 | Make target | Purpose |
 | --- | --- |

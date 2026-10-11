@@ -47,12 +47,14 @@ Names start with a letter or `_`, followed by letters, digits, or `_`. Unicode l
 Reserved keywords:
 
 ```text
-and as break case catch celse cfor cif class const continue default
+and as break case catch celse cfor cif class const continue default do
 elif else extends false for function if import in not null or private
 protected public return super switch this throw true try var while
 ```
 
-`this` is reserved and is available automatically inside every constructor and method; it is never listed as a parameter. Constructors are declared Java-style with the class name, as in `Counter(start) { ... }`; `init` is an ordinary name, not a keyword. `super(...)` calls the parent constructor. `print`, `input`, `str`, `int`, `float`, `bool`, `len`, and `range` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
+Keywords are reserved, so none of them can name a variable, function, or parameter. `do` was added for [`do...while`](control-flow.md#do-while), so an older program that used `do` as a name must rename it.
+
+`this` is reserved and is available automatically inside every constructor and method; it is never listed as a parameter. Constructors are declared Java-style with the class name, as in `Counter(start) { ... }`; `init` is an ordinary name, not a keyword. `super(...)` calls the parent constructor. `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, and `isinstance` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
 
 `import "helpers.tg" as helpers;` declares a module alias. Import statements require semicolons; see [Importing Tiger Files](modules.md).
 

@@ -82,6 +82,7 @@ type FileSystem interface {
 	Open(name string, mode FileMode) (FileHandle, error)
 	Remove(name string) error
 	Exists(name string) (bool, error)
+	List(name string) ([]string, error)
 }
 
 // MemoryFileSystem keeps files in memory. Browser builds use it because a
@@ -146,6 +147,45 @@ func (filesystem *MemoryFileSystem) Exists(name string) (bool, error) {
 	}
 	_, exists := filesystem.entries[key]
 	return exists, nil
+}
+
+// List returns the immediate entries under a directory, sorted ascending.
+// Directory entries end with "/" in the host filesystem; the memory filesystem
+// holds only files. A missing directory is an error.
+func (filesystem *MemoryFileSystem) List(name string) ([]string, error) {
+	key := memoryListKey(name)
+	names := []string{}
+	exists := key == ""
+	for entry := range filesystem.entries {
+		if key == "" {
+			if strings.Contains(entry, "/") {
+				continue
+			}
+			names = append(names, entry)
+			continue
+		}
+		if !strings.HasPrefix(entry, key+"/") {
+			continue
+		}
+		exists = true
+		if rest := entry[len(key)+1:]; !strings.Contains(rest, "/") {
+			names = append(names, rest)
+		}
+	}
+	if !exists {
+		return nil, &pathError{Op: "list", Path: name, Err: ErrNotExist}
+	}
+	stableSort(names, func(left, right string) bool { return left < right })
+	return names, nil
+}
+
+// memoryListKey normalizes a directory path for List; the root maps to "".
+func memoryListKey(name string) string {
+	key := path.Clean(strings.ReplaceAll(name, "\\", "/"))
+	if key == "." || key == "/" {
+		return ""
+	}
+	return strings.TrimPrefix(key, "/")
 }
 
 func memoryKey(name string) (string, error) {
@@ -585,6 +625,21 @@ func (eval *Evaluator) fileBuiltins() map[string]func([]object.Value, map[string
 				return nil, err
 			}
 			return object.Null{}, nil
+		},
+		"list_dir": func(arguments []object.Value, keywords map[string]object.Value) (object.Value, error) {
+			name, err := filePathArgument("list_dir", arguments, keywords)
+			if err != nil {
+				return nil, err
+			}
+			names, err := eval.files().List(name)
+			if err != nil {
+				return nil, err
+			}
+			elements := make([]object.Value, len(names))
+			for index, entry := range names {
+				elements[index] = object.String(entry)
+			}
+			return &object.List{Elements: elements}, nil
 		},
 	}
 }

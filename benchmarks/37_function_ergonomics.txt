@@ -1,0 +1,23 @@
+== default parameters ==
+hello world hi world hello ace
+111 103 6 11
+15 6
+3 11
+== anonymous functions ==
+8
+["a", "bb", "ccc", "dddd"]
+5
+8
+[1, 4, 9]
+<function anonymous>
+== multiple returns and destructuring ==
+1 5 [2, 9]
+2 1
+tiger 4
+3 [2, 8]
+== errors ==
+true
+true
+true
+true
+done

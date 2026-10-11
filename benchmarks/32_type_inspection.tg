@@ -1,0 +1,159 @@
+// 32_type_inspection.tg - type() and isinstance() regression workload.
+//
+// Covers the type() built-in for every value kind a program can hold, the
+// isinstance() predicate with a single name and a list of names, a dispatch
+// classifier built from both, cross-checks between the reported type names and
+// the runtime diagnostics that mention them, shadowing by an ordinary binding,
+// and every argument and type-name error path handled with try/catch.
+
+print("== scalars ==");
+print(type(42), type(-0.5), type("tiger"), type(true), type(false), type(null));
+
+print("== collections ==");
+print(type([]), type([1, 2]), type({}), type({"k": 1}));
+
+print("== callables ==");
+function double(value) {
+    return value * 2;
+}
+print(type(double), type(print), type(math.sqrt), type(algo.isPrime));
+
+print("== classes ==");
+class Animal {
+    var name;
+
+    Animal(name) {
+        this.name = name;
+    }
+
+    function speak() {
+        return this.name + " makes a sound";
+    }
+}
+
+class Dog extends Animal {
+    function speak() {
+        return this.name + " barks";
+    }
+}
+
+const dog = Dog("Rex");
+print(type(Animal), type(dog), type(dog.speak));
+print(dog.speak());
+
+print("== modules and files ==");
+print(type(math), type(algo));
+const handle = open("type_report.txt", "w");
+print(type(handle));
+handle.write("typed");
+handle.close();
+print(read_file("type_report.txt"));
+remove_file("type_report.txt");
+print(file_exists("type_report.txt"));
+
+print("== isinstance ==");
+print(isinstance(1, "number"), isinstance(1, "string"), isinstance("x", "string"));
+print(isinstance(true, "bool"), isinstance(null, "null"), isinstance(null, "bool"));
+print(isinstance([], "list"), isinstance({}, "dict"), isinstance([], "dict"));
+print(isinstance(double, "function"), isinstance(double, "builtin"), isinstance(print, "builtin"));
+print(isinstance(Animal, "class"), isinstance(dog, "class"), isinstance(dog, "instance"));
+print(isinstance(dog.speak, "bound method"), isinstance(dog.speak, "instance"));
+print(isinstance(math, "module"), isinstance(algo, "module"));
+
+print("== list of names ==");
+print(isinstance(1, ["number", "bool"]), isinstance(true, ["number", "bool"]), isinstance("x", ["number", "bool"]));
+print(isinstance([], ["string", "list", "dict"]), isinstance({}, ["string", "list", "dict"]));
+print(isinstance(1, []), isinstance(null, []));
+
+print("== classify ==");
+function classify(value) {
+    if isinstance(value, ["number", "bool"]) {
+        return "scalar";
+    }
+    if isinstance(value, "string") {
+        return "text";
+    }
+    if isinstance(value, ["list", "dict"]) {
+        return "collection";
+    }
+    if isinstance(value, ["function", "builtin", "bound method"]) {
+        return "callable";
+    }
+    if isinstance(value, ["class", "instance"]) {
+        return "object";
+    }
+    return type(value);
+}
+
+const samples = [1, 2.5, true, "Tiger", "", null, [1], {"a": 1}, double, print, Animal, dog, math];
+var labels = [];
+for value in samples {
+    labels += [classify(value)];
+}
+print(labels);
+for value in samples {
+    print(type(value), "->", classify(value));
+}
+print(f"type of true is {type(true)}");
+
+print("== diagnostics agree with type() ==");
+function error_of(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function len_of_number() {
+    return len(7);
+}
+function int_of_list() {
+    return int([1]);
+}
+function int_of_dict() {
+    return int({});
+}
+function int_of_null() {
+    return int(null);
+}
+print(type(7) in error_of(len_of_number), type([1]) in error_of(int_of_list));
+print(type({}) in error_of(int_of_dict), type(null) in error_of(int_of_null));
+
+print("== shadowing ==");
+function echo(type) {
+    return type;
+}
+print(echo("shadowed"), type(1));
+
+print("== errors ==");
+function type_zero() {
+    return type();
+}
+function type_two() {
+    return type(1, 2);
+}
+function type_keyword() {
+    return type(value=1);
+}
+function instance_zero() {
+    return isinstance(1);
+}
+function instance_keyword() {
+    return isinstance(value=1);
+}
+function instance_bad_name() {
+    return isinstance(1, "integer");
+}
+function instance_bad_type() {
+    return isinstance(1, 2);
+}
+function instance_bad_element() {
+    return isinstance(1, ["number", 2]);
+}
+print("expects 1 argument" in error_of(type_zero), "expects 1 argument" in error_of(type_two));
+print("does not accept keyword" in error_of(type_keyword), "expects 2 arguments" in error_of(instance_zero));
+print("does not accept keyword" in error_of(instance_keyword), "unknown type name" in error_of(instance_bad_name));
+print("string or list of strings" in error_of(instance_bad_type), "must be a string" in error_of(instance_bad_element));
+
+print("done");

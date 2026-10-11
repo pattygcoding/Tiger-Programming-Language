@@ -23,30 +23,32 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 | Declarations | `const var function class extends` | `storage.type.tiger` |
 | Module imports | `import as` | `keyword.control.import.tiger` |
 | Access modifiers | `public private protected` | `storage.modifier.tiger` |
-| Control flow | `if elif else cif celse while for cfor return break continue switch case default try catch throw` | `keyword.control.tiger` |
+| Control flow | `if elif else cif celse while do for cfor return break continue switch case default try catch finally throw` | `keyword.control.tiger` |
 | Receiver / parent | `this super` | `variable.language.tiger` |
-| Word operators | `and or not in` | `keyword.operator.word.tiger` |
+| Word operators | `and or not in div` | `keyword.operator.word.tiger` |
 | C-style logical operators | `&& \|\|` (valid only in `cif` and `cfor` headers) | `keyword.operator.logical.tiger` |
 | Literal values | `true false null` | `constant.language.tiger` |
-| Built-in calls | `print input str int float bool len range open read_file write_file append_file file_exists remove_file math algo` | `support.function.tiger` |
+| Built-in calls | `print input str int float bool len range type isinstance sum min max any all zip enumerate map filter sorted open read_file write_file append_file file_exists remove_file list_dir math algo random json time regex` | `support.function.tiger` |
 | Module members | `math.` followed by `ceil floor round sqrt abs pow log sin cos tan min max`; `algo.` followed by one of its exported names | `support.function.math.tiger` / `support.function.algo.tiger` |
 | Function declarations / calls | Name after `function`; a name directly before `(` | `entity.name.function.tiger` / `entity.name.function.call.tiger` |
 | Class declarations | Name after `class`, parent after `extends` | `entity.name.type.class.tiger` / `entity.other.inherited-class.tiger` |
-| Arithmetic / update | `+ - * / % ++ --` | `keyword.operator.arithmetic.tiger` |
-| Variadic / unpack markers | `*` and `**` inside a parameter list or call | `punctuation.tiger` or `keyword.operator.tiger` |
+| Arithmetic / update | `+ - * / % div ++ --` | `keyword.operator.arithmetic.tiger` |
+| Exponentiation | `**` between two values | `keyword.operator.power.tiger` |
+| Bitwise | `& \| ^ ~ << >>` | `keyword.operator.bitwise.tiger` |
+| Variadic / unpack markers | `*` and `**` inside a parameter list or call (outside a value list, `**` is exponentiation) | `punctuation.tiger` or `keyword.operator.tiger` |
 | Assignment / comparison | `= += -= *= %= == != < <= > >=` | `keyword.operator.tiger` |
 | Delimiters | `( ) [ ] { } , ; : .` | `punctuation.tiger` |
 | Numbers | Decimal digits, optional fractional digits, optional `e`/`E` exponent with optional sign | `constant.numeric.tiger` |
-| Strings | Single or double quoted, one line | `string.quoted.single.tiger` / `string.quoted.double.tiger` |
+| Strings | Single or double quoted, one line; an `r`/`R` prefix makes the text raw, with no escapes or interpolation | `string.quoted.single.tiger` / `string.quoted.double.tiger` |
 | Formatted strings | `f"..."`, `f'...'` or uppercase `F`; `{expression}` interpolation, `{{` / `}}` literal braces | `string.quoted` with `meta.interpolation.tiger` |
-| Escapes | `\n \r \t \\ \" \'` | `constant.character.escape.tiger` |
+| Escapes | `\n \r \t \\ \" \' \xHH \uXXXX \UXXXXXXXX` | `constant.character.escape.tiger` |
 | Line comments | `//` through newline | `comment.line.double-slash.tiger` |
 | Block comments | `/*` through the next `*/`, including newlines; no nesting | `comment.block.tiger` |
 | Identifiers | Unicode letter or `_`, followed by letters, decimal digits, or `_` | `variable.other.tiger` |
 
-Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, `>=`, `&&`, and `||` before their single-character prefixes. Match `**` before `*` so that `*args`, `**kwargs`, `*items`, and `**mapping` tokenize as a marker plus a name or value. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
+Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, `>=`, `<<`, `>>`, `&&`, and `||` before their single-character prefixes. Match `**` before `*` so that `*args`, `**kwargs`, `*items`, and `**mapping` tokenize as a marker plus a name or value. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
 
-`range`, `open`, and the other built-ins are ordinary bindings, not reserved keywords. `init` is an ordinary identifier, not a keyword; constructors are declared with the class name. `self`, `def`, `number`, and `string` are ordinary identifiers; `int`, `float`, and `bool` are built-in conversion functions, not type keywords. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, single `&`/`|`, or standalone `!` operators, and `**` is not exponentiation. F-string format specifications and conversions are not supported.
+`range`, `open`, and the other built-ins are ordinary bindings, not reserved keywords. `init` is an ordinary identifier, not a keyword; constructors are declared with the class name. `self`, `def`, `number`, and `string` are ordinary identifiers; `int`, `float`, and `bool` are built-in conversion functions, not type keywords. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, or standalone `!` operators. Single `&` and `|` are bitwise operators, and `**` is exponentiation as well as the call/parameter unpack marker. F-string format specifications and conversions are not supported.
 
 Within f-strings, highlight literal text as string, interpolation delimiters as punctuation, and embedded expressions using normal Tiger token rules. Track nested dictionary braces, quoted strings, comments, and nested f-strings so their braces do not prematurely close an interpolation. Doubled literal braces are string text. The `f`/`F` prefix must directly precede the opening quote.
 

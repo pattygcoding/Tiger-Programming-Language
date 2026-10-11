@@ -188,6 +188,26 @@ File objects are not closed automatically when they go out of scope. Close each
 stream when you are finished; on Windows an unclosed handle can prevent the file
 from being removed or reopened.
 
+## Listing a Directory
+
+`list_dir(path)` returns the immediate entries in a directory, sorted
+ascending. Directory entries end with `/`; the browser's in-memory filesystem
+holds only files, so its entries never do. A missing directory is an error.
+
+```tg
+write_file("notes/one.txt", "1");
+write_file("notes/two.txt", "2");
+print(list_dir("notes"));
+```
+
+```text
+["one.txt", "two.txt"]
+```
+
+On the host filesystem, subdirectory entries end with `/`; the browser's
+in-memory filesystem holds only files, so its entries never do. See the
+[standard library additions](standard-library.md#list_dirpath) for more.
+
 ## Errors
 
 A missing file, an invalid mode, or misuse of a closed or write-only stream is

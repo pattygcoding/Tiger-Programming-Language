@@ -31,13 +31,18 @@ func Imports(program *Program) []*Import {
 			case *CFor:
 				visit(node.Body)
 				visit(node.Else)
+			case *DoWhile:
+				visit(node.Body)
 			case *Switch:
 				for _, branch := range node.Cases {
 					visit(branch.Body)
 				}
 			case *Try:
 				visit(node.Body)
-				visit(node.Catch)
+				for _, clause := range node.Catches {
+					visit(clause.Body)
+				}
+				visit(node.Finally)
 			}
 		}
 	}

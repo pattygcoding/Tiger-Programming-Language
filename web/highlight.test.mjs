@@ -7,13 +7,13 @@ function tokens(source) {
 }
 
 test("all reserved words, literals, and built-ins", () => {
-  for (const text of "const var function class extends super this public private protected return if elif else while for cfor cif celse in and or not break continue switch case default try catch throw import as".split(" ")) {
+  for (const text of "const var function class extends super this public private protected return if elif else while do for cfor cif celse in and or not div break continue switch case default try catch finally throw import as".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "keyword" }]);
   }
   for (const text of ["true", "false", "null"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "literal" }]);
   }
-  for (const text of ["print", "input", "str", "int", "float", "bool", "len", "range", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "math", "algo"]) {
+  for (const text of ["print", "input", "str", "int", "float", "bool", "len", "range", "type", "isinstance", "graphemes", "sum", "min", "max", "any", "all", "zip", "enumerate", "map", "filter", "sorted", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "list_dir", "math", "algo", "random", "json", "time", "regex"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "builtin" }]);
   }
 });
@@ -30,7 +30,7 @@ test("math and algo members are built-ins only after their module", () => {
   }
   assert.deepEqual(tokens("math . sqrt").map(({ kind }) => kind), ["builtin", "punctuation", "builtin"]);
   assert.deepEqual(tokens(`f"{math.floor(x)}"`)[4], { text: "floor", kind: "builtin" });
-  for (const source of ["sqrt", "point.sqrt", "math.isPrime", "algo.sqrt", "math.tau", "print.max", "math sqrt"]) {
+  for (const source of ["sqrt", "point.sqrt", "math.isPrime", "algo.sqrt", "math.tau", "print.tau", "math sqrt"]) {
     assert.equal(tokens(source).at(-1).kind, "identifier", source);
   }
 });
@@ -43,12 +43,17 @@ test("identifiers include Unicode and do not invent type keywords", () => {
 
 test("decimal and exponent numbers, operators, and punctuation", () => {
   assert.deepEqual(tokens("12 3.5 1e2 2E-3 4e+" ).map(({ kind }) => kind), Array(5).fill("number"));
-  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- ** && ||".split(" ")) {
+  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- ** && || << >> & | ^ ~".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "operator" }]);
   }
   for (const text of "()[]{}:;,.") {
     assert.deepEqual(tokens(text), [{ text, kind: "punctuation" }]);
   }
+});
+
+test("raw strings keep backslashes literal", () => {
+  assert.deepEqual(tokens(String.raw`r"\n\d+"`), [{ text: String.raw`r"\n\d+"`, kind: "string" }]);
+  assert.deepEqual(tokens(String.raw`R'\t'`), [{ text: String.raw`R'\t'`, kind: "string" }]);
 });
 
 test("strings protect comment markers and handle escapes", () => {

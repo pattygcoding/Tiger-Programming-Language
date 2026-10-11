@@ -22,8 +22,8 @@ func TestCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 31 || len(outputs) != 31 {
-		t.Fatalf("want 31 Tiger programs and 31 expected outputs, got %d and %d", len(sources), len(outputs))
+	if len(sources) != 40 || len(outputs) != 40 {
+		t.Fatalf("want 40 Tiger programs and 40 expected outputs, got %d and %d", len(sources), len(outputs))
 	}
 	inputs, err := fs.Glob(fixtures, "*.in")
 	if err != nil {

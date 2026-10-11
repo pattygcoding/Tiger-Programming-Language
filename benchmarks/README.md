@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all thirty-one programs and compare their output with the corresponding checked-in `.txt` files:
+Run all forty programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 go test ./benchmarks -count=1 -v
@@ -32,7 +32,7 @@ go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
 | `14_oop_composition.tg` | Nested objects, recursive methods, shared references, fluent methods |
 | `15_oop_callbacks.tg` | Detached bound methods, captured this/super, callable fields |
 | `16_control_flow.tg` | Prefix/postfix updates, cfor, cif/celse, `&&`/`\|\|` headers, range, loop else, switch, break/continue |
-| `17_access_exceptions.tg` | Public defaults, restricted fields/methods, this, try/catch/throw, recovery, f-string interpolation |
+| `17_access_exceptions.tg` | Public defaults, restricted fields/methods, this, try/catch/finally/throw, typed catch guards, structured errors, recovery, f-string interpolation |
 | `18_variadics.tg` | `*args`/`**kwargs` collection, keyword binding, `*`/`**` call unpacking, variadic methods and constructors |
 | `19_file_io.tg` | File helpers, open modes, file-object methods, seek/tell, binary streams, catchable file errors |
 | `20_list_sort.tg` | In-place `sort()`, `key`/`reverse`, stability, multi-pass ordering, bound/closure keys, sort errors |
@@ -47,6 +47,15 @@ go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
 | `29_algo_windows.tg` | the five `algo.slidingWindow*` functions cross-checked against brute-force Tiger versions: fixed-window maxima and sums, shortest run reaching a target, longest unique substring, minimum covering substring, generated inputs, argument errors |
 | `30_algo_palindromes.tg` | the five `algo.palindrome*` functions: sentence checks ignoring case and punctuation, one-deletion checks, longest, counts, and minimum cuts cross-checked against brute-force Tiger versions, the 5,000-character limit, argument errors |
 | `31_algo_factorials.tg` | `algo.factorial`/`factorialList` checked against recursion and term ratios, combinations and Pascal's row, word arrangements with `takeInventory`, trailing zeros, an approximation of e, the 18! limit, argument errors |
+| `32_type_inspection.tg` | `type()` across every value kind, `isinstance()` with single and list names, dispatch classification, cross-checks against runtime diagnostics, shadowing, argument and type-name errors |
+| `33_string_methods.tg` | `split`/`join`, case conversion, `trim`, `replace`, `startswith`/`endswith`, `find`, `padStart`/`padEnd`, chaining, stored method values, Unicode indexes and widths, a wrapping helper, argument and separator errors |
+| `34_collection_methods.tg` | list `pop`/`remove`/`insert`/`index`/`extend`/`reverse`/`clear`/`join` and dictionary `keys`/`values`/`items`/`get`/`pop`/`delete`/`clear`, structural equality, insertion order, fresh result lists, stack/queue and frequency-count programs, argument and lookup errors |
+| `35_operators.tg` | `**` exponentiation and `div` floor division, bitwise `&`/`\|`/`^`/`~`/`<<`/`>>`, precedence against arithmetic and comparisons, operand truncation, 64-bit shifts, masking helpers, a powers table, and error paths |
+| `36_stdlib.tg` | the `random` PRNG (seed, reproducibility, `int`/`uniform`/`random` ranges, `choice`, `shuffle`), `json.parse`/`json.stringify`, the native `time` module (`iso`, `parts`), the `regex` helpers, and `list_dir`, with error paths |
+| `37_function_ergonomics.tg` | default parameter values (positional, keyword, closure, method), anonymous function expressions as values/sort keys/immediates, multiple return values, list and dictionary destructuring, and error paths |
+| `38_aggregates.tg` | `sum`, `min`/`max`, `any`/`all`, `enumerate`, `zip`, `map`, `filter`, and non-mutating `sorted` (plain, reversed, keyed), nested pipelines, and error paths |
+| `39_text_precision.tg` | f-string format specs (precision, width, alignment, zero padding, a column report), `\x`/`\u`/`\U` escapes, raw strings for regex patterns, and `graphemes` for combining marks, emoji modifiers, flags, and ZWJ sequences |
+| `40_syntax_gaps.tg` | conditional expressions (including chains), list and string slicing (bounds, negatives, steps, clamping), labeled `break`/`continue` across nested loops, and `do...while` with `continue` re-checking its condition |
 
 Run only the five OOP programs:
 
@@ -54,7 +63,7 @@ Run only the five OOP programs:
 go test ./benchmarks -run 'TestPrograms/1[1-5]_' -count=1 -v
 ```
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly thirty-one source files and thirty-one matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream.
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty source files and forty matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 

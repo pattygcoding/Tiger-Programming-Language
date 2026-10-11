@@ -12,7 +12,7 @@ import (
 )
 
 type runtimeError struct {
-	err   error
+	value *object.Error
 	fatal bool
 }
 
@@ -23,7 +23,25 @@ type thrown struct {
 
 type flow struct {
 	kind  string
+	label string
 	value object.Value
+}
+
+// loopControl interprets a flow value that reached a loop body. It reports
+// whether the loop must stop and, when the flow targets an outer loop, the flow
+// to keep propagating.
+func loopControl(label string, result *flow) (stop bool, propagate *flow) {
+	switch result.kind {
+	case "break":
+		if result.label == "" || result.label == label {
+			return true, nil
+		}
+	case "continue":
+		if result.label == "" || result.label == label {
+			return false, nil
+		}
+	}
+	return false, result
 }
 
 type Evaluator struct {
@@ -62,7 +80,7 @@ func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 		if failure := recover(); failure != nil {
 			switch failure := failure.(type) {
 			case runtimeError:
-				err = failure.err
+				err = format.Errorf("%s", failure.value.Text())
 			case thrown:
 				err = failure.node.Position().Errorf("uncaught throw: %s", object.Format(failure.value))
 			default:
@@ -89,7 +107,42 @@ func (eval *Evaluator) Execute(program *ast.Program) (err error) {
 }
 
 func fail(node ast.Node, template string, args ...any) {
-	panic(runtimeError{err: node.Position().Errorf(template, args...)})
+	panic(runtimeError{value: newRuntimeError(node, format.Sprintf(template, args...))})
+}
+
+// newRuntimeError builds a structured failure with a classified kind.
+func newRuntimeError(node ast.Node, message string) *object.Error {
+	return &object.Error{Message: message, Kind: errorKind(message), Origin: node.Position().Location()}
+}
+
+// errorKind classifies a diagnostic once, where it is raised, so a handler can
+// dispatch on a stable kind instead of matching message text. The first marker
+// that appears wins; unmatched failures are "runtime error".
+func errorKind(message string) string {
+	for _, entry := range errorKinds {
+		if strings.Contains(message, entry.marker) {
+			return entry.kind
+		}
+	}
+	return "runtime error"
+}
+
+var errorKinds = []struct{ marker, kind string }{
+	{"division by zero", "zero division"},
+	{"domain error", "math domain"},
+	{"range error", "math range"},
+	{"non-finite numeric result", "numeric range"},
+	{"cannot reassign const", "constant reassignment"},
+	{"already declared", "duplicate declaration"},
+	{"undefined name", "undefined name"},
+	{"index out of range", "index range"},
+	{"index must be an integer", "index type"},
+	{"dictionary key not found", "missing key"},
+	{"pop: key not found", "missing key"},
+	{"cannot be indexed", "not indexable"},
+	{"is not supported for", "unsupported operands"},
+	{"no such file", "missing file"},
+	{"file does not exist", "missing file"},
 }
 
 func check(node ast.Node, err error) {
@@ -101,7 +154,7 @@ func check(node ast.Node, err error) {
 func (eval *Evaluator) tick(node ast.Node) {
 	eval.steps++
 	if eval.MaxSteps > 0 && eval.steps > eval.MaxSteps {
-		panic(runtimeError{err: node.Position().Errorf("execution step limit exceeded"), fatal: true})
+		panic(runtimeError{value: newRuntimeError(node, "execution step limit exceeded"), fatal: true})
 	}
 }
 
@@ -124,6 +177,8 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 		panic(thrown{node: node, value: eval.expression(node.Value, env)})
 	case *ast.Try:
 		return eval.tryStatement(node, env)
+	case *ast.Destructure:
+		return eval.destructure(node, env)
 	case *ast.ExpressionStmt:
 		eval.expression(node.Value, env)
 	case *ast.Assign:
@@ -182,7 +237,7 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 		}
 		return &flow{kind: "return", value: value}
 	case *ast.Control:
-		return &flow{kind: node.Kind}
+		return &flow{kind: node.Kind, label: node.Label}
 	case *ast.If:
 		for _, branch := range node.Branches {
 			if object.Truthy(eval.expression(branch.Condition, env)) {
@@ -193,11 +248,12 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 	case *ast.While:
 		for object.Truthy(eval.expression(node.Condition, env)) {
 			if result := eval.block(node.Body, object.NewEnvironment(env)); result != nil {
-				if result.kind == "break" {
-					return nil
+				stop, propagate := loopControl(node.Label, result)
+				if propagate != nil {
+					return propagate
 				}
-				if result.kind == "return" {
-					return result
+				if stop {
+					return nil
 				}
 			}
 		}
@@ -224,11 +280,12 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 			scope := object.NewEnvironment(env)
 			check(node, scope.Define(node.Name, value, false))
 			if result := eval.block(node.Body, scope); result != nil {
-				if result.kind == "break" {
-					return nil
+				stop, propagate := loopControl(node.Label, result)
+				if propagate != nil {
+					return propagate
 				}
-				if result.kind == "return" {
-					return result
+				if stop {
+					return nil
 				}
 			}
 		}
@@ -241,11 +298,12 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 		for node.Condition == nil || object.Truthy(eval.expression(node.Condition, scope)) {
 			eval.tick(node)
 			if result := eval.block(node.Body, object.NewEnvironment(scope)); result != nil {
-				if result.kind == "break" {
-					return nil
+				stop, propagate := loopControl(node.Label, result)
+				if propagate != nil {
+					return propagate
 				}
-				if result.kind == "return" {
-					return result
+				if stop {
+					return nil
 				}
 			}
 			if node.Update != nil {
@@ -253,6 +311,22 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 			}
 		}
 		return eval.block(node.Else, object.NewEnvironment(scope))
+	case *ast.DoWhile:
+		for {
+			eval.tick(node)
+			if result := eval.block(node.Body, object.NewEnvironment(env)); result != nil {
+				stop, propagate := loopControl(node.Label, result)
+				if propagate != nil {
+					return propagate
+				}
+				if stop {
+					return nil
+				}
+			}
+			if !object.Truthy(eval.expression(node.Condition, env)) {
+				return nil
+			}
+		}
 	case *ast.Switch:
 		value := eval.expression(node.Value, env)
 		start, fallback := -1, -1
@@ -271,7 +345,7 @@ func (eval *Evaluator) statement(statement ast.Stmt, env *object.Environment) *f
 			scope := object.NewEnvironment(env)
 			for _, branch := range node.Cases[start:] {
 				if result := eval.block(branch.Body, scope); result != nil {
-					if result.kind == "break" {
+					if result.kind == "break" && result.label == "" {
 						return nil
 					}
 					return result
@@ -287,12 +361,16 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 	eval.depth++
 	defer func() { eval.depth-- }()
 	if eval.depth > 512 {
-		panic(runtimeError{err: expression.Position().Errorf("maximum evaluation depth exceeded"), fatal: true})
+		panic(runtimeError{value: newRuntimeError(expression, "maximum evaluation depth exceeded"), fatal: true})
 	}
 	switch node := expression.(type) {
 	case *ast.FormattedString:
 		var text strings.Builder
 		for _, part := range node.Parts {
+			if field, ok := part.(*ast.Interpolation); ok {
+				text.WriteString(applyFormat(node, field.Spec, eval.expression(field.Value, env)))
+				continue
+			}
 			text.WriteString(object.Format(eval.expression(part, env)))
 		}
 		return object.String(text.String())
@@ -333,6 +411,9 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 			check(node, dict.Set(key, value))
 		}
 		return dict
+	case *ast.Function:
+		// An anonymous function expression captures its defining environment.
+		return &object.Function{Declaration: node, Env: env}
 	case *ast.Unary:
 		right := eval.expression(node.Right, env)
 		if node.Operator == "not" {
@@ -344,6 +425,9 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 		}
 		if node.Operator == "-" {
 			return -value
+		}
+		if node.Operator == "~" {
+			return object.Number(float64(^bitwiseInteger(node, value)))
 		}
 		return value
 	case *ast.Update:
@@ -379,6 +463,32 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 			return eval.expression(node.Right, env)
 		}
 		return binary(node, left, eval.expression(node.Right, env))
+	case *ast.Conditional:
+		if object.Truthy(eval.expression(node.Condition, env)) {
+			return eval.expression(node.Then, env)
+		}
+		return eval.expression(node.Else, env)
+	case *ast.Slice:
+		collection := eval.expression(node.Collection, env)
+		switch typed := collection.(type) {
+		case *object.List:
+			indices := sliceIndices(eval.sliceBounds(node, len(typed.Elements), env))
+			elements := make([]object.Value, len(indices))
+			for position, index := range indices {
+				elements[position] = typed.Elements[index]
+			}
+			return &object.List{Elements: elements}
+		case object.String:
+			runes := []rune(string(typed))
+			indices := sliceIndices(eval.sliceBounds(node, len(runes), env))
+			var text strings.Builder
+			for _, index := range indices {
+				text.WriteRune(runes[index])
+			}
+			return object.String(text.String())
+		default:
+			fail(node, "%s cannot be sliced", collection.Type())
+		}
 	case *ast.Index:
 		collection := eval.expression(node.Collection, env)
 		key := eval.expression(node.Key, env)
@@ -395,6 +505,8 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 				fail(node, "dictionary key not found: %s", object.Format(key))
 			}
 			return value
+		case *object.Error:
+			return errorField(node, typed, key)
 		default:
 			fail(node, "%s cannot be indexed", collection.Type())
 		}
@@ -447,6 +559,24 @@ func (eval *Evaluator) expression(expression ast.Expr, env *object.Environment) 
 	return object.Null{}
 }
 
+// errorField reads one structured field from an Error value.
+func errorField(node ast.Node, failure *object.Error, key object.Value) object.Value {
+	name, ok := key.(object.String)
+	if !ok {
+		fail(node, "error fields must be read with a string key, got %s", key.Type())
+	}
+	switch string(name) {
+	case "message":
+		return object.String(failure.Message)
+	case "kind":
+		return object.String(failure.Kind)
+	case "origin":
+		return object.String(failure.Origin)
+	}
+	fail(node, "error has no field %q", string(name))
+	return object.Null{}
+}
+
 func indexAt(node ast.Node, key object.Value, length int) int {
 	number, ok := key.(object.Number)
 	if !ok || math.Trunc(float64(number)) != float64(number) {
@@ -459,6 +589,88 @@ func indexAt(node ast.Node, key object.Value, length int) int {
 		fail(node, "index out of range")
 	}
 	return int(number)
+}
+
+// sliceBounds resolves the start, stop, and step of a slice against a length,
+// following Python: omitted bounds take the default for the step, negatives
+// count from the end, and out-of-range bounds clamp instead of failing.
+func (eval *Evaluator) sliceBounds(node *ast.Slice, length int, env *object.Environment) (int, int, int) {
+	step := 1
+	if node.Step != nil {
+		step = sliceInteger(node, eval.expression(node.Step, env))
+		if step == 0 {
+			fail(node, "slice step cannot be zero")
+		}
+	}
+	low, high := 0, length
+	start, stop := 0, length
+	if step < 0 {
+		low, high = -1, length-1
+		start, stop = high, low
+	}
+	if node.Start != nil {
+		start = sliceInteger(node, eval.expression(node.Start, env))
+		if start < 0 {
+			start += length
+		}
+		if start < low {
+			start = low
+		} else if start > high {
+			start = high
+		}
+	}
+	if node.Stop != nil {
+		stop = sliceInteger(node, eval.expression(node.Stop, env))
+		if stop < 0 {
+			stop += length
+		}
+		if stop < low {
+			stop = low
+		} else if stop > high {
+			stop = high
+		}
+	}
+	return start, stop, step
+}
+
+// sliceInteger reads one slice bound, clamping values too large to convert.
+func sliceInteger(node ast.Node, value object.Value) int {
+	number, ok := value.(object.Number)
+	if !ok || math.Trunc(float64(number)) != float64(number) {
+		fail(node, "slice bounds must be integers")
+	}
+	switch {
+	case number <= -9.3e18:
+		return math.MinInt64
+	case number >= 9.3e18:
+		return math.MaxInt64
+	}
+	return int(number)
+}
+
+// sliceIndices lists the positions a slice selects, in order.
+func sliceIndices(start, stop, step int) []int {
+	indices := []int{}
+	if step > 0 {
+		for index := start; index < stop; index += step {
+			indices = append(indices, index)
+		}
+		return indices
+	}
+	for index := start; index > stop; index += step {
+		indices = append(indices, index)
+	}
+	return indices
+}
+
+// bitwiseInteger truncates a number toward zero for the bitwise operators.
+func bitwiseInteger(node ast.Node, value object.Number) int64 {
+	const limit = 9223372036854775808.0 // 2^63
+	number := float64(value)
+	if math.IsNaN(number) || math.IsInf(number, 0) || number < -limit || number >= limit {
+		fail(node, "bitwise operands must be within the 64-bit integer range")
+	}
+	return int64(number)
 }
 
 func binary(node *ast.Binary, left, right object.Value) object.Value {
@@ -484,6 +696,10 @@ func binary(node *ast.Binary, left, right object.Value) object.Value {
 			if text, ok := left.(object.String); ok {
 				return object.Bool(strings.Contains(string(collection), string(text)))
 			}
+		case *object.Error:
+			if text, ok := left.(object.String); ok {
+				return object.Bool(strings.Contains(collection.Text(), string(text)))
+			}
 		}
 		fail(node, "invalid operands for 'in': %s and %s", left.Type(), right.Type())
 	}
@@ -497,16 +713,41 @@ func binary(node *ast.Binary, left, right object.Value) object.Value {
 				result = first - second
 			case "*":
 				result = first * second
-			case "/", "%":
+			case "/", "%", "div":
 				if second == 0 {
 					fail(node, "division by zero")
 				}
-				if node.Operator == "/" {
+				switch node.Operator {
+				case "/":
 					result = first / second
-				} else {
+				case "div":
+					result = object.Number(math.Floor(float64(first) / float64(second)))
+				default:
 					result = object.Number(math.Mod(float64(first), float64(second)))
 					if result != 0 && (result < 0) != (second < 0) {
 						result += second
+					}
+				}
+			case "**":
+				result = object.Number(math.Pow(float64(first), float64(second)))
+			case "&", "|", "^", "<<", ">>":
+				switch node.Operator {
+				case "&":
+					result = object.Number(float64(bitwiseInteger(node, first) & bitwiseInteger(node, second)))
+				case "|":
+					result = object.Number(float64(bitwiseInteger(node, first) | bitwiseInteger(node, second)))
+				case "^":
+					result = object.Number(float64(bitwiseInteger(node, first) ^ bitwiseInteger(node, second)))
+				default:
+					count := bitwiseInteger(node, second)
+					if count < 0 {
+						fail(node, "shift count must not be negative")
+					}
+					value := bitwiseInteger(node, first)
+					if node.Operator == "<<" {
+						result = object.Number(float64(value << uint(count)))
+					} else {
+						result = object.Number(float64(value >> uint(count)))
 					}
 				}
 			case "<":
@@ -597,8 +838,14 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 				return nil, format.Errorf("len does not accept %s", value.Type())
 			}
 		},
+		"type":       typeBuiltin,
+		"isinstance": isinstanceBuiltin,
+		"graphemes":  graphemesBuiltin,
 	}
 	for name, function := range eval.fileBuiltins() {
+		functions[name] = function
+	}
+	for name, function := range aggregateBuiltins() {
 		functions[name] = function
 	}
 	functions["input"] = eval.input
@@ -610,4 +857,14 @@ func (eval *Evaluator) builtins(env *object.Environment) {
 	}
 	_ = env.Define("math", mathModule(), true)
 	_ = env.Define("algo", algoModule(), true)
+	for _, name := range []string{"sorted", "map", "filter"} {
+		name := name
+		_ = env.Define(name, &object.Builtin{Name: name, HigherOrder: true, Call: func([]object.Value, map[string]object.Value) (object.Value, error) {
+			return nil, format.Errorf("%s is dispatched by the evaluator", name)
+		}}, true)
+	}
+	_ = env.Define("random", randomModule(), true)
+	_ = env.Define("json", jsonModule(), true)
+	_ = env.Define("time", timeModule(), true)
+	_ = env.Define("regex", regexModule(), true)
 }

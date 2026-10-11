@@ -114,3 +114,84 @@ cfor (var index = 0; index < 3; index++) {
 } else {
     print("recovered", recovered);
 }
+
+print("== finally ==");
+var trace = [];
+try {
+    trace = trace + ["body"];
+} finally {
+    trace = trace + ["finally"];
+}
+print("normal", trace);
+
+trace = [];
+try {
+    throw "boom";
+} catch (error) {
+    trace = trace + ["caught"];
+} finally {
+    trace = trace + ["finally"];
+}
+print("caught", trace);
+
+trace = [];
+try {
+    try {
+        throw "boom";
+    } finally {
+        trace = trace + ["inner"];
+    }
+} catch (error) {
+    trace = trace + ["outer"];
+}
+print("uncaught", trace);
+
+function with_finally() {
+    try { return "value"; } finally { trace = trace + ["return"]; }
+}
+trace = [];
+print("return", with_finally(), trace);
+
+function override() {
+    try { throw "boom"; } finally { return "override"; }
+}
+print("override", override());
+
+trace = [];
+for index in [1, 2, 3] {
+    try {
+        if index == 2 { continue; }
+        trace = trace + [index];
+    } finally {
+        trace = trace + ["f"];
+    }
+}
+print("continue", trace);
+
+print("== structured errors ==");
+try {
+    print(1 / 0);
+} catch (error) {
+    print(type(error), error["kind"], "division by zero" in error, isinstance(error, "error"));
+}
+try {
+    const items = [1, 2];
+    print(items[9]);
+} catch (error) {
+    print(error["kind"], error["origin"] == "");
+}
+
+print("== typed catch ==");
+function classify(value) {
+    try {
+        if value == 0 { throw "custom"; }
+        return [10, 20][value];
+    } catch (error) if isinstance(error, "error") and error["kind"] == "index range" {
+        return "range";
+    } catch (error) {
+        return "other";
+    }
+}
+print(classify(1), classify(5), classify(0));
+
+print("done");

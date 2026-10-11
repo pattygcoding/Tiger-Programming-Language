@@ -1,0 +1,53 @@
+== case and trim ==
+TIGER tiger
+spaced | 6
+mixed MIXED
+== split ==
+["a", "b", "c"]
+["one", "two", "three", "four"]
+["a", "", "b", ""]
+[""] []
+["x"] ["", ""]
+== join ==
+a-b-c
+0 solo
+a | b | c
+123
+== replace ==
+baNANA
+ba banana
+6
+== affixes ==
+true false
+true false
+true true
+== find ==
+2 -1
+0 0
+3 0 4
+== padding ==
+007 00042
+ab...    ab
+hello hello
+..é é..
+== stored methods and chaining ==
+TIGER TIGER
+x-y
+a+b+c
+== table building ==
+ada     36 engineer
+alan    41 mathematician
+grace   45 admiral
+ada, alan, grace
+== wrapping words ==
+the quick
+brown fox
+jumps over
+the lazy dog
+== errors ==
+true true
+true true
+true true
+true
+true true
+done

@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Classes and Inheritance](classes-and-inheritance.md) | [Runtime and Errors](runtime-and-errors.md)
 
-Tiger provides the general built-ins `print`, `input`, `str`, `int`, `float`, `bool`, `len`, and `range`, the [`math` module](math.md), the [`algo` module](algo.md), plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, and `remove_file` described in [Files](file-io.md). Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration (at the top level or in an inner scope) or a parameter can shadow them; for example, `import "lib/math.tg" as math;` hides the built-in `math` in that file. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
+Tiger provides the general built-ins `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, `isinstance`, and `graphemes`, the aggregate built-ins `sum`, `min`, `max`, `any`, `all`, `zip`, `enumerate`, `map`, `filter`, and `sorted`, the [`math`](math.md), [`algo`](algo.md), `random`, `json`, `time`, and `regex` modules, plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, `remove_file`, and `list_dir` described in [Files](file-io.md). See [Standard Library Additions](standard-library.md) for the `random`, `json`, `time`, and `regex` modules. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration (at the top level or in an inner scope) or a parameter can shadow them; for example, `import "lib/math.tg" as math;` hides the built-in `math` in that file. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
 
 ## print(...values, end="\n")
 
@@ -199,7 +199,7 @@ print(items.size(), items.length(), "Tiger".size(), "Tiger".length());
 3 3 5 5
 ```
 
-Lists also have an in-place, Python-style `sort(key=..., reverse=...)` method; see [Sorting](collections.md#sorting).
+Lists also have in-place methods such as `sort`, `join`, `pop`, `remove`, `insert`, `index`, `extend`, `reverse`, and `clear`; dictionaries have `keys`, `values`, `items`, `get`, `pop`, `delete`, and `clear`. See [Lists and Dictionaries](collections.md). Strings provide text methods such as `split`, `upper`, `replace`, and `padStart`; see [String Methods](strings.md#string-methods).
 
 **Expected error:**
 
@@ -211,24 +211,146 @@ len(7);
 len does not accept number
 ```
 
-## Built-in Modules
+## type(value), isinstance(value, name)
 
-Two read-only modules are available without an import:
-
-- [`math`](math.md): `ceil`, `floor`, `round`, `sqrt`, `abs`, `pow`, `log`, `sin`, `cos`, `tan`, `min`, and `max`.
-- [`algo`](algo.md): `fibonacci`, `fibonacciList`, `factorial`, `factorialList`, `removeDuplicates`, `findMatches`, `takeInventory`, `findPlace`, `isPrime`, `rainwater`, `medianSorted`, `mergeKSorted`, `editDistance`, `regexMatch`, and the `slidingWindow*` and `palindrome*` functions.
+`type(value)` returns the name of a value's type as a string. `isinstance(value, name)` returns `true` when the value's type matches `name`, which may be one name or a list of names.
 
 ```tg
-print(math.sqrt(16), algo.findMatches([1, 2, 3], [3, 1]));
+print(type(1), type("x"), type(true), type(null));
+print(type([]), type({}), type(print), type(math));
+class Point { function move() {} }
+const point = Point();
+print(type(Point), type(point), type(point.move));
+print(isinstance(1, "number"), isinstance("x", "number"), isinstance([], ["list", "dict"]));
 ```
 
 ```text
-4 [1, 3]
+number string bool null
+list dict builtin module
+class instance bound method
+true false true
+```
+
+The names are stable and match the diagnostics produced elsewhere in the runtime:
+
+| `type(value)` | Values |
+| --- | --- |
+| `number` | Any numeric value |
+| `string` | Text |
+| `bool` | `true` or `false` |
+| `null` | `null` |
+| `list` | A list |
+| `dict` | A dictionary |
+| `function` | A user-defined `function` value |
+| `builtin` | A built-in function, method, or module member |
+| `class` | A class |
+| `instance` | An instance |
+| `bound method` | A method read through an instance |
+| `super` | A `super` receiver inside a method |
+| `module` | A built-in module (`math`, `algo`, `random`, `json`, `time`, `regex`) or an imported file |
+| `file` | An open file object |
+| `error` | A runtime error caught by `catch` |
+
+`isinstance` compares the string returned by `type` against each name, so the names must match exactly. `isinstance(value, [])` is always `false`, and a list of names returns `true` as soon as one name matches. Unlike `int` and `str`, these built-ins require their argument: `type()` and `isinstance()` with no argument are errors, and neither accepts keyword arguments.
+
+**Expected error:**
+
+```tg
+print(type());
+```
+
+```error
+type expects 1 argument, got 0
+```
+
+**Expected error:**
+
+```tg
+print(isinstance(1, "integer"));
+```
+
+```error
+isinstance: unknown type name "integer"
+```
+
+An `isinstance` name that is not one of the names above raises `isinstance: unknown type name`, and a name that is not a string raises `isinstance: type name must be a string`. Both built-ins can be shadowed like any other built-in.
+
+## graphemes(text)
+
+Returns the approximate grapheme clusters of `text` as a list of strings, grouping a base character with its combining marks, variation selectors, emoji modifiers, zero-width-joiner continuations, and paired flag indicators. `len`, indexing, and iteration stay code-point based; see [Grapheme Clusters](strings.md#grapheme-clusters).
+
+```tg
+print(graphemes("abc"), graphemes(""));
+print(len("\U0001F1FA\U0001F1F8"), len(graphemes("\U0001F1FA\U0001F1F8")));
+```
+
+```text
+["a", "b", "c"] []
+2 1
+```
+
+A non-string argument is an error, and the built-in accepts no keyword arguments.
+
+## Aggregate Built-ins
+
+These built-ins reduce or reshape lists. They complement `len`, `items.sort(...)`, and the `math` and `algo` modules.
+
+| Built-in | Result |
+| --- | --- |
+| `sum(list)` | The total of a list of numbers; `0` for an empty list |
+| `min(list)`, `max(list)` | The smallest or largest number or string in a list |
+| `min(a, b, ...)`, `max(a, b, ...)` | The extreme of several arguments |
+| `any(list)` | `true` if any element is truthy |
+| `all(list)` | `true` if every element is truthy |
+| `enumerate(list)` | `[[0, first], [1, second], ...]` |
+| `zip(a, b, ...)` | `[[a0, b0], [a1, b1], ...]`, cut to the shortest list |
+| `map(list, function)` | A new list of `function(element)` |
+| `filter(list, function)` | The elements for which `function(element)` is truthy |
+| `sorted(list, key=..., reverse=...)` | A new sorted list; the original is unchanged |
+
+```tg
+const values = [4, 8, 15, 16, 23, 42];
+print(sum(values), min(values), max(values));
+print(sorted(values, reverse=true));
+print(enumerate(["a", "b"]));
+print(zip([1, 2, 3], ["x", "y"]));
+print(map(values, function(value) { return value / 2; }));
+print(filter(values, function(value) { return value > 15; }));
+```
+
+```text
+108 4 42
+[42, 23, 16, 15, 8, 4]
+[[0, "a"], [1, "b"]]
+[[1, "x"], [2, "y"]]
+[2, 4, 7.5, 8, 11.5, 21]
+[16, 23, 42]
+```
+
+`min`, `max`, and `sorted` compare numbers with numbers and strings with strings; mixing the two is an error, and an empty sequence has no extreme. `sorted` accepts the same `key` and `reverse` keywords as [`items.sort(...)`](collections.md#sorting) but returns a new list. `enumerate` and `zip` produce lists of lists because there is no tuple type. Dictionaries are reduced through `dict.keys()`, `.values()`, or `.items()`.
+
+## Built-in Modules
+
+Six read-only modules are available without an import:
+
+- [`math`](math.md): `ceil`, `floor`, `round`, `sqrt`, `abs`, `pow`, `log`, `sin`, `cos`, `tan`, `min`, and `max`.
+- [`algo`](algo.md): `fibonacci`, `fibonacciList`, `factorial`, `factorialList`, `removeDuplicates`, `findMatches`, `takeInventory`, `findPlace`, `isPrime`, `rainwater`, `medianSorted`, `mergeKSorted`, `editDistance`, `regexMatch`, and the `slidingWindow*` and `palindrome*` functions.
+- [`random`](standard-library.md#random): a deterministic PRNG — `seed`, `random`, `int`, `uniform`, `choice`, and `shuffle`.
+- [`json`](standard-library.md#json): `parse` and `stringify`.
+- [`time`](standard-library.md#time): `now`, `now_ms`, `sleep`, `iso`, and `parts`; native and WASI only.
+- [`regex`](standard-library.md#regex): `match`, `find`, `findAll`, `groups`, `replace`, and `split`; native and WASI only.
+
+```tg
+print(math.sqrt(16), algo.findMatches([1, 2, 3], [3, 1]), json.stringify({"ok": true}));
+```
+
+```text
+4 [1, 3] {"ok":true}
 ```
 
 ## What Is Not Built In
 
-There is no `type`, `isinstance`, `sum`, `sorted`, network API, or standard library beyond `math` and `algo`. File input and output use the helpers and file objects in [Files](file-io.md). Share other helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
+There is no network API, `reduce`, or `groupby`. File input and output use the helpers and file objects in [Files](file-io.md). Share other helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
 
 ## range(stop), range(start, stop), range(start, stop, step)
 

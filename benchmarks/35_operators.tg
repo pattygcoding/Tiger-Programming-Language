@@ -1,0 +1,129 @@
+// 35_operators.tg - arithmetic and bitwise operator regression workload.
+//
+// Exercises ** exponentiation (right-associative, binds tighter than unary
+// minus), div floor division, the bitwise operators & | ^ ~ << >>, their
+// precedence relative to arithmetic and comparisons, operand truncation toward
+// zero, 64-bit results, masking helpers, a powers table, and every operator
+// error path handled with try/catch.
+
+print("== exponentiation ==");
+print(2 ** 0, 2 ** 10, 3 ** 3, 4 ** 0.5);
+print(2 ** 3 ** 2, (2 ** 3) ** 2);
+print(-2 ** 2, (-2) ** 2, 2 ** -1);
+print(2 * 3 ** 2, (2 * 3) ** 2, 2 ** 3 + 1, 10 - 2 ** 2);
+
+print("== floor division ==");
+print(7 div 2, -7 div 2, 7 div -2, -7 div -2);
+print(7.5 div 2, 10 div 5 div 2, 2 + 6 div 3, 20 div 3 * 3);
+
+print("== bitwise ==");
+print(6 & 3, 6 | 3, 6 ^ 3, ~0, ~5, ~2.7);
+print(1 << 0, 1 << 4, 256 >> 4, -8 >> 1, 1 << 40);
+
+print("== precedence ==");
+print(1 + 2 << 3, 1 << 2 + 3);
+print(255 & 15 | 16, 1 | 2 & 3);
+print(2 ** 3 & 1, 5 & 3 == 1, 1 | 2 == 2);
+
+print("== truncation and identity ==");
+print(6.9 & 3.9, 7.9 >> 1, 12.5 div 2);
+print(0 & 7, 5 | 0, 9 ^ 9, ~-1);
+
+print("== masking helpers ==");
+function is_odd(value) {
+    return (value & 1) == 1;
+}
+function low_byte(value) {
+    return value & 255;
+}
+function pack(high, low) {
+    return (high << 8) | low;
+}
+for value in [1, 2, 3, 8, 9] {
+    print(value, is_odd(value), low_byte(value), pack(value, 1));
+}
+
+print("== flags ==");
+const READ = 1;
+const WRITE = 2;
+const EXECUTE = 4;
+function describe(flags) {
+    var names = "";
+    if (flags & READ) == READ { names = names + "r"; }
+    if (flags & WRITE) == WRITE { names = names + "w"; }
+    if (flags & EXECUTE) == EXECUTE { names = names + "x"; }
+    if names == "" { names = "-"; }
+    return names;
+}
+for flags in [0, 1, 2, 4, 3, 6, 7] {
+    print(flags, describe(flags), flags | READ, flags & WRITE);
+}
+
+print("== shift and mask ==");
+function red(pixel) {
+    return (pixel >> 16) & 255;
+}
+function green(pixel) {
+    return (pixel >> 8) & 255;
+}
+function blue(pixel) {
+    return pixel & 255;
+}
+const PIXEL = (255 << 16) | (128 << 8) | 64;
+print(PIXEL, red(PIXEL), green(PIXEL), blue(PIXEL));
+print(red(PIXEL) << 16, pack(green(PIXEL), blue(PIXEL)));
+
+print("== hash mix ==");
+function mix(value) {
+    var hash = value;
+    hash = hash ^ (hash << 5);
+    hash = hash ^ (hash >> 3);
+    return hash & 65535;
+}
+for value in [1, 2, 3, 16, 255] {
+    print(value, mix(value));
+}
+
+print("== powers table ==");
+for base in [2, 3, 5] {
+    var row = str(base ** 0);
+    for exponent in [1, 2, 3, 4] {
+        row = row + " " + str(base ** exponent);
+    }
+    print(base, row);
+}
+
+print("== integer boundaries ==");
+print(1 << 31, (1 << 31) - 1, 1 << 62);
+print((1 << 40) >> 20, (1 << 40) >> 40);
+print(7 & ~2, 7 | ~2);
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+function divide_by_zero() {
+    return 10 div 0;
+}
+function overflow() {
+    return 1e300 & 1;
+}
+function negative_shift() {
+    return 1 << -1;
+}
+function bad_power() {
+    return 0 ** -1;
+}
+function bad_operand() {
+    return "text" ** 2;
+}
+print("division by zero" in fails(divide_by_zero));
+print("64-bit integer range" in fails(overflow), "shift count" in fails(negative_shift));
+print("non-finite numeric result" in fails(bad_power), "not supported" in fails(bad_operand));
+
+print("done");

@@ -9,3 +9,16 @@ constant true
 guarded 4 caught zero
 rethrow [1, 2, 3]
 recovered 3
+== finally ==
+normal ["body", "finally"]
+caught ["caught", "finally"]
+uncaught ["inner", "outer"]
+return value ["return"]
+override override
+continue [1, "f", "f", 3, "f"]
+== structured errors ==
+error zero division true true
+index range false
+== typed catch ==
+20 range other
+done

@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           size=$(stat -c %s /tmp/tiger.wasm)
-          budget=3300000
+          budget=3400000
           echo "tiger.wasm is $size bytes (budget $budget)"
           if [ "$size" -gt "$budget" ]; then
             echo "::error::tiger.wasm grew past the size budget; see AGENTS.md (Wasm size guardrails)"
