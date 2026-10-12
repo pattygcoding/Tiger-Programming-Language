@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tiger-format",
+    "crates/tiger-lexer",
+    "crates/tiger-ast",
+    "crates/tiger-parser",
+    "crates/tiger-object",
+    "crates/tiger-evaluator",
+    "crates/tiger-cli",
+    "crates/tiger-wasi",
+    "crates/tiger-wasm",
+    "crates/tiger-web",
+    "crates/tiger-conformance",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+tiger-format = { path = "crates/tiger-format" }
+tiger-lexer = { path = "crates/tiger-lexer" }
+tiger-ast = { path = "crates/tiger-ast" }
+tiger-parser = { path = "crates/tiger-parser" }
+tiger-object = { path = "crates/tiger-object" }
+tiger-evaluator = { path = "crates/tiger-evaluator" }
+tiger-cli = { path = "crates/tiger-cli" }
+tiger-wasi = { path = "crates/tiger-wasi" }
+tiger-wasm = { path = "crates/tiger-wasm" }
+tiger-conformance = { path = "crates/tiger-conformance" }
+
+[profile.release]
+opt-level = 3
+strip = "symbols"
+
+
+
+

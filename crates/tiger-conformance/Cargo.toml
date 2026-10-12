@@ -1,0 +1,10 @@
+[package]
+name = "tiger-conformance"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tiger-evaluator = { workspace = true }
+
+[dev-dependencies]
+tiger-evaluator = { workspace = true }

@@ -2,25 +2,35 @@
 
 [Guide index](README.md) | [Getting Started](getting-started.md) | [Runtime and Errors](runtime-and-errors.md)
 
-All commands below run from the repository root unless stated otherwise. Development requires Go 1.22 or newer. The Go module has no third-party dependencies.
+All commands below run from the repository root unless stated otherwise.
+Development requires a stable Rust toolchain; the workspace has one
+third-party dependency (`regex`, used by the native and WASI `regex` module).
+
+## Crates
+
+| Crate | Purpose |
+| --- | --- |
+| `crates/tiger-format` | Number, string, and `%`-verb formatting |
+| `crates/tiger-lexer` | Tokenizer |
+| `crates/tiger-ast` | AST and literal import collection |
+| `crates/tiger-parser` | Parser |
+| `crates/tiger-object` | Values, environments, classes, modules |
+| `crates/tiger-evaluator` | Tree-walking interpreter and standard library |
+| `crates/tiger-cli` | The `tiger` binary: `run`, `build`, and `help` |
+| `crates/tiger-wasi` | WASI Preview 1 entry point |
+| `crates/tiger-wasm` | Browser runtime (`wasm32-unknown-unknown`) |
+| `crates/tiger-web` | Playground build and server |
+| `crates/tiger-conformance` | Benchmark, documentation, and example suites |
 
 ## Native CLI
 
-On POSIX shells:
-
 ```sh
-go build -o bin/tiger ./cmd/tiger
-./bin/tiger run examples/demo.tg
-./bin/tiger run examples/oop.tg
+cargo build --release
+./target/release/tiger run examples/demo.tg
+./target/release/tiger run examples/oop.tg
 ```
 
-On Windows PowerShell:
-
-```powershell
-go build -o bin/tiger.exe ./cmd/tiger
-.\bin\tiger.exe run examples/demo.tg
-.\bin\tiger.exe run examples/oop.tg
-```
+On Windows PowerShell the binary is `.\target\release\tiger.exe`.
 
 | Command | Purpose |
 | --- | --- |
@@ -33,146 +43,158 @@ Input paths must end in `.tg`. Build accepts `-o` before or after the source pat
 ## Standalone Executables
 
 ```powershell
-.\bin\tiger.exe build examples/oop.tg -o bin/oop.exe
+.\target\release\tiger.exe build examples\oop.tg -o bin\oop.exe
 .\bin\oop.exe
 ```
 
-On POSIX shells, use `./bin/tiger build examples/oop.tg -o bin/oop` and then `./bin/oop`. Without `-o`, the output uses the source basename in the current directory: `oop.exe` on Windows or `oop` elsewhere.
+On POSIX shells, use `./target/release/tiger build examples/oop.tg -o bin/oop` and then `./bin/oop`. Without `-o`, the output uses the source basename in the current directory: `oop.exe` on Windows or `oop` elsewhere.
 
-Building requires Go on `PATH`. Tiger validates syntax, copies its embedded runtime sources and source program into a temporary Go module, and invokes `go build`. The executable bundles a tree-walking interpreter; it is not an optimizing translation of Tiger into native instructions. Runtime errors remain runtime errors, even if the build succeeds.
+Building needs no compiler: `tiger build` validates the syntax, collects the
+program and every module it imports, and appends that bundle to a copy of the
+`tiger` binary. The result is a self-contained executable that needs neither
+Rust, Tiger, the repository, nor the original source file, and it targets the
+platform the copy was taken on. It bundles a tree-walking interpreter; it is not
+an optimizing translation of Tiger into native instructions. Runtime errors
+remain runtime errors, even if the build succeeds. Building does not execute the
+Tiger program.
 
-The result needs neither Go, Tiger, the repository, nor the original source file when executed. It targets the platform selected by the Go build environment. The temporary module is removed after building. Building does not execute the Tiger program.
 
 ## Browser WebAssembly
 
 ```sh
-go run ./cmd/web
+cargo run -p tiger-web
 ```
 
-The helper builds `web/tiger.wasm`, copies the installed toolchain's matching `wasm_exec.js`, and serves the editor at `http://127.0.0.1:7171`. If that port is busy, it picks a free port and prints the URL. Use `-addr 127.0.0.1:9000` for a specific port, or `-addr 127.0.0.1:0` to always select an available port.
+The helper builds `crates/tiger-wasm` for `wasm32-unknown-unknown`, copies the
+result to `web/tiger.wasm`, and serves the editor at `http://127.0.0.1:7171`. If
+that port is busy, it picks a free port and prints the URL. Use `-addr
+127.0.0.1:9000` for a specific port, or `-addr 127.0.0.1:0` to always select an
+available port. The server sends `Cross-Origin-Opener-Policy` and
+`Cross-Origin-Embedder-Policy`, which the runtime needs to wait for input.
 
-Build artifacts without serving:
+Build the artifact without serving:
 
 ```sh
-go run ./cmd/web -build-only
+cargo run -p tiger-web -- -build-only
 ```
 
-The underlying browser build on POSIX shells is:
+(`make wasm` runs the same command.) The underlying build is:
 
 ```sh
-GOOS=js GOARCH=wasm go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o web/tiger.wasm ./cmd/wasm
+cargo build -p tiger-wasm --release --target wasm32-unknown-unknown
 ```
+
+`web/tiger.js` instantiates `web/tiger.wasm` directly through its `extern "C"`
+ABI — there is no `wasm_exec.js` and no bindgen step — and `web/worker.js` drives
+it in a module worker. The browser build omits the `regex` and `time` modules and
+raises the documented error for each; everything else, including the in-memory
+filesystem, is available.
 
 ### Wasm Size
 
-The helper keeps `tiger.wasm` small in several ways:
+The runtime stays small because of the release profile and the module split:
 
-- `-ldflags="-s -w -buildid="` drops the symbol table, DWARF debug data, and the build ID, `-trimpath` drops local file paths, and `-buildvcs=false` skips VCS stamping.
-- The browser build never links `fmt`, `reflect`, `os`, `time`, or `path/filepath`. Runtime messages are formatted by the tiny `pkg/format` package, and the host filesystem and file loaders sit behind `//go:build !js` so only the in-memory filesystem and module loaders the playground uses are compiled in. This removed roughly 750 KB.
-- The browser build avoids heavyweight standard-library packages such as `regexp` and `math/big`: the `regex` and `time` modules are native/WASI-only behind `//go:build !js`, the `json` parser is hand-written, and number parsing and `algo.isPrime` use small hand-written code instead. This removes roughly 700 KB from the browser binary.
-- If Binaryen's `wasm-opt` is on `PATH`, the helper also runs `wasm-opt -Oz --converge` with the post-MVP features Go emits enabled and the debug and producer sections stripped. This saves roughly another 7% before compression. Install it from your package manager (for example `brew install binaryen`) or the [Binaryen releases](https://github.com/WebAssembly/binaryen/releases); without it, the step is skipped.
+- `[profile.release]` sets `opt-level = 3` and `strip = "symbols"`, which drops
+  the symbol table and debug data.
+- `regex` and the host clock live behind a
+  `#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]` split with stubs
+  that report the documented error, so neither the `regex` crate nor
+  `SystemTime` reaches the browser. The same split covers `time.iso` and
+  `time.parts`, which the native build computes itself.
+- If Binaryen's `wasm-opt` is on `PATH`, the build also runs `wasm-opt -Oz
+  --converge` with the debug and producer sections stripped. Install it from your
+  package manager (for example `brew install binaryen`) or the [Binaryen
+  releases](https://github.com/WebAssembly/binaryen/releases); without it, the
+  step is skipped.
 
-The biggest saving at download time is compression. The stripped binary is about 3.1 MB but about 0.8 MB with gzip, and smaller still with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable gzip or Brotli for the `application/wasm` content type. The local `go run ./cmd/web` server does not compress.
+The stripped binary is about 660 KB, about 250 KB with gzip, and smaller still
+with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable
+gzip or Brotli for the `application/wasm` content type. The local `cargo run -p
+tiger-web` server does not compress.
 
-The Go support script must come from the same toolchain as the Wasm binary. It lives under `lib/wasm` on newer Go releases or `misc/wasm` on older ones; the helper handles both locations.
+The browser editor supports examples, Run, Stop, Reset, Clear, source download, and local source persistence. Ctrl+Enter or Cmd+Enter runs the source. Code executes in a worker, where `tigerRun(source, filename)` returns an object with `output` and `error` strings. While a program runs, output streams to the page as it is printed, and each `input()` call shows a field at the end of the output: type a line and press Enter (or Ctrl+D for end of input) and the program continues. Each call gets a fresh evaluator environment and a fresh in-memory filesystem, so file I/O in the playground never touches the host disk (see [Files](file-io.md)).
 
-The browser editor supports examples, Run, Stop, Reset, Clear, source download, and local source persistence. Ctrl+Enter or Cmd+Enter runs the source. Code executes in a worker, where `tigerRun(source)` returns a promise for an object with `output` and `error` strings. While a program runs, output streams to the page as it is printed, and each `input()` call shows a field at the end of the output: type a line and press Enter (or Ctrl+D for end of input) and the program continues. The bridge is not a main-page global. Each call gets a fresh evaluator environment and a fresh in-memory filesystem, so file I/O in the playground never touches the host disk (see [Files](file-io.md)).
+For static deployment, publish the contents of `web/` and copy the example scripts into an `examples/` subdirectory beside the HTML, and the `portfolio-features/` directory beside it for the Portfolio entries in the example menu. Serve over HTTP(S), not `file://`, and send the two isolation headers above. Rebuild the Wasm artifact after changing the interpreter.
 
-For static deployment, publish the contents of `web/` and copy the example scripts into an `examples/` subdirectory beside the HTML, and the `portfolio-features/` directory beside it for the Portfolio entries in the example menu. Serve over HTTP(S), not `file://`. No Node.js server or CDN is required. Rebuild the Wasm artifacts after changing the interpreter.
 
 ## WASI Preview 1
 
-WASI is a different host interface from browser `syscall/js`. Use the separate entry point:
+WASI is a different host interface from the browser target. Use the separate entry point:
 
 ```sh
-GOOS=wasip1 GOARCH=wasm go build -trimpath -ldflags="-s -w" -o bin/tiger-wasi.wasm ./cmd/wasi
-wasmtime run --dir . bin/tiger-wasi.wasm examples/demo.tg
+cargo build -p tiger-wasi --release --target wasm32-wasip1
+wasmtime run --dir . target/wasm32-wasip1/release/tiger-wasi.wasm examples/demo.tg
 ```
 
-The WASI runtime must be installed separately and grant access to the source file. File input and output reach only directories the host exposes; `wasmtime run --dir .` grants the current directory for both reading and writing. The WASI entry point accepts a `.tg` file directly; it does not expose the native CLI's `run` and `build` subcommands.
+The WASI runtime must be installed separately and grant access to the source file. File input and output reach only directories the host exposes; `wasmtime run --dir .` grants the current directory for both reading and writing. The WASI entry point accepts a `.tg` file directly; it does not expose the native CLI's `run` and `build` subcommands. Unlike the browser build, it keeps the `regex` and `time` modules.
 
-PowerShell cross-compilation, preserving existing environment settings:
+## Embedding Tiger in Rust
 
-```powershell
-$previousGOOS = $env:GOOS
-$previousGOARCH = $env:GOARCH
-try {
-    $env:GOOS = "wasip1"
-    $env:GOARCH = "wasm"
-    go build -trimpath -ldflags="-s -w" -o bin/tiger-wasi.wasm ./cmd/wasi
-} finally {
-    $env:GOOS = $previousGOOS
-    $env:GOARCH = $previousGOARCH
-}
+The simplest API is `tiger_evaluator::run_with_input`, which parses and executes
+source and writes `print` output to the writer you supply:
+
+```rust
+let mut output = Vec::new();
+tiger_evaluator::run_with_input(
+    "print(6 * 7);",
+    "embedded.tg",
+    None,                            // a module loader, for `import`
+    None,                            // the host filesystem, or a MemoryFileSystem
+    None,                            // standard input
+    Box::new(&mut output),
+)
+.expect("the program runs");
+assert_eq!(String::from_utf8(output).unwrap(), "42\n");
 ```
 
-Use `GOOS=js` and `./cmd/wasm` for the browser target, or use the cross-platform browser helper instead.
-
-## Embed Tiger in Go
-
-Within this Go module, the simplest API is `evaluator.Run(source, writer)`. It parses and executes source, returns an error on failure, and writes `print` output to the supplied `io.Writer`. Passing `nil` discards output.
-
-Use `evaluator.RunFile(filename, writer)` for filesystem imports, or `RunWithLoader` with an explicit loader for virtual sources. The plain `Run` API does not read files. See [Importing Tiger Files](modules.md). Standalone builds bundle all literal import dependencies, including imports inside functions; WASI imports require the corresponding host filesystem access.
-
-`RunWithOptions(source, filename, loader, files, writer)` also selects a filesystem. Passing `nil` uses the host disk, `evaluator.NewMemoryFileSystem()` keeps file I/O in memory, and an `Evaluator` also accepts a custom `FileSystem` for embedding. See [Files](file-io.md).
+Pass `Some(Rc::new(FileLoader))` to let the program `import` from disk, and
+`Some(Box::new(MemoryFileSystem::default()))` to keep file I/O in memory, as the
+playground does. See [Files](file-io.md) and [Importing Tiger Files](modules.md).
 
 For a configurable step budget, parse once and execute explicitly:
 
-```go
-package main
-
-import (
-    "log"
-    "os"
-    "tiger/pkg/evaluator"
-    "tiger/pkg/parser"
-)
-
-func main() {
-    program, err := parser.Parse(`print(6 * 7);`)
-    if err != nil {
-        log.Fatal(err)
-    }
-    engine := evaluator.New(os.Stdout)
-    engine.MaxSteps = 100_000
-    if err := engine.Execute(program); err != nil {
-        log.Fatal(err)
-    }
-}
+```rust
+let program = tiger_parser::parse("print(6 * 7);").expect("parses");
+let mut engine = tiger_evaluator::Evaluator::new(Box::new(std::io::stdout()));
+engine.max_steps = 100_000;
+engine.execute(&program).expect("the program runs");
 ```
 
-`Execute` resets the step counter and creates a fresh environment each time. An evaluator has mutable execution state; do not share one concurrently. There is no API here for persisting Tiger bindings across separate executions.
+`execute` resets the step counter and creates a fresh environment each time. An
+evaluator holds mutable execution state, so do not share one between threads, and
+there is no API for persisting Tiger bindings across separate executions.
 
 ## Tests and Make Targets
 
 ```sh
-go test ./...
-go test ./docs -count=1 -v
-go test ./benchmarks -count=1 -v
-go vet ./...
+cargo test
+cargo test -p tiger-conformance --test benchmarks -- --nocapture
+cargo test -p tiger-conformance --test documentation -- --nocapture
+cargo fmt --check
+cargo clippy --all-targets
 ```
 
-The docs test checks Tiger examples against the output shown in Markdown. The benchmark suite checks forty 100-200-line programs against fixed output files. Neither suite is a performance threshold test. Compiler tests build and execute standalone programs; `go test -short ./...` skips those standalone integration builds.
+`cargo test` checks the unit tests, the language suites in
+`crates/tiger-evaluator/tests/`, the forty 100-200-line benchmark programs
+against fixed output files, the 143 documentation examples, every example and
+portfolio-feature program, the standalone-build integration tests, and the
+browser runtime under Node. The documentation suite checks Tiger examples against
+the output shown in Markdown, and the benchmark suite checks the programs against
+their `.txt` files; neither is a performance threshold test. The standalone
+integration tests build and execute real executables.
 
-| Make target | Purpose |
-| --- | --- |
-| `make build` | Native CLI |
-| `make run` | Build CLI and run the factorial demo |
-| `make test` | Full Go test suite |
-| `make benchmarks` | Verbose, uncached reference-output checks |
-| `make wasm` | Build browser Wasm and support script |
-| `make wasm-check` | Verify the browser build has no bloating dependencies |
-| `make web` | Build and serve the browser playground |
-| `make wasi` | Build WASI using POSIX environment syntax |
-
-Direct Go commands work without Make. See the [project layout](../README.md) for implementation packages.
+`make build`, `make run`, `make test`, `make benchmarks`, `make wasm`,
+`make wasm-check`, `make startup`, `make web`, and `make wasi` wrap the commands
+above. `make startup` boots the served playground over HTTP with Node and runs a
+program on it, which is the same path a browser takes.
 
 ## Continuous Integration
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
+`.github/workflows/ci.yml` runs two jobs:
 
-- `Tests` builds, vets, and runs `go test ./...` on Ubuntu and Windows with Go 1.22 and the latest stable release. That single command covers the unit tests, the documentation examples, the benchmark regression programs, the standalone-build integration tests, and the Wasm guard.
-- `Formatting and verbose suites` checks `gofmt` on Linux and logs the benchmark and documentation suites.
-- `Wasm builds and size guard` builds `GOOS=js` and `GOOS=wasip1`, runs `pkg/wasmcheck` to keep the forbidden packages out of the browser build, and fails if `tiger.wasm` grows past the size budget in the workflow.
-
-Run the same checks locally with `go vet ./...`, `go test ./...`, and `make wasm-check`. See "Wasm size guardrails" in [AGENTS.md](../AGENTS.md) before adding a dependency that the browser build would link.
+- **Tests** on Linux and Windows: `cargo fmt --check`, a release build,
+  `cargo test --release`, and the verbose benchmark and documentation suites.
+- **Wasm builds, closure guard, and size budget**: builds the browser runtime and
+  both WASI artifacts, fails if `cargo tree -p tiger-evaluator --target
+  wasm32-unknown-unknown` gains `regex` (or if the WASI closure loses it), and
+  fails if `tiger.wasm` grows past the size budget.

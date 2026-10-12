@@ -1,0 +1,4 @@
+# The runtime is written in a compact style: 140-column lines, and small items
+# kept on one line when they fit. `cargo fmt --check` is part of validation.
+max_width = 140
+use_small_heuristics = "Max"

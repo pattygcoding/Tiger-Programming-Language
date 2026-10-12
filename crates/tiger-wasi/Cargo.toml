@@ -1,0 +1,12 @@
+[package]
+name = "tiger-wasi"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tiger-wasi"
+path = "src/main.rs"
+
+[dependencies]
+tiger-cli = { workspace = true }
+tiger-evaluator = { workspace = true }

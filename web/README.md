@@ -8,7 +8,7 @@ never source-derived HTML. It cannot intercept pointer events.
 ## Tiger Grammar
 
 The tokenizer in [highlight.mjs](highlight.mjs) follows
-[the Tiger lexer](../pkg/lexer/lexer.go). Classification is lexical, not semantic:
+[the Tiger lexer](../crates/tiger-lexer/src/lib.rs). Classification is lexical, not semantic:
 built-in names can be shadowed and are still colored as built-ins.
 
 | Category | Grammar |
@@ -39,9 +39,11 @@ validation and error messages.
 ## Integration
 
 The complete implementation is in [index.html](index.html),
-[style.css](style.css), [app.js](app.js), and [highlight.mjs](highlight.mjs).
+[style.css](style.css), [app.js](app.js), [worker.js](worker.js),
+[tiger.js](tiger.js), and [highlight.mjs](highlight.mjs).
 Serve these files together over HTTP, with the JavaScript entry point loaded as
-`type="module"`. The existing Go web server serves the module MIME types.
+`type="module"`; the server must also send the cross-origin isolation headers
+described below.
 
 For another textarea, use the same `.editor` wrapper, `#source` textarea with
 `wrap="off"`, and `#source-highlight` pre containing an empty code element. Import
@@ -67,6 +69,19 @@ Local storage, downloads, and Wasm execution use only the original textarea valu
 
 The worker accepts `tigerRun(source, filename)`; the optional filename controls relative imports. The editor persists its source path alongside source text. Imports load same-origin `.tg` URLs synchronously inside the worker, leaving the page responsive and stoppable. Deploy imported module directories with the examples. Editor downloads contain only the entry source, not its dependencies. See [module semantics](../docs/modules.md).
 
+Programs that call `input()` block the worker, and a blocked worker cannot
+receive messages, so the page answers through a `SharedArrayBuffer` instead:
+the worker posts `input`, waits on the buffer, and the page's inline field
+writes the line into it. `SharedArrayBuffer` needs a cross-origin-isolated page,
+so the server sends `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`. Without isolation the playground
+still runs every other program, and `input()` reports that no input stream is
+connected. Ctrl+D ends input, as it does on a terminal.
+
+The browser build omits the `regex` and `time` modules and raises the documented
+error for each, matching the runtime size budget. Everything else — the language,
+`math`, `algo`, `random`, `json`, and the in-memory filesystem — is available.
+
 The browser has no host filesystem, so each run receives a fresh in-memory filesystem. `open`, `read_file`, `write_file`, `append_file`, `file_exists`, and `remove_file` work against it for the duration of the run, which keeps file-I/O examples runnable in the playground without touching the user's disk. See [Files](../docs/file-io.md).
 
 Both layers share padding, font, line height, tab width, and disabled ligatures.
@@ -85,20 +100,24 @@ Run the tokenizer regression tests with Node.js 18 or newer:
 node --test web/highlight.test.mjs editors/vscode/grammar.test.mjs
 ```
 
-`go test ./pkg/evaluator` also checks that `highlight.mjs` and the VS Code grammar
-list exactly the members of the `math`, `algo`, `random`, `json`, `time`, and `regex` modules.
+`cargo test -p tiger-evaluator` also checks that `highlight.mjs` and the VS Code
+grammar list exactly the members of the `math`, `algo`, `random`, `json`, `time`,
+and `regex` modules.
 
 Build the browser runtime from the repository root:
 
 ```sh
-go run ./cmd/web -build-only
+cargo run -p tiger-web -- -build-only
 ```
 
-This generates `web/tiger.wasm` and copies the matching Go `wasm_exec.js`.
-The stripped runtime is about 3.1 MB (about 0.8 MB with gzip). Deploy both
-together with the web assets, including `highlight.mjs`, and serve the
-repository's examples under `/examples/`. Alternatively, start the included server:
+This builds `crates/tiger-wasm` for `wasm32-unknown-unknown` and writes
+`web/tiger.wasm`, which [tiger.js](tiger.js) instantiates directly — there is no
+`wasm_exec.js` and no bindgen step. The stripped runtime is about 660 KB (about
+250 KB with gzip). If Binaryen's `wasm-opt` is on `PATH`, the build also runs
+`wasm-opt -Oz --converge`. Deploy the web assets, including `highlight.mjs` and
+`tiger.js`, and serve the repository's examples under `/examples/`. Alternatively,
+start the included server:
 
 ```sh
-go run ./cmd/web -addr 127.0.0.1:7171
+cargo run -p tiger-web -- -addr 127.0.0.1:7171
 ```

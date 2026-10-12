@@ -3,15 +3,15 @@
 Run all forty programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
-go test ./benchmarks -count=1 -v
+cargo test -p tiger-conformance --test benchmarks -- --nocapture
 ```
 
-Run from the repository root. This works in PowerShell as well as POSIX shells and does not require a separately built Tiger executable. `make benchmarks` runs the same command. The fixtures also run as part of `go test ./...`.
+Run from the repository root. This works in PowerShell as well as POSIX shells and does not require a separately built Tiger executable. `make benchmarks` runs the same command. The fixtures also run as part of `cargo test`.
 
-Run one program's checks:
+Run one program's checks by narrowing the run to programs whose name contains a string:
 
 ```sh
-go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
+TIGER_BENCH_FILTER=08_graphs cargo test -p tiger-conformance --test benchmarks -- --nocapture
 ```
 
 | Program | Coverage |
@@ -57,10 +57,10 @@ go test ./benchmarks -run TestPrograms/08_graphs -count=1 -v
 | `39_text_precision.tg` | f-string format specs (precision, width, alignment, zero padding, a column report), `\x`/`\u`/`\U` escapes, raw strings for regex patterns, and `graphemes` for combining marks, emoji modifiers, flags, and ZWJ sequences |
 | `40_syntax_gaps.tg` | conditional expressions (including chains), list and string slicing (bounds, negatives, steps, clamping), labeled `break`/`continue` across nested loops, and `do...while` with `continue` re-checking its condition |
 
-Run only the five OOP programs:
+Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 
 ```sh
-go test ./benchmarks -run 'TestPrograms/1[1-5]_' -count=1 -v
+TIGER_BENCH_FILTER=_oop_ cargo test -p tiger-conformance --test benchmarks -- --nocapture
 ```
 
 Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty source files and forty matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream.

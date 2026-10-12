@@ -7,7 +7,7 @@
 Tiger source files end in `.tg`. With Go 1.22 or newer installed, run a source file from the repository root:
 
 ```sh
-go run ./cmd/tiger run examples/demo.tg
+cargo run --release -p tiger-cli -- run examples/demo.tg
 ```
 
 For your own program, use the same command with your file's path. Here is a complete first program:
@@ -52,7 +52,7 @@ The assignment inside the `if` updates the existing `total`. Braces delimit the 
 Start the local playground from the repository root:
 
 ```sh
-go run ./cmd/web
+cargo run -p tiger-web
 ```
 
 Open the URL it prints (`http://127.0.0.1:7171` unless that port is busy), choose an example or edit the source, and select **Run**. **Stop** terminates the current worker. **Reset** restores the selected example. The editor retains source locally between visits, but variables and objects do not persist across runs.

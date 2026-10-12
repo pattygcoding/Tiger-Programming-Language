@@ -1,4 +1,5 @@
 import { attachHighlighting } from "./highlight.mjs";
+import { createInputChannel } from "./tiger.js";
 
 const source = document.querySelector("#source");
 const output = document.querySelector("#output");
@@ -14,6 +15,7 @@ let running = false;
 let loadVersion = 0;
 let sourceFilename = "examples/demo.tg";
 let pendingInput = null;
+let inputChannel = null;
 
 try {
   source.value = localStorage.getItem("tiger-source") ?? source.value;
@@ -46,7 +48,9 @@ function closeInput() {
 }
 
 // Shows an inline field after the prompt; Enter sends the line and Ctrl+D ends input.
-function requestInput(activeWorker) {
+// The answer goes into the shared buffer rather than through a message, because
+// the worker is blocked in `Atomics.wait` while it waits for a line.
+function requestInput() {
   closeInput();
   const field = document.createElement("input");
   field.className = "stdin";
@@ -61,7 +65,8 @@ function requestInput(activeWorker) {
     closeInput();
     appendOutput(endOfInput ? "^D\n" : `${text}\n`);
     setState("Running", true, true);
-    activeWorker.postMessage({ type: "input", text });
+    if (endOfInput) inputChannel?.end();
+    else inputChannel?.write(text);
   });
   pendingInput = field;
   output.append(field);
@@ -73,18 +78,21 @@ function requestInput(activeWorker) {
 function startWorker(autoRun = false) {
   worker?.terminate();
   closeInput();
+  inputChannel = null;
   setState("Loading runtime", false);
-  const activeWorker = new Worker("worker.js");
+  const activeWorker = new Worker("worker.js", { type: "module" });
   worker = activeWorker;
   activeWorker.onmessage = ({ data }) => {
     if (worker !== activeWorker) return;
     if (data.type === "ready") {
+      inputChannel = createInputChannel(data.shared);
+      if (!data.input) showError("This page is not cross-origin isolated, so programs cannot read input.");
       setState("Ready", true);
       if (autoRun) run();
     } else if (data.type === "output") {
       appendOutput(data.text);
     } else if (data.type === "input") {
-      requestInput(activeWorker);
+      requestInput();
     } else if (data.type === "result") {
       closeInput();
       showError(data.error);

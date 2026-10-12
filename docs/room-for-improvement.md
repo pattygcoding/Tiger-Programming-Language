@@ -34,7 +34,7 @@ form.
 
 ## Constraints from the Wasm build
 
-Any addition must keep `cmd/wasm` free of the packages listed under "Wasm size
+Any addition must keep `crates/tiger-wasm` free of the packages listed under "Wasm size
 guardrails" in [`AGENTS.md`](../AGENTS.md). In practice that means:
 
 - The `random` and `json` modules are Wasm-safe: they use integer math and an
@@ -59,8 +59,8 @@ Every language or runtime change should ship with, per
 - documentation in the relevant guide, with a runnable example and its expected
   output, so that `docs/docs_test.go` checks it;
 - unit tests next to the changed package, including error cases;
-- successful `GOOS=js GOARCH=wasm` and `GOOS=wasip1 GOARCH=wasm` builds, and a
-  passing `go test ./...` including `pkg/wasmcheck`.
+- successful `wasm32-unknown-unknown` and `wasm32-wasip1` builds, and a
+  passing `cargo test` including the closure guard in CI.
 
 ## Deliberate non-goals
 

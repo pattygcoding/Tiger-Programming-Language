@@ -1,0 +1,9 @@
+[package]
+name = "tiger-object"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tiger-format = { workspace = true }
+tiger-ast = { workspace = true }
+tiger-lexer = { workspace = true }
