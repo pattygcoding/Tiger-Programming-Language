@@ -25,6 +25,12 @@ pub fn number(value: f64) -> String {
         out.push('0');
         return out;
     }
+    // Integral values below 2^53 are exactly representable, so print them
+    // directly and skip the scientific-notation round trip below.
+    if magnitude.fract() == 0.0 && magnitude < 9_007_199_254_740_992.0 {
+        out.push_str(&(magnitude as i64).to_string());
+        return out;
+    }
     // Rust's `{:e}` produces the shortest round-tripping mantissa, matching Go's
     // shortest-mode digit selection. Re-expand it into fixed notation.
     let scientific = format!("{:e}", magnitude);

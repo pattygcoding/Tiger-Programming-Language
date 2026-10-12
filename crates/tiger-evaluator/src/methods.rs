@@ -111,7 +111,7 @@ fn find_method(receiver: Rc<str>) -> Value {
         }
         let needle = string_argument("find", "argument", &arguments[0])?;
         match receiver.find(needle.as_str()) {
-            Some(index) => Ok(Value::Number(receiver[..index].chars().count() as f64)),
+            Some(index) => Ok(Value::Number(if receiver.is_ascii() { index as f64 } else { receiver[..index].chars().count() as f64 })),
             None => Ok(Value::Number(-1.0)),
         }
     }))

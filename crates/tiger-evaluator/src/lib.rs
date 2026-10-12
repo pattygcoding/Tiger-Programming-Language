@@ -96,6 +96,47 @@ fn fatal(base: &Base, message: String) -> Signal {
     Signal::Runtime { error: new_runtime_error(base, message), fatal: true }
 }
 
+/// Wraps a numeric result, rejecting a non-finite value the way the interpreter
+/// does, so the arithmetic fast path stays a single call.
+fn finite_number(base: &Base, value: f64) -> Eval {
+    if value.is_infinite() || value.is_nan() {
+        return Err(runtime(base, "non-finite numeric result".to_string()));
+    }
+    Ok(Value::Number(value))
+}
+
+/// Reports whether a block's own statements introduce a binding in its scope.
+/// A body that only reads or assigns outer names can share one scope across
+/// loop iterations, so a tight loop does not allocate a scope per iteration.
+fn declares_in(statements: &[Stmt]) -> bool {
+    statements.iter().any(|statement| match statement {
+        Stmt::Import { .. } | Stmt::Destructure { .. } | Stmt::Function(_) | Stmt::Class(_) => true,
+        Stmt::Assign { declaration, .. } => *declaration,
+        _ => false,
+    })
+}
+
+/// The scope a loop body runs in: a single shared scope when the body declares
+/// nothing, or `None` to allocate a fresh scope per iteration.
+fn loop_scope(body: &[Stmt], env: &Env) -> Option<Env> {
+    if declares_in(body) {
+        None
+    } else {
+        Some(object::Environment::new(Some(env.clone())))
+    }
+}
+
+/// The scope a branch body runs in: the enclosing scope itself when the body
+/// declares nothing (reads and writes reach it either way), so an `if`, `switch`,
+/// or `try` pays no scope allocation in the common case.
+fn branch_scope(body: &[Stmt], env: &Env) -> Env {
+    if declares_in(body) {
+        object::Environment::new(Some(env.clone()))
+    } else {
+        env.clone()
+    }
+}
+
 /// The interpreter: host services, execution state, and module cache.
 pub struct Evaluator {
     pub output: Box<dyn Write>,
@@ -110,6 +151,13 @@ pub struct Evaluator {
     import_depth: usize,
     steps: u64,
     depth: usize,
+    /// Call scopes freed by calls that did not capture them, reused to avoid a
+    /// scope allocation per call.
+    scope_pool: Vec<Env>,
+    /// Shared names for the bindings every method call creates, so binding them
+    /// does not allocate.
+    this_name: Rc<str>,
+    super_name: Rc<str>,
 }
 
 impl Evaluator {
@@ -126,6 +174,34 @@ impl Evaluator {
             import_depth: 0,
             steps: 0,
             depth: 0,
+            scope_pool: Vec::new(),
+            this_name: Rc::from("this"),
+            super_name: Rc::from("super"),
+        }
+    }
+
+    /// Takes a scope for a call, reusing a pooled one when available.
+    fn acquire_scope(&mut self, parent: Env) -> Env {
+        match self.scope_pool.pop() {
+            Some(scope) => {
+                let mut borrowed = scope.borrow_mut();
+                borrowed.parent = Some(parent);
+                borrowed.access_class = None;
+                borrowed.source_path.clear();
+                drop(borrowed);
+                scope
+            }
+            None => object::Environment::new(Some(parent)),
+        }
+    }
+
+    /// Returns a scope to the pool when the call did not capture it, so the next
+    /// call reuses it instead of allocating. A scope a closure captured (its `Rc`
+    /// is shared) is left to the closure.
+    fn release_scope(&mut self, scope: Env) {
+        if Rc::strong_count(&scope) == 1 {
+            scope.borrow_mut().bindings.clear();
+            self.scope_pool.push(scope);
         }
     }
 
@@ -257,7 +333,10 @@ impl Evaluator {
     }
 
     fn statement(&mut self, statement: &Stmt, env: &Env) -> Outcome {
-        self.tick(statement.base())?;
+        self.steps += 1;
+        if self.max_steps > 0 && self.steps > self.max_steps {
+            return Err(fatal(statement.base(), "execution step limit exceeded".to_string()));
+        }
         match statement {
             Stmt::Import { base, path, name } => {
                 let module = self.import_module(base, path, env)?;
@@ -278,12 +357,24 @@ impl Evaluator {
                     let Expr::Identifier { name, .. } = target else { unreachable!("declaration target") };
                     object::define(env, name, computed, *constant).map_err(|message| runtime(base, message))?;
                 } else if operator != "=" {
-                    let reference = self.reference(target, env)?;
-                    let left = self.read_target(&reference, env)?;
-                    let right = self.expression(value, env)?;
-                    let op = operator.trim_end_matches('=').to_string();
-                    let combined = self.binary(base, &op, left, right)?;
-                    self.write_target(&reference, combined, env)?;
+                    let op = operator.trim_end_matches('=');
+                    // An identifier target needs no `Target`, so a plain `x += 1`
+                    // reads and writes the name without cloning it.
+                    if let Expr::Identifier { name, .. } = target {
+                        let left = object::get(env, name).map_err(|message| runtime(base, message))?;
+                        let right = self.expression(value, env)?;
+                        let combined = self.binary(base, op, left, right)?;
+                        object::assign(env, name, combined).map_err(|message| runtime(base, message))?;
+                    } else {
+                        let reference = self.reference(target, env)?;
+                        let left = self.read_target(&reference, env)?;
+                        let right = self.expression(value, env)?;
+                        let combined = self.binary(base, op, left, right)?;
+                        self.write_target(&reference, combined, env)?;
+                    }
+                } else if let Expr::Identifier { name, .. } = target {
+                    let computed = self.expression(value, env)?;
+                    object::assign(env, name, computed).map_err(|message| runtime(base, message))?;
                 } else {
                     let computed = self.expression(value, env)?;
                     let reference = self.reference(target, env)?;
@@ -311,14 +402,19 @@ impl Evaluator {
             Stmt::If { branches, else_block, .. } => {
                 for branch in branches {
                     if object::truthy(&self.expression(&branch.condition, env)?) {
-                        return self.block(&branch.body, &object::Environment::new(Some(env.clone())));
+                        return self.block(&branch.body, &branch_scope(&branch.body, env));
                     }
                 }
-                return self.block(else_block, &object::Environment::new(Some(env.clone())));
+                return self.block(else_block, &branch_scope(else_block, env));
             }
             Stmt::While { label, condition, body, else_block, .. } => {
+                let shared = loop_scope(body, env);
                 while object::truthy(&self.expression(condition, env)?) {
-                    if let Some(result) = self.block(body, &object::Environment::new(Some(env.clone())))? {
+                    let scope = match &shared {
+                        Some(scope) => scope.clone(),
+                        None => object::Environment::new(Some(env.clone())),
+                    };
+                    if let Some(result) = self.block(body, &scope)? {
                         match loop_control(label, &result) {
                             (_, Some(propagate)) => return Ok(Some(propagate)),
                             (true, None) => return Ok(None),
@@ -333,9 +429,15 @@ impl Evaluator {
                 let values = self.iterable_values(base, &iterable)?;
                 for value in values {
                     self.tick(base)?;
-                    let scope = object::Environment::new(Some(env.clone()));
-                    object::define(&scope, name, value, false).map_err(|message| runtime(base, message))?;
-                    if let Some(result) = self.block(body, &scope)? {
+                    // The loop variable lives in a pooled scope; the pool keeps it
+                    // out of a captured scope, so per-iteration bindings still work.
+                    let scope = self.acquire_scope(env.clone());
+                    let outcome = match object::define(&scope, name, value, false) {
+                        Ok(()) => self.block(body, &scope),
+                        Err(message) => Err(runtime(base, message)),
+                    };
+                    self.release_scope(scope);
+                    if let Some(result) = outcome? {
                         match loop_control(label, &result) {
                             (_, Some(propagate)) => return Ok(Some(propagate)),
                             (true, None) => return Ok(None),
@@ -350,6 +452,7 @@ impl Evaluator {
                 if let Some(initializer) = initializer {
                     self.statement(initializer, &scope)?;
                 }
+                let shared = loop_scope(body, &scope);
                 loop {
                     if let Some(condition) = condition {
                         if !object::truthy(&self.expression(condition, &scope)?) {
@@ -357,7 +460,11 @@ impl Evaluator {
                         }
                     }
                     self.tick(base)?;
-                    if let Some(result) = self.block(body, &object::Environment::new(Some(scope.clone())))? {
+                    let body_scope = match &shared {
+                        Some(scope) => scope.clone(),
+                        None => object::Environment::new(Some(scope.clone())),
+                    };
+                    if let Some(result) = self.block(body, &body_scope)? {
                         match loop_control(label, &result) {
                             (_, Some(propagate)) => return Ok(Some(propagate)),
                             (true, None) => return Ok(None),
@@ -370,19 +477,26 @@ impl Evaluator {
                 }
                 return self.block(else_block, &object::Environment::new(Some(scope)));
             }
-            Stmt::DoWhile { base, label, condition, body } => loop {
-                self.tick(base)?;
-                if let Some(result) = self.block(body, &object::Environment::new(Some(env.clone())))? {
-                    match loop_control(label, &result) {
-                        (_, Some(propagate)) => return Ok(Some(propagate)),
-                        (true, None) => return Ok(None),
-                        (false, None) => {}
+            Stmt::DoWhile { base, label, condition, body } => {
+                let shared = loop_scope(body, env);
+                loop {
+                    self.tick(base)?;
+                    let scope = match &shared {
+                        Some(scope) => scope.clone(),
+                        None => object::Environment::new(Some(env.clone())),
+                    };
+                    if let Some(result) = self.block(body, &scope)? {
+                        match loop_control(label, &result) {
+                            (_, Some(propagate)) => return Ok(Some(propagate)),
+                            (true, None) => return Ok(None),
+                            (false, None) => {}
+                        }
+                    }
+                    if !object::truthy(&self.expression(condition, env)?) {
+                        return Ok(None);
                     }
                 }
-                if !object::truthy(&self.expression(condition, env)?) {
-                    return Ok(None);
-                }
-            },
+            }
             Stmt::Switch { value, cases, .. } => {
                 let value = self.expression(value, env)?;
                 let mut start: Option<usize> = None;
@@ -399,7 +513,8 @@ impl Evaluator {
                     }
                 }
                 let Some(start) = start.or(fallback) else { return Ok(None) };
-                let scope = object::Environment::new(Some(env.clone()));
+                let declares = cases[start..].iter().any(|case| declares_in(&case.body));
+                let scope = if declares { object::Environment::new(Some(env.clone())) } else { env.clone() };
                 for case in &cases[start..] {
                     if let Some(result) = self.block(&case.body, &scope)? {
                         if result.kind == FlowKind::Break && result.label.is_empty() {
@@ -437,7 +552,24 @@ fn loop_control(label: &str, result: &Flow) -> (bool, Option<Flow>) {
 
 impl Evaluator {
     fn expression(&mut self, expression: &Expr, env: &Env) -> Eval {
-        self.tick(expression.base())?;
+        self.steps += 1;
+        if self.max_steps > 0 && self.steps > self.max_steps {
+            return Err(fatal(expression.base(), "execution step limit exceeded".to_string()));
+        }
+        // Identifiers and literals are the hottest nodes and cannot recurse, so
+        // they skip the depth bookkeeping that guards the recursive walk.
+        match expression {
+            Expr::Identifier { base, name } => return object::get(env, name).map_err(|message| runtime(base, message)),
+            Expr::Literal { value, .. } => {
+                return Ok(match value {
+                    tiger_ast::LiteralValue::Number(number) => Value::Number(*number),
+                    tiger_ast::LiteralValue::String(text) => Value::string(text),
+                    tiger_ast::LiteralValue::Bool(flag) => Value::Bool(*flag),
+                    tiger_ast::LiteralValue::Null => Value::Null,
+                });
+            }
+            _ => {}
+        }
         if self.depth >= 512 {
             return Err(fatal(expression.base(), "maximum evaluation depth exceeded".to_string()));
         }
@@ -516,6 +648,20 @@ impl Evaluator {
                 Ok(Value::Number(number))
             }
             Expr::Update { base, target, operator, prefix } => {
+                // An identifier target needs no `Target`, so `++`/`--` updates the
+                // name without cloning it.
+                if let Expr::Identifier { name, .. } = &**target {
+                    let previous = match object::get(env, name).map_err(|message| runtime(base, message))? {
+                        Value::Number(number) => number,
+                        _ => return Err(runtime(base, format!("{} requires a number", operator))),
+                    };
+                    let updated = if operator == "--" { previous - 1.0 } else { previous + 1.0 };
+                    if updated.is_infinite() || updated.is_nan() {
+                        return Err(runtime(base, "non-finite numeric result".to_string()));
+                    }
+                    object::assign(env, name, Value::Number(updated)).map_err(|message| runtime(base, message))?;
+                    return Ok(if *prefix { Value::Number(updated) } else { Value::Number(previous) });
+                }
                 let reference = self.reference(target, env)?;
                 let previous = match self.read_target(&reference, env)? {
                     Value::Number(number) => number,
@@ -567,11 +713,18 @@ impl Evaluator {
                         Ok(Value::list(indices.iter().map(|index| borrowed[*index as usize].clone()).collect()))
                     }
                     Value::String(text) => {
-                        let runes: Vec<char> = text.chars().collect();
-                        let (start, stop, step) = self.slice_bounds(base, start, stop, step, runes.len(), env)?;
-                        let indices = slice_indices(start, stop, step);
-                        let value: String = indices.iter().map(|index| runes[*index as usize]).collect();
-                        Ok(Value::string(&value))
+                        if text.is_ascii() {
+                            let (start, stop, step) = self.slice_bounds(base, start, stop, step, text.len(), env)?;
+                            let indices = slice_indices(start, stop, step);
+                            let value: String = indices.iter().map(|index| text.as_bytes()[*index as usize] as char).collect();
+                            Ok(Value::string(&value))
+                        } else {
+                            let runes: Vec<char> = text.chars().collect();
+                            let (start, stop, step) = self.slice_bounds(base, start, stop, step, runes.len(), env)?;
+                            let indices = slice_indices(start, stop, step);
+                            let value: String = indices.iter().map(|index| runes[*index as usize]).collect();
+                            Ok(Value::string(&value))
+                        }
                     }
                     other => Err(runtime(base, format!("{} cannot be sliced", other.type_name()))),
                 }
@@ -585,9 +738,14 @@ impl Evaluator {
                         Ok(elements.borrow()[index].clone())
                     }
                     Value::String(text) => {
-                        let runes: Vec<char> = text.chars().collect();
-                        let index = self.index_at(base, &key, runes.len())?;
-                        Ok(Value::string(&runes[index].to_string()))
+                        if text.is_ascii() {
+                            let index = self.index_at(base, &key, text.len())?;
+                            Ok(Value::string(&text[index..index + 1]))
+                        } else {
+                            let runes: Vec<char> = text.chars().collect();
+                            let index = self.index_at(base, &key, runes.len())?;
+                            Ok(Value::string(&runes[index].to_string()))
+                        }
                     }
                     Value::Dict(dict) => match dict.borrow().get(&key) {
                         Ok(Some(value)) => Ok(value),
@@ -600,7 +758,18 @@ impl Evaluator {
             }
             Expr::Call { base, function, arguments, keywords } => {
                 let function = self.expression(function, env)?;
-                let mut positional = Vec::new();
+                // The common call passes a few arguments with no keywords and no
+                // spread, so evaluate them into a stack buffer instead of a heap
+                // vector. The buffer stays local, so the callee's own calls cannot
+                // invalidate it.
+                if keywords.is_empty() && arguments.len() <= 4 && !arguments.iter().any(|argument| argument.spread) {
+                    let mut buffer: [Value; 4] = std::array::from_fn(|_| Value::Null);
+                    for (index, argument) in arguments.iter().enumerate() {
+                        buffer[index] = self.expression(&argument.value, env)?;
+                    }
+                    return self.call(base, function, &buffer[..arguments.len()], &[], env);
+                }
+                let mut positional = Vec::with_capacity(arguments.len());
                 for argument in arguments {
                     let value = self.expression(&argument.value, env)?;
                     if !argument.spread {
@@ -614,7 +783,7 @@ impl Evaluator {
                         }
                     }
                 }
-                let mut named: Vec<Keyword> = Vec::new();
+                let mut named: Vec<Keyword> = Vec::with_capacity(keywords.len());
                 let mut seen: Vec<String> = Vec::new();
                 for entry in keywords {
                     let value = self.expression(&entry.value, env)?;
@@ -885,12 +1054,13 @@ impl Evaluator {
     }
 }
 
-/// Names a function in diagnostics, covering anonymous functions.
-fn function_label(declaration: &tiger_ast::FunctionDecl) -> String {
+/// Names a function in diagnostics, covering anonymous functions. Borrows the
+/// declaration's name so a call allocates nothing just to label an error.
+fn function_label(declaration: &tiger_ast::FunctionDecl) -> &str {
     if declaration.name.is_empty() {
-        "anonymous function".to_string()
+        "anonymous function"
     } else {
-        declaration.name.clone()
+        &declaration.name
     }
 }
 
@@ -927,13 +1097,38 @@ impl Evaluator {
         {
             return Err(runtime(base, format!("{} expects {} arguments, got {}", label, fixed, arguments.len())));
         }
-        let scope = object::Environment::new(Some(function.env.clone()));
+        // A call scope is pooled and reused when the call does not capture it, so
+        // a recursive or repeated call does not allocate a scope and its bindings
+        // each time.
+        let scope = self.acquire_scope(function.env.clone());
+        let result = self.run_call(base, function, arguments, keywords, bound, &scope);
+        self.release_scope(scope);
+        result
+    }
+
+    /// Binds the call's `this`/`super`, parameters, keywords, and defaults in
+    /// `scope`, then runs the body.
+    fn run_call(
+        &mut self,
+        base: &Base,
+        function: &Rc<object::FunctionValue>,
+        arguments: &[Value],
+        keywords: &[Keyword],
+        bound: Option<&Rc<object::BoundMethod>>,
+        scope: &Env,
+    ) -> Eval {
+        let scope = scope.clone();
+        let declaration = &function.declaration;
+        let parameters = &declaration.parameters;
+        let fixed = parameters.len();
+        let label = function_label(declaration);
         if let Some(bound) = bound {
             scope.borrow_mut().access_class = Some(bound.method.owner.clone());
-            object::define(&scope, "this", Value::Instance(bound.receiver.clone()), true).map_err(|message| runtime(base, message))?;
-            object::define(
+            object::define_shared(&scope, &self.this_name, Value::Instance(bound.receiver.clone()), true)
+                .map_err(|message| runtime(base, message))?;
+            object::define_shared(
                 &scope,
-                "super",
+                &self.super_name,
                 Value::Super(Rc::new(object::Super {
                     parent: bound.method.owner.parent.clone(),
                     receiver: bound.receiver.clone(),
@@ -943,51 +1138,52 @@ impl Evaluator {
             )
             .map_err(|message| runtime(base, message))?;
         }
-        let mut assigned: Vec<String> = Vec::new();
-        for (index, parameter) in parameters.iter().enumerate() {
-            if index >= arguments.len() {
-                break;
-            }
-            object::define(&scope, parameter, arguments[index].clone(), false).map_err(|message| runtime(base, message))?;
-            assigned.push(parameter.clone());
+        let bound_positionally = arguments.len().min(fixed);
+        for (index, parameter) in parameters.iter().take(bound_positionally).enumerate() {
+            object::define_shared(&scope, parameter, arguments[index].clone(), false).map_err(|message| runtime(base, message))?;
         }
         if !declaration.variadic.is_empty() {
             let extra: Vec<Value> = if arguments.len() > fixed { arguments[fixed..].to_vec() } else { Vec::new() };
             object::define(&scope, &declaration.variadic, Value::list(extra), false).map_err(|message| runtime(base, message))?;
         }
-        let collected = Rc::new(std::cell::RefCell::new(object::Dict::default()));
+        // Names bound by keyword, and the `**kwargs` dictionary, are only
+        // materialized when the call actually passes keywords.
+        let mut keyword_bound: Vec<&str> = Vec::new();
+        let mut collected: Option<Rc<std::cell::RefCell<object::Dict>>> = None;
         for entry in keywords {
-            if parameters.contains(&entry.name) {
-                if assigned.contains(&entry.name) {
+            if let Some(position) = parameters.iter().position(|parameter| &**parameter == entry.name.as_str()) {
+                if position < bound_positionally || keyword_bound.contains(&entry.name.as_str()) {
                     return Err(runtime(base, format!("{} got multiple values for argument {:?}", label, entry.name)));
                 }
                 object::define(&scope, &entry.name, entry.value.clone(), false).map_err(|message| runtime(base, message))?;
-                assigned.push(entry.name.clone());
+                keyword_bound.push(entry.name.as_str());
                 continue;
             }
             if declaration.keyword.is_empty() {
                 return Err(runtime(base, format!("{} got an unexpected keyword argument {:?}", label, entry.name)));
             }
-            let existing = collected.borrow().get(&Value::string(&entry.name)).map_err(|message| runtime(base, message))?;
+            let dict = collected.get_or_insert_with(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
+            let existing = dict.borrow().get(&Value::string(&entry.name)).map_err(|message| runtime(base, message))?;
             if existing.is_some() {
                 return Err(runtime(base, format!("{} got multiple values for keyword argument {:?}", label, entry.name)));
             }
-            collected.borrow_mut().set(Value::string(&entry.name), entry.value.clone()).map_err(|message| runtime(base, message))?;
+            dict.borrow_mut().set(Value::string(&entry.name), entry.value.clone()).map_err(|message| runtime(base, message))?;
         }
         for (index, parameter) in parameters.iter().enumerate() {
-            if assigned.contains(parameter) {
+            if index < bound_positionally || keyword_bound.contains(&&**parameter) {
                 continue;
             }
             if index < declaration.defaults.len() && declaration.defaults[index].is_some() {
                 let default = declaration.defaults[index].as_ref().unwrap();
                 let value = self.expression(default, &function.env)?;
-                object::define(&scope, parameter, value, false).map_err(|message| runtime(base, message))?;
+                object::define_shared(&scope, parameter, value, false).map_err(|message| runtime(base, message))?;
                 continue;
             }
             return Err(runtime(base, format!("{} missing required argument {:?}", label, parameter)));
         }
         if !declaration.keyword.is_empty() {
-            object::define(&scope, &declaration.keyword, Value::Dict(collected), false).map_err(|message| runtime(base, message))?;
+            let dict = collected.unwrap_or_else(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
+            object::define(&scope, &declaration.keyword, Value::Dict(dict), false).map_err(|message| runtime(base, message))?;
         }
         if let Some(flow) = self.block(&declaration.body, &scope)? {
             return Ok(flow.value);
@@ -1120,7 +1316,7 @@ impl Evaluator {
         match receiver {
             Value::String(text) => {
                 if name == "size" || name == "length" {
-                    return Ok(self.length_method(name, text.chars().count() as f64));
+                    return Ok(self.length_method(name, (if text.is_ascii() { text.len() } else { text.chars().count() }) as f64));
                 }
                 if let Some(method) = methods::string_method(name, text.clone()) {
                     return Ok(method);
@@ -1162,11 +1358,16 @@ impl Evaluator {
             }
             Value::File(file) => self.file_property(base, file, name),
             Value::Instance(instance) => {
-                self.member_access(base, &instance.class, name, env, false)?;
-                if let Some(value) = instance.fields.borrow().get(name) {
-                    return Ok(value.clone());
-                }
-                if let Some(method) = instance.class.find_method(name) {
+                // Look the member up once: a field and a method cannot share a
+                // name, so at most one class-chain walk is needed, not the three
+                // that a separate access check plus lookup would cost.
+                if let Some(field) = instance.class.find_field(name) {
+                    self.accessible(base, &field.declaration.access, &field.owner, env)?;
+                    if let Some(value) = instance.fields.borrow().get(name) {
+                        return Ok(value.clone());
+                    }
+                } else if let Some(method) = instance.class.find_method(name) {
+                    self.accessible(base, &method.function.declaration.access, &method.owner, env)?;
                     return Ok(Value::BoundMethod(Rc::new(object::BoundMethod { method, receiver: instance.clone() })));
                 }
                 if let Some(method) = methods::conversion_method(name, receiver) {
@@ -1374,6 +1575,42 @@ fn order_values(left: &Value, right: &Value, sorting: bool) -> Result<std::cmp::
 
 impl Evaluator {
     fn binary(&mut self, base: &Base, operator: &str, left: Value, right: Value) -> Eval {
+        // Numeric fast path: arithmetic and comparison on two numbers is the hot
+        // case in loops, so match it before the general equality/membership
+        // dispatch and avoid several string comparisons per operation.
+        if let (Value::Number(first), Value::Number(second)) = (&left, &right) {
+            let (first, second) = (*first, *second);
+            match operator {
+                "+" => return finite_number(base, first + second),
+                "-" => return finite_number(base, first - second),
+                "*" => return finite_number(base, first * second),
+                "<" => return Ok(Value::Bool(first < second)),
+                "<=" => return Ok(Value::Bool(first <= second)),
+                ">" => return Ok(Value::Bool(first > second)),
+                ">=" => return Ok(Value::Bool(first >= second)),
+                "==" => return Ok(Value::Bool(first == second)),
+                "!=" => return Ok(Value::Bool(first != second)),
+                "/" | "%" | "div" => {
+                    if second == 0.0 {
+                        return Err(runtime(base, "division by zero".to_string()));
+                    }
+                    let value = match operator {
+                        "/" => first / second,
+                        "div" => (first / second).floor(),
+                        _ => {
+                            let mut remainder = first % second;
+                            if remainder != 0.0 && (remainder < 0.0) != (second < 0.0) {
+                                remainder += second;
+                            }
+                            remainder
+                        }
+                    };
+                    return finite_number(base, value);
+                }
+                "**" => return finite_number(base, first.powf(second)),
+                _ => {}
+            }
+        }
         match operator {
             "==" => return Ok(Value::Bool(object::equal(&left, &right))),
             "!=" => return Ok(Value::Bool(!object::equal(&left, &right))),
@@ -1582,7 +1819,7 @@ impl Evaluator {
         }
         match self.try_handlers(base, body, catches, env) {
             Ok(flow) => {
-                let final_result = self.block(finally, &object::Environment::new(Some(env.clone())))?;
+                let final_result = self.block(finally, &branch_scope(finally, env))?;
                 if final_result.is_some() {
                     return Ok(final_result);
                 }
@@ -1590,7 +1827,7 @@ impl Evaluator {
             }
             Err(fatal @ Signal::Runtime { fatal: true, .. }) => Err(fatal),
             Err(failure) => {
-                let final_result = self.block(finally, &object::Environment::new(Some(env.clone())));
+                let final_result = self.block(finally, &branch_scope(finally, env));
                 match final_result {
                     Ok(Some(flow)) => Ok(Some(flow)),
                     Ok(None) => Err(failure),
@@ -1603,7 +1840,7 @@ impl Evaluator {
     /// Runs the body and then each catch clause in order; the first matching
     /// clause wins, and an unmatched error propagates unchanged.
     fn try_handlers(&mut self, base: &Base, body: &Block, catches: &[tiger_ast::Catch], env: &Env) -> Outcome {
-        let failure = match self.block(body, &object::Environment::new(Some(env.clone()))) {
+        let failure = match self.block(body, &branch_scope(body, env)) {
             Ok(flow) => return Ok(flow),
             Err(fatal @ Signal::Runtime { fatal: true, .. }) => return Err(fatal),
             Err(signal) => signal,

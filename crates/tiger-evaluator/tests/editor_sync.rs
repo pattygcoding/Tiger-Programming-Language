@@ -18,7 +18,7 @@ fn read(path: &str) -> String {
 
 /// The names a module's environment defines, sorted.
 fn members(module: &std::rc::Rc<tiger_object::Module>) -> Vec<String> {
-    let mut names: Vec<String> = module.env.borrow().bindings.keys().cloned().collect();
+    let mut names: Vec<String> = module.env.borrow().bindings.keys().map(str::to_string).collect();
     names.sort();
     names
 }
