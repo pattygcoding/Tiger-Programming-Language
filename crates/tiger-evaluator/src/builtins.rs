@@ -35,6 +35,7 @@ pub(crate) fn install(env: &Env) {
     define(env, "math", Value::Module(modules::math_module()));
     define(env, "algo", Value::Module(modules::algo_module()));
     define(env, "random", Value::Module(modules::random_module()));
+    define(env, "secrets", Value::Module(modules::secrets_module()));
     define(env, "json", Value::Module(modules::json_module()));
     define(env, "time", Value::Module(modules::time_module()));
     define(env, "regex", Value::Module(modules::regex_module()));

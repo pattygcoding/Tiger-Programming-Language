@@ -86,6 +86,37 @@ fn random_module_errors() {
 }
 
 #[test]
+fn secrets_module() {
+    expect_outputs(&[
+        ("var value = secrets.random(); print(value >= 0 and value < 1);", "true\n"),
+        ("var value = secrets.uniform(2, 3); print(value >= 2 and value < 3);", "true\n"),
+        ("print(secrets.int(4, 4), secrets.int(-1, -1));", "4 -1\n"),
+        ("const items = [\"a\", \"b\", \"c\"]; print(secrets.choice(items) in items);", "true\n"),
+        ("var items = [1, 2, 3, 4, 5]; secrets.shuffle(items); items.sort(); print(items);", "[1, 2, 3, 4, 5]\n"),
+        ("print(secrets);", "<module secrets>\n"),
+    ]);
+    // `secrets` needs no seed, and its source is not reproducible: the same
+    // program gives different values on every run.
+    let once = output("print(secrets.int(0, 1000000000), secrets.int(0, 1000000000));");
+    let twice = output("print(secrets.int(0, 1000000000), secrets.int(0, 1000000000));");
+    assert_ne!(once, twice, "secrets must not repeat across runs");
+}
+
+#[test]
+fn secrets_module_errors() {
+    expect_errors(&[
+        ("secrets.int(5, 1);", "secrets.int expects low <= high"),
+        ("secrets.int(0.5, 1);", "must be a safe integer"),
+        ("secrets.int(\"a\", 1);", "must be a number"),
+        ("secrets.choice([]);", "empty list"),
+        ("secrets.choice(\"x\");", "expects a list"),
+        ("secrets.shuffle(1);", "expects a list"),
+        ("secrets.random(1);", "expects 0 arguments"),
+        ("secrets.seed(1);", "has no export \"seed\""),
+    ]);
+}
+
+#[test]
 fn json_module() {
     expect_outputs(&[
         (

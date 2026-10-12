@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Built-ins](builtins.md) | [Files](file-io.md)
 
-Beyond `print`/`len`/conversions and the [`math`](math.md) and [`algo`](algo.md) modules, Tiger ships four more read-only modules — `random`, `json`, `time`, and `regex` — plus the `list_dir` file helper. All are available without an import.
+Beyond `print`/`len`/conversions and the [`math`](math.md) and [`algo`](algo.md) modules, Tiger ships five more read-only modules — `random`, `secrets`, `json`, `time`, and `regex` — plus the `list_dir` file helper. All are available without an import.
 
 ## random
 
@@ -37,6 +37,44 @@ true
 4 only
 [1, 2, 3, 4, 5]
 ```
+
+## secrets
+
+`secrets` produces non-reproducible randomness. It needs no seeding: the module
+draws from host entropy when it is created and mixes in a fresh reading on every
+call, so two runs of the same program differ. Use it for anything that must not
+repeat, such as a one-time code or a shuffled deck, and use [`random`](#random)
+when a program has to be reproducible. It is available on the native CLI, in
+standalone executables, and under WASI; the browser build has no host entropy and
+raises an error instead.
+
+| Function | Result |
+| --- | --- |
+| `secrets.random()` | A number in `[0, 1)` |
+| `secrets.int(low, high)` | An integer in `[low, high]`, both inclusive |
+| `secrets.uniform(low, high)` | A number in `[low, high)` |
+| `secrets.choice(list)` | A random element; an empty list is an error |
+| `secrets.shuffle(list)` | Shuffles a list in place and returns `null` |
+
+```tg
+const fraction = secrets.random();
+print(fraction >= 0 and fraction < 1);
+const roll = secrets.int(1, 6);
+print(roll >= 1 and roll <= 6);
+const faces = ["north", "south", "east"];
+print(secrets.choice(faces) in faces);
+```
+
+Output:
+
+```text
+true
+true
+true
+```
+
+Every call draws a fresh value, so there is no `secrets.seed` and no way to
+reproduce a sequence; use `random` when reproducibility matters.
 
 ## json
 

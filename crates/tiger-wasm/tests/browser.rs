@@ -128,6 +128,7 @@ fn reports_the_modules_the_browser_omits() {
     for (name, source, expected) in [
         ("regex.tg", "print(regex.match(\"a\", \"a\"));", "the regex module is not available in the browser build"),
         ("time.tg", "print(time.now());", "the time module is not available in the browser build"),
+        ("secrets.tg", "print(secrets.random());", "the secrets module is not available in the browser build"),
     ] {
         let program = directory.join(name);
         std::fs::write(&program, source).expect("write program");

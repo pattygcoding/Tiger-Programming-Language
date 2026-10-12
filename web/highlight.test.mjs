@@ -13,7 +13,7 @@ test("all reserved words, literals, and built-ins", () => {
   for (const text of ["true", "false", "null"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "literal" }]);
   }
-  for (const text of ["print", "input", "str", "int", "float", "bool", "len", "range", "type", "isinstance", "graphemes", "sum", "min", "max", "any", "all", "zip", "enumerate", "map", "filter", "sorted", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "list_dir", "math", "algo", "random", "json", "time", "regex"]) {
+  for (const text of ["print", "input", "str", "int", "float", "bool", "len", "range", "type", "isinstance", "graphemes", "sum", "min", "max", "any", "all", "zip", "enumerate", "map", "filter", "sorted", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "list_dir", "math", "algo", "random", "secrets", "json", "time", "regex"]) {
     assert.deepEqual(tokens(text), [{ text, kind: "builtin" }]);
   }
 });

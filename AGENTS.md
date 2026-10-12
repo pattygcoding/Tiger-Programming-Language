@@ -18,7 +18,7 @@ it serves and is checked against.
 `crates/tiger-wasm` ships to the browser. It currently builds to about 660 KB
 stripped (~250 KB gzip). Keep it there.
 
-- **Keep the browser runtime free of `regex` and the host clock.** Both live behind the `wasm32-unknown-unknown` cfg with stubs that report the documented error, because the `regex` crate would bloat the download and `SystemTime::now` panics on that target. `std::fs` is linked but never reached, because the browser always runs on the in-memory filesystem.
+- **Keep the browser runtime free of `regex`, the host clock, and host entropy.** They live behind the `wasm32-unknown-unknown` cfg with stubs that report the documented error, because the `regex` crate would bloat the download and `SystemTime::now` panics on that target. `std::fs` is linked but never reached, because the browser always runs on the in-memory filesystem.
 - **Never add a dependency without checking the browser closure.** `cargo tree -p tiger-evaluator --target wasm32-unknown-unknown` must not gain a crate, and the same command for `--target wasm32-wasip1` must still show the ones WASI keeps.
 - **Keep the release profile stripping.** `[profile.release]` sets `opt-level = 3` and `strip = "symbols"`; `crates/tiger-web` copies the release artifact and then runs `wasm-opt -Oz --converge` when Binaryen is on `PATH`.
 - **Update the numbers when the size changes:** `README.md`, `docs/running-and-building.md`, `web/README.md`, and the budget in `.github/workflows/ci.yml`.
@@ -27,7 +27,7 @@ stripped (~250 KB gzip). Keep it there.
 
 Run `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` before
 finishing. `cargo test` runs the unit tests, the language suites, the 40
-benchmark programs, the 143 documentation examples, the example and portfolio
+benchmark programs, the 157 documentation examples, the example and portfolio
 programs, the standalone-build integration tests, and the browser runtime under
 Node. The browser tests skip with a message until `cargo build -p tiger-wasm
 --release --target wasm32-unknown-unknown` has run.

@@ -4,6 +4,12 @@ int range true
 singleton 7 only
 shuffle [1, 2, 3, 4, 5, 6, 7, 8]
 fraction range true
+== secrets ==
+fraction range true
+int range true
+singleton 9 only
+shuffle [1, 2, 3, 4, 5, 6, 7, 8]
+varies true
 == json ==
 tiger [80, 443] true null
 {"name":"tiger","ports":[80,443],"on":true,"note":null}
@@ -27,6 +33,7 @@ a#b#c
 ["lib.tg", "main.tg"]
 ["README.md"]
 == errors ==
+true true
 true true
 true true
 true true

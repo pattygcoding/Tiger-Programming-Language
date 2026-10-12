@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Classes and Inheritance](classes-and-inheritance.md) | [Runtime and Errors](runtime-and-errors.md)
 
-Tiger provides the general built-ins `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, `isinstance`, and `graphemes`, the aggregate built-ins `sum`, `min`, `max`, `any`, `all`, `zip`, `enumerate`, `map`, `filter`, and `sorted`, the [`math`](math.md), [`algo`](algo.md), `random`, `json`, `time`, and `regex` modules, plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, `remove_file`, and `list_dir` described in [Files](file-io.md). See [Standard Library Additions](standard-library.md) for the `random`, `json`, `time`, and `regex` modules. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration (at the top level or in an inner scope) or a parameter can shadow them; for example, `import "lib/math.tg" as math;` hides the built-in `math` in that file. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
+Tiger provides the general built-ins `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, `isinstance`, and `graphemes`, the aggregate built-ins `sum`, `min`, `max`, `any`, `all`, `zip`, `enumerate`, `map`, `filter`, and `sorted`, the [`math`](math.md), [`algo`](algo.md), `random`, `secrets`, `json`, `time`, and `regex` modules, plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, `remove_file`, and `list_dir` described in [Files](file-io.md). See [Standard Library Additions](standard-library.md) for the `random`, `secrets`, `json`, `time`, and `regex` modules. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration (at the top level or in an inner scope) or a parameter can shadow them; for example, `import "lib/math.tg" as math;` hides the built-in `math` in that file. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
 
 ## print(...values, end="\n")
 
@@ -247,7 +247,7 @@ The names are stable and match the diagnostics produced elsewhere in the runtime
 | `instance` | An instance |
 | `bound method` | A method read through an instance |
 | `super` | A `super` receiver inside a method |
-| `module` | A built-in module (`math`, `algo`, `random`, `json`, `time`, `regex`) or an imported file |
+| `module` | A built-in module (`math`, `algo`, `random`, `secrets`, `json`, `time`, `regex`) or an imported file |
 | `file` | An open file object |
 | `error` | A runtime error caught by `catch` |
 
@@ -331,11 +331,12 @@ print(filter(values, function(value) { return value > 15; }));
 
 ## Built-in Modules
 
-Six read-only modules are available without an import:
+Seven read-only modules are available without an import:
 
 - [`math`](math.md): `ceil`, `floor`, `round`, `sqrt`, `abs`, `pow`, `log`, `sin`, `cos`, `tan`, `min`, and `max`.
 - [`algo`](algo.md): `fibonacci`, `fibonacciList`, `factorial`, `factorialList`, `removeDuplicates`, `findMatches`, `takeInventory`, `findPlace`, `isPrime`, `rainwater`, `medianSorted`, `mergeKSorted`, `editDistance`, `regexMatch`, and the `slidingWindow*` and `palindrome*` functions.
 - [`random`](standard-library.md#random): a deterministic PRNG — `seed`, `random`, `int`, `uniform`, `choice`, and `shuffle`.
+- [`secrets`](standard-library.md#secrets): non-reproducible randomness that needs no seeding — `random`, `int`, `uniform`, `choice`, and `shuffle`; native and WASI only.
 - [`json`](standard-library.md#json): `parse` and `stringify`.
 - [`time`](standard-library.md#time): `now`, `now_ms`, `sleep`, `iso`, and `parts`; native and WASI only.
 - [`regex`](standard-library.md#regex): `match`, `find`, `findAll`, `groups`, `replace`, and `split`; native and WASI only.

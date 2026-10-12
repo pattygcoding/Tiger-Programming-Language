@@ -6,10 +6,11 @@ export const keywords = new Set([
   "import", "as",
 ]);
 export const literals = new Set(["true", "false", "null"]);
-export const builtins = new Set(["print", "input", "str", "int", "float", "bool", "len", "range", "type", "isinstance", "graphemes", "sum", "min", "max", "any", "all", "zip", "enumerate", "map", "filter", "sorted", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "list_dir", "math", "algo", "random", "json", "time", "regex"]);
+export const builtins = new Set(["print", "input", "str", "int", "float", "bool", "len", "range", "type", "isinstance", "graphemes", "sum", "min", "max", "any", "all", "zip", "enumerate", "map", "filter", "sorted", "open", "read_file", "write_file", "append_file", "file_exists", "remove_file", "list_dir", "math", "algo", "random", "secrets", "json", "time", "regex"]);
 export const moduleMembers = {
   math: new Set(["ceil", "floor", "round", "sqrt", "abs", "pow", "log", "sin", "cos", "tan", "min", "max"]),
   random: new Set(["seed", "random", "int", "uniform", "choice", "shuffle"]),
+  secrets: new Set(["random", "int", "uniform", "choice", "shuffle"]),
   json: new Set(["parse", "stringify"]),
   time: new Set(["now", "now_ms", "sleep", "iso", "parts"]),
   regex: new Set(["match", "find", "findAll", "groups", "replace", "split"]),
