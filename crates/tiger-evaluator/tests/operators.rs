@@ -32,6 +32,23 @@ fn bitwise_operators() {
 }
 
 #[test]
+fn logical_operators() {
+    expect_outputs(&[
+        ("print(true && false, true || false, !true, !false);", "false true false true\n"),
+        ("print(1 && 2, 0 && 2, 1 || 0, 0 || 3);", "2 0 1 3\n"),
+        ("print(!0, !1, !\"\", !\"x\", !null, ![], ![1]);", "true false true false true true false\n"),
+        ("print(!!7, !!!0, !!!!0);", "true true false\n"),
+        // Short circuit: the right operand must not run.
+        ("var calls = 0; function hit() { calls++; return true; } print(false && hit(), true || hit(), calls);", "false true 0\n"),
+        // `&&` and `||` are `and` and `or`, and bind tighter than `not`/`!`.
+        ("print(true or false and false, (true or false) and false);", "true false\n"),
+        ("print(not false and true, !false and true);", "true true\n"),
+        ("print(!0 == true, not 0 == true);", "true true\n"),
+    ]);
+    expect_errors(&[("print(missing_flag && true);", "undefined name"), ("print(!missing_flag);", "undefined name")]);
+}
+
+#[test]
 fn operator_errors() {
     expect_errors(&[
         ("print(1 div 0);", "division by zero"),

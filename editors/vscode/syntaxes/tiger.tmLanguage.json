@@ -190,7 +190,7 @@
         { "name": "storage.type.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:const|var|function|class|extends)(?![\\p{L}\\p{Nd}_])" },
         { "name": "keyword.control.import.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:import|as)(?![\\p{L}\\p{Nd}_])" },
         { "name": "storage.modifier.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:public|private|protected)(?![\\p{L}\\p{Nd}_])" },
-        { "name": "keyword.control.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:if|elif|else|cif|celse|while|do|for|cfor|return|break|continue|switch|case|default|try|catch|finally|throw)(?![\\p{L}\\p{Nd}_])" },
+        { "name": "keyword.control.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:if|elif|else|while|do|for|return|break|continue|switch|match|case|default|try|catch|finally|throw)(?![\\p{L}\\p{Nd}_])" },
         { "name": "variable.language.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:this|super)(?![\\p{L}\\p{Nd}_])" },
         { "name": "keyword.operator.word.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:and|or|not|in|div)(?![\\p{L}\\p{Nd}_])" }
       ]
@@ -211,7 +211,7 @@
     },
     "operators": {
       "patterns": [
-        { "name": "keyword.operator.logical.tiger", "match": "&&|\\|\\|" },
+        { "name": "keyword.operator.logical.tiger", "match": "&&|\\|\\||!(?!=)" },
         { "name": "keyword.operator.update.tiger", "match": "\\+\\+|--" },
         { "name": "keyword.operator.bitwise.tiger", "match": "<<|>>|&|\\||\\^|~" },
         { "name": "keyword.operator.power.tiger", "match": "\\*\\*" },

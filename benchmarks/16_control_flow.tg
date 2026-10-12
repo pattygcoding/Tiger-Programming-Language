@@ -1,7 +1,7 @@
-/* Updates, C-style loops and conditionals, ranges, loop else, and switch fallthrough. */
+/* Updates, parenthesized and bare headers, ranges, loop else, match, and switch fallthrough. */
 function odd_sum(stop) {
     var total = 0;
-    cfor (var index = 0; index < stop; ++index) {
+    for (var index = 0; index < stop; ++index) {
         if index % 2 == 0 {
             continue;
         }
@@ -41,8 +41,8 @@ function describe(code) {
 
 function triangular(size) {
     var total = 0;
-    cfor (var row = 1; row <= size; row++) {
-        cfor (var column = 1; column <= row; ++column) {
+    for (var row = 1; row <= size; row++) {
+        for (var column = 1; column <= row; ++column) {
             total = total + column;
         }
     }
@@ -89,7 +89,7 @@ for number in range(6) {
 print("visited", visited);
 
 var attempts = 0;
-cfor (;;) {
+for (;;) {
     if ++attempts == 3 {
         break;
     }
@@ -115,11 +115,11 @@ for row in range(3) {
 print("ranges", range(2, 8, 2), range(3, -2, -2));
 
 function grade(score, attendance, approved) {
-    cif (score >= 90 && attendance >= 90) {
+    if (score >= 90 && attendance >= 90) {
         return "excellent";
-    } celse cif ((score >= 80 && attendance >= 80) || approved) {
+    } else if ((score >= 80 && attendance >= 80) || approved) {
         return "pass";
-    } celse {
+    } else {
         return "fail";
     }
 }
@@ -130,42 +130,65 @@ function probe(result) {
     probes++;
     return result;
 }
-cif (probe(false) && probe(true)) {
+if (probe(false) && probe(true)) {
     print("unreachable");
-} celse cif (probe(true) || probe(false)) {
+} else if (probe(true) || probe(false)) {
     probes = probes * 10;
 }
 print("short circuit", probes);
 
 var precedence = [];
-cif (true || false && false) {
+if (true || false && false) {
     precedence += ["loose or"];
 }
-cif ((true || false) && false) {
+if ((true || false) && false) {
     precedence += ["unreachable"];
-} celse {
+} else {
     precedence += ["grouped"];
 }
 print("precedence", precedence);
 
 var squares = [];
-cfor (var n = 1; n <= 20 && n * n <= 30; n++) {
+for (var n = 1; n <= 20 && n * n <= 30; n++) {
     squares += [n];
 }
 var continued = [];
-cfor (var k = 0; k < 3 || k % 4 != 0; k++) {
+for (var k = 0; k < 3 || k % 4 != 0; k++) {
     continued += [k];
 }
 print("bounded", squares, continued);
 
 var labels = [];
-cfor (var code = 0; code < 4; code++) {
-    cif (code == 0) {
+for (var code = 0; code < 4; code++) {
+    if (code == 0) {
         labels += ["zero"];
-    } celse cif (code % 2 == 1 && code > 1) {
+    } else if (code % 2 == 1 && code > 1) {
         labels += ["odd>1"];
-    } celse {
+    } else {
         labels += [str(code)];
     }
 }
 print("labels", labels);
+
+var flags = [];
+for (var flag = 0; flag < 3; flag++) {
+    if !flag { flags += ["zero"]; }
+    elif flag != 1 || !(flag > 5) { flags += ["one"]; }
+    else { flags += ["many"]; }
+}
+print("flags", flags);
+
+var walked = [];
+var head = 0;
+for head = 0; head < 3; head++ { walked += [head]; }
+for var step = 0; step < 4; step++ { head += step; }
+print("clause styles", walked, head);
+
+function classify(value) {
+    match value {
+        case 0: return "none";
+        case 1: return "one";
+        case _: return "many";
+    }
+}
+print("classify", classify(0), classify(1), classify(7));

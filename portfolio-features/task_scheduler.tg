@@ -114,7 +114,7 @@ function simulate(tasks, worker_count) {
         for job in workers {
             if job != null and (next_time == null or job["finish"] < next_time) { next_time = job["finish"]; }
         }
-        cfor (var t = time; t < next_time; t++) {
+        for (var t = time; t < next_time; t++) {
             for w in range(worker_count) { lanes[w] += workers[w] == null and "." or symbols[workers[w]["task"]]; }
         }
         time = next_time;

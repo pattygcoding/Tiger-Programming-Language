@@ -8,7 +8,7 @@ function fixed(value, places) {
 
 function repeat(text, count) {
     var result = "";
-    cfor (var i = 0; i < count; i++) { result += text; }
+    for (var i = 0; i < count; i++) { result += text; }
     return result;
 }
 

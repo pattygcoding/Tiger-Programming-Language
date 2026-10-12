@@ -8,17 +8,17 @@ function tokenize(source) {
     var i = 0;
     while i < len(source) {
         const ch = source[i];
-        cif (ch == " ") { i++; } celse cif (ch in DIGITS) {
+        if (ch == " ") { i++; } else if (ch in DIGITS) {
             var text = "";
             while i < len(source) and source[i] in DIGITS { text += source[i++]; }
             tokens += [{"kind": "number", "text": text, "at": i - len(text)}];
-        } celse cif (ch in LETTERS) {
+        } else if (ch in LETTERS) {
             var name = "";
             while i < len(source) and (source[i] in LETTERS or source[i] in DIGITS) { name += source[i++]; }
             tokens += [{"kind": "name", "text": name, "at": i - len(name)}];
-        } celse cif (ch in "+-*/%^(),=") {
+        } else if (ch in "+-*/%^(),=") {
             tokens += [{"kind": ch, "text": ch, "at": i++}];
-        } celse {
+        } else {
             throw f"unexpected character '{ch}' at column {i + 1}";
         }
     }

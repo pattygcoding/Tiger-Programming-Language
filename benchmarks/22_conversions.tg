@@ -34,7 +34,7 @@ print("conditions", summary);
 
 function rest(items) {
     var result = [];
-    cfor (var index = 1; index < len(items); index++) {
+    for (var index = 1; index < len(items); index++) {
         result += [items[index]];
     }
     return result;
@@ -47,10 +47,10 @@ while queue {
 }
 print("drained", drained);
 
-cif (bool("yes") && not bool("")) {
-    print("cif", "ok");
-} celse {
-    print("cif", "unreachable");
+if (bool("yes") && not bool("")) {
+    print("if", "ok");
+} else {
+    print("if", "unreachable");
 }
 
 class Temperature {

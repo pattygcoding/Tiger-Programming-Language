@@ -31,7 +31,7 @@ TIGER_BENCH_FILTER=08_graphs cargo test -p tiger-conformance --test benchmarks -
 | `13_oop_super.tg` | Deep inheritance, lexical super, inherited constructors, local classes |
 | `14_oop_composition.tg` | Nested objects, recursive methods, shared references, fluent methods |
 | `15_oop_callbacks.tg` | Detached bound methods, captured this/super, callable fields |
-| `16_control_flow.tg` | Prefix/postfix updates, cfor, cif/celse, `&&`/`\|\|` headers, range, loop else, switch, break/continue |
+| `16_control_flow.tg` | Prefix/postfix updates, parenthesized and bare `for`/`if` headers, `elif`/`else if`, `&&`/`||`/`!`, `match` and `case _`, range, loop else, switch, break/continue |
 | `17_access_exceptions.tg` | Public defaults, restricted fields/methods, this, try/catch/finally/throw, typed catch guards, structured errors, recovery, f-string interpolation |
 | `18_variadics.tg` | `*args`/`**kwargs` collection, keyword binding, `*`/`**` call unpacking, variadic methods and constructors |
 | `19_file_io.tg` | File helpers, open modes, file-object methods, seek/tell, binary streams, catchable file errors |

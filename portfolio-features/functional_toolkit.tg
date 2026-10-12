@@ -51,7 +51,7 @@ print("sum of squares", reduce(map(numbers, square), add, 0));
 function compose(*functions) {
     function composed(value) {
         var result = value;
-        cfor (var i = len(functions) - 1; i >= 0; i--) {
+        for (var i = len(functions) - 1; i >= 0; i--) {
             result = functions[i](result);
         }
         return result;

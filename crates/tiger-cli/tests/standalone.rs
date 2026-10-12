@@ -57,7 +57,7 @@ fn builds_a_standalone_program() {
 fn builds_the_extended_syntax() {
     let directory = temporary("extended");
     let source = "class Counter { private var count = 0; function next() { return ++this.count; } }\n\
-const counter = Counter(); cfor (var index = 0; index < 3; index++) { print(f\"{counter.next()}\"); }\n\
+const counter = Counter(); for (var index = 0; index < 3; index++) { print(f\"{counter.next()}\"); }\n\
 try { throw range(3); } catch (error) { print(error); }\n\
 print(input(\"name? \") + \"!\");";
     let output = build(&directory, source, "embedded.tg");

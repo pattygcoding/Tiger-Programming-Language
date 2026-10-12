@@ -14,3 +14,6 @@ short circuit 20
 precedence ["loose or", "grouped"]
 bounded [1, 2, 3, 4, 5] [0, 1, 2, 3]
 labels ["zero", "1", "2", "odd>1"]
+flags ["zero", "one", "one"]
+clause styles [0, 1, 2] 9
+classify none one many

@@ -47,12 +47,12 @@ Names start with a letter or `_`, followed by letters, digits, or `_`. Unicode l
 Reserved keywords:
 
 ```text
-and as break case catch celse cfor cif class const continue default do
-elif else extends false for function if import in not null or private
-protected public return super switch this throw true try var while
+and as break case catch class const continue default div do elif
+else extends false for function if import in match not null or
+private protected public return super switch this throw true try var while
 ```
 
-Keywords are reserved, so none of them can name a variable, function, or parameter. `do` was added for [`do...while`](control-flow.md#do-while), so an older program that used `do` as a name must rename it.
+Keywords are reserved, so none of them can name a variable, function, field, or parameter. `do` was added for [`do...while`](control-flow.md#do-while), so an older program that used `do` as a name must rename it. `cif`, `celse`, and `cfor` were removed when `if`, `else`, and `for` learned both header styles, so a program that used them gets a pointed error and a name spelled that way is an ordinary identifier again. `match` is a second spelling of `switch`. A keyword is still a valid member name after `.`, which is how the built-in `regex.match` keeps working.
 
 `this` is reserved and is available automatically inside every constructor and method; it is never listed as a parameter. Constructors are declared Java-style with the class name, as in `Counter(start) { ... }`; `init` is an ordinary name, not a keyword. `super(...)` calls the parent constructor. `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, and `isinstance` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
 
@@ -98,6 +98,8 @@ The parser reports a line and column. The position may point at the next token o
 Replace `def` with `function` for functions and methods, and replace `#` comments with `//` or `/* ... */`. Prefix each variable's initial assignment with `const` unless that binding will be reassigned, in which case use `var`. Later assignments keep the form `name = value;`. The old function and comment syntax is no longer accepted.
 
 Remove each method's `self` parameter and rename receiver references from `self` to `this`; `this` is implicit and is not declared as a parameter. `self` is now just an ordinary identifier. Existing unmodified class methods remain public; adding `public` is optional.
+
+The old `cif`, `celse`, and `cfor` keywords are gone. Rewrite `cif (condition) { ... } celse cif (condition) { ... } celse { ... }` as `if (condition) { ... } else if (condition) { ... } else { ... }` and `cfor (initializer; condition; update) { ... }` as `for (initializer; condition; update) { ... }`. Parentheses around a condition are still optional, `elif` and `else if` are interchangeable, and the clause header may drop its parentheses too. `&&`, `||`, and `!` are now spellings of `and`, `or`, and `not` and may be used anywhere, not only in a C-style header. `switch` accepts `match` as an alternate keyword and `case _:` as a wildcard in place of `default:`.
 
 ## Try It
 

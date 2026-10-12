@@ -78,9 +78,9 @@ class Matrix {
     }
 
     function determinant() {
-        cif (this.height != this.width) {
+        if (this.height != this.width) {
             throw f"determinant needs a square matrix, got {this.shape()}";
-        } celse cif (this.height == 1) {
+        } else if (this.height == 1) {
             return this.rows[0][0];
         }
         var total = 0;

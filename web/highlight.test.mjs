@@ -7,7 +7,7 @@ function tokens(source) {
 }
 
 test("all reserved words, literals, and built-ins", () => {
-  for (const text of "const var function class extends super this public private protected return if elif else while do for cfor cif celse in and or not div break continue switch case default try catch finally throw import as".split(" ")) {
+  for (const text of "const var function class extends super this public private protected return if elif else while do for in and or not div break continue switch match case default try catch finally throw import as".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "keyword" }]);
   }
   for (const text of ["true", "false", "null"]) {
@@ -43,7 +43,7 @@ test("identifiers include Unicode and do not invent type keywords", () => {
 
 test("decimal and exponent numbers, operators, and punctuation", () => {
   assert.deepEqual(tokens("12 3.5 1e2 2E-3 4e+" ).map(({ kind }) => kind), Array(5).fill("number"));
-  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- ** && || << >> & | ^ ~".split(" ")) {
+  for (const text of "= += -= *= %= == != < <= > >= + - * / % ++ -- ** && || ! << >> & | ^ ~".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "operator" }]);
   }
   for (const text of "()[]{}:;,.") {

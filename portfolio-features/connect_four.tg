@@ -38,7 +38,7 @@ function new_board() {
 
 function render(board) {
     var lines = [LABELS, BORDER];
-    cfor (var row = ROWS - 1; row >= 0; row--) { lines += ["|" + join(board[row], " ") + "|"]; }
+    for (var row = ROWS - 1; row >= 0; row--) { lines += ["|" + join(board[row], " ") + "|"]; }
     lines += [BORDER];
     return join(lines, "\n");
 }
@@ -73,7 +73,7 @@ function strip(text) {
     while start < end and text[start] in WHITESPACE { start++; }
     while end > start and text[end - 1] in WHITESPACE { end--; }
     var out = "";
-    cfor (var i = start; i < end; i++) { out += text[i]; }
+    for (var i = start; i < end; i++) { out += text[i]; }
     return out;
 }
 
@@ -82,7 +82,7 @@ function is_whole_number(token) {
     var start = 0;
     if len(token) > 0 and (token[0] == "+" or token[0] == "-") { start = 1; }
     if start == len(token) { return false; }
-    cfor (var i = start; i < len(token); i++) { if not (token[i] in DIGITS) { return false; } }
+    for (var i = start; i < len(token); i++) { if not (token[i] in DIGITS) { return false; } }
     return true;
 }
 
@@ -102,19 +102,19 @@ function ask_column(board, player) {
         }
         const token = strip(line);
         var message = "";
-        cif (token == "") {
+        if (token == "") {
             message = "Invalid input: no column entered.";
-        } celse cif (not is_whole_number(token)) {
+        } else if (not is_whole_number(token)) {
             message = f"Invalid input: \"{token}\" is not a whole number.";
-        } celse {
+        } else {
             var value = 0;
             // A number too large to convert is simply out of range.
             try { value = int(token); } catch (error) { value = COLS + 1; }
-            cif (value < 1 || value > COLS) {
+            if (value < 1 || value > COLS) {
                 message = f"Invalid input: \"{token}\" is out of range (1-7).";
-            } celse cif (lowest_empty_row(board, value - 1) == -1) {
+            } else if (lowest_empty_row(board, value - 1) == -1) {
                 message = f"Column {value} is full.";
-            } celse {
+            } else {
                 return value - 1;
             }
         }
