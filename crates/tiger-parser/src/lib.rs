@@ -269,7 +269,7 @@ impl Parser {
                     } else if defaulted {
                         return Err(parameter.errorf("a required parameter cannot follow a defaulted parameter"));
                     }
-                    parameters.push(parameter.text.clone());
+                    parameters.push(Rc::from(parameter.text.as_str()));
                     defaults.push(fallback);
                 }
                 if !self.take_if(",") || self.at(")") {

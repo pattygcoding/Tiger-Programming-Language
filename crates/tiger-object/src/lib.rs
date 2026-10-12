@@ -68,11 +68,17 @@ impl Value {
     }
 }
 
-/// A dictionary key: the value's type name plus its canonical text.
+/// A dictionary key: the scalar value itself, so lookups never re-format.
+///
+/// A number key keeps its raw bits (with `-0.0` folded to `0.0`). That is
+/// equivalent to the previous text form because `tiger_format::number` is a
+/// bijection on finite floats, so equal keys stay equal and distinct keys stay
+/// distinct. A string key is a shared `Rc<str>` clone instead of a fresh copy.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Key {
-    pub kind: &'static str,
-    pub text: String,
+pub enum Key {
+    Number(u64),
+    String(Rc<str>),
+    Bool(bool),
 }
 
 /// Builds the hash key for a value, rejecting non-scalar and non-finite keys.
@@ -83,10 +89,10 @@ pub fn hash(value: &Value) -> Result<Key, String> {
                 return Err("dictionary keys must be finite".to_string());
             }
             let normalized = if *number == 0.0 { 0.0 } else { *number };
-            Ok(Key { kind: "number", text: tiger_format::number(normalized) })
+            Ok(Key::Number(normalized.to_bits()))
         }
-        Value::String(text) => Ok(Key { kind: "string", text: text.to_string() }),
-        Value::Bool(flag) => Ok(Key { kind: "bool", text: flag.to_string() }),
+        Value::String(text) => Ok(Key::String(text.clone())),
+        Value::Bool(flag) => Ok(Key::Bool(*flag)),
         other => Err(format!("{} cannot be a dictionary key", other.type_name())),
     }
 }
@@ -147,10 +153,87 @@ pub struct Binding {
     pub constant: bool,
 }
 
+/// The bindings of one scope: an insertion-ordered list of shared names that
+/// promotes to a hash index once it grows past a small threshold.
+///
+/// Scopes almost always hold a handful of names, so a linear scan over the
+/// `Rc<str>` keys beats hashing every lookup and keeps declaration order. The
+/// built-in and module scopes hold dozens, so they promote to an index to keep
+/// large lookups cheap.
+#[derive(Default)]
+pub struct Bindings {
+    entries: Vec<(Rc<str>, Binding)>,
+    index: Option<HashMap<Rc<str>, usize>>,
+}
+
+/// The number of bindings at which a scope gains a hash index.
+const BINDINGS_INDEX_THRESHOLD: usize = 8;
+
+impl Bindings {
+    fn position(&self, name: &str) -> Option<usize> {
+        match &self.index {
+            Some(index) => index.get(name).copied(),
+            None => self.entries.iter().position(|(key, _)| &**key == name),
+        }
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.position(name).is_some()
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Binding> {
+        self.position(name).map(|position| &self.entries[position].1)
+    }
+
+    fn get_mut(&mut self, name: &str) -> Option<&mut Binding> {
+        match self.position(name) {
+            Some(position) => Some(&mut self.entries[position].1),
+            None => None,
+        }
+    }
+
+    fn insert(&mut self, name: &str, binding: Binding) {
+        self.insert_shared(Rc::from(name), binding);
+    }
+
+    /// Inserts a binding whose name is already a shared `Rc<str>`, so a repeated
+    /// call with the same parameter name allocates nothing for the key.
+    fn insert_shared(&mut self, key: Rc<str>, binding: Binding) {
+        let position = self.entries.len();
+        self.entries.push((key.clone(), binding));
+        match &mut self.index {
+            Some(index) => {
+                index.insert(key, position);
+            }
+            None => {
+                if self.entries.len() > BINDINGS_INDEX_THRESHOLD {
+                    let mut index = HashMap::with_capacity(self.entries.len());
+                    for (position, (key, _)) in self.entries.iter().enumerate() {
+                        index.insert(key.clone(), position);
+                    }
+                    self.index = Some(index);
+                }
+            }
+        }
+    }
+
+    /// Empties the scope, keeping the backing storage so a reused scope does
+    /// not allocate again.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.index = None;
+    }
+
+    /// The names this scope defines, in declaration order.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|(key, _)| &**key)
+    }
+}
+
 /// A lexical environment; `Rc<RefCell<..>>` so closures share the same scope.
 pub struct Environment {
     pub parent: Option<Env>,
-    pub bindings: HashMap<String, Binding>,
+    pub bindings: Bindings,
     pub access_class: Option<Rc<Class>>,
     pub source_path: String,
 }
@@ -159,7 +242,7 @@ pub type Env = Rc<RefCell<Environment>>;
 
 impl Environment {
     pub fn new(parent: Option<Env>) -> Env {
-        Rc::new(RefCell::new(Environment { parent, bindings: HashMap::new(), access_class: None, source_path: String::new() }))
+        Rc::new(RefCell::new(Environment { parent, bindings: Bindings::default(), access_class: None, source_path: String::new() }))
     }
 }
 
@@ -203,47 +286,60 @@ pub fn class_context(env: &Env) -> Option<Rc<Class>> {
 
 pub fn define(env: &Env, name: &str, value: Value, constant: bool) -> Result<(), String> {
     let mut scope = env.borrow_mut();
-    if scope.bindings.contains_key(name) {
+    if scope.bindings.contains(name) {
         return Err(format!("{:?} is already declared in this scope", name));
     }
-    scope.bindings.insert(name.to_string(), Binding { value, constant });
+    scope.bindings.insert(name, Binding { value, constant });
     Ok(())
 }
 
-fn resolve(env: &Env, name: &str) -> Option<Env> {
+/// Defines a binding whose name is already a shared `Rc<str>`, so binding a
+/// parameter on every call does not allocate the key again.
+pub fn define_shared(env: &Env, name: &Rc<str>, value: Value, constant: bool) -> Result<(), String> {
+    let mut scope = env.borrow_mut();
+    if scope.bindings.contains(name) {
+        return Err(format!("{:?} is already declared in this scope", name));
+    }
+    scope.bindings.insert_shared(name.clone(), Binding { value, constant });
+    Ok(())
+}
+
+/// Looks a name up the scope chain, borrowing each scope exactly once.
+pub fn get(env: &Env, name: &str) -> Result<Value, String> {
     let mut current = Some(env.clone());
     while let Some(scope) = current {
         let next;
         {
             let borrowed = scope.borrow();
-            if borrowed.bindings.contains_key(name) {
-                return Some(scope.clone());
+            if let Some(binding) = borrowed.bindings.get(name) {
+                return Ok(binding.value.clone());
             }
             next = borrowed.parent.clone();
         }
         current = next;
     }
-    None
+    Err(format!("undefined name {:?}", name))
 }
 
-pub fn get(env: &Env, name: &str) -> Result<Value, String> {
-    match resolve(env, name) {
-        Some(owner) => Ok(owner.borrow().bindings.get(name).map(|binding| binding.value.clone()).unwrap()),
-        None => Err(format!("undefined name {:?}", name)),
-    }
-}
-
+/// Reassigns an existing binding, borrowing each scope exactly once.
 pub fn assign(env: &Env, name: &str, value: Value) -> Result<(), String> {
-    let Some(owner) = resolve(env, name) else {
-        return Err(format!("undefined name {:?}; declare it with const or var before assignment", name));
-    };
-    let mut scope = owner.borrow_mut();
-    let constant = scope.bindings.get(name).map(|binding| binding.constant).unwrap_or(false);
-    if constant {
-        return Err(format!("cannot reassign const {:?}", name));
+    let mut current = Some(env.clone());
+    while let Some(scope) = current {
+        let next;
+        {
+            let mut borrowed = scope.borrow_mut();
+            if let Some(binding) = borrowed.bindings.get_mut(name) {
+                if binding.constant {
+                    return Err(format!("cannot reassign const {:?}", name));
+                }
+                binding.value = value;
+                return Ok(());
+            }
+            next = borrowed.parent.clone();
+        }
+        current = next;
     }
-    scope.bindings.insert(name.to_string(), Binding { value, constant: false });
-    Ok(())
+    Err(format!("undefined name {:?}; declare it with const or var before assignment", name))
 }
 
 /// A class: name, optional parent, optional constructor, methods, and fields.
@@ -562,5 +658,91 @@ fn equal_inner(left: &Value, right: &Value, seen: &mut Vec<(usize, usize)>) -> b
         (Value::File(first), Value::File(second)) => Rc::ptr_eq(first, second),
         (Value::Error(first), Value::Error(second)) => Rc::ptr_eq(first, second),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn number(value: f64) -> Value {
+        Value::Number(value)
+    }
+
+    fn dict_with(pairs: &[(Value, &str)]) -> Dict {
+        let mut dict = Dict::default();
+        for (key, value) in pairs {
+            dict.set(key.clone(), Value::string(value)).expect("set");
+        }
+        dict
+    }
+
+    fn text(value: &Value) -> String {
+        format(value)
+    }
+
+    #[test]
+    fn number_keys_use_the_value_not_its_text() {
+        // `1` and `1.0` are the same key, and `-0.0` folds into `0.0`.
+        let dict = dict_with(&[(number(1.0), "one"), (number(0.0), "zero")]);
+        assert_eq!(dict.get(&number(1.0)).unwrap().map(|value| text(&value)).as_deref(), Some("one"));
+        assert_eq!(dict.get(&number(-0.0)).unwrap().map(|value| text(&value)).as_deref(), Some("zero"));
+        // A number key and its string spelling stay distinct.
+        assert!(dict.get(&Value::string("1")).unwrap().is_none());
+        assert_ne!(hash(&Value::string("1")).unwrap(), hash(&number(1.0)).unwrap());
+    }
+
+    #[test]
+    fn non_scalar_and_non_finite_keys_are_rejected() {
+        assert!(hash(&number(f64::NAN)).is_err());
+        assert!(hash(&number(f64::INFINITY)).is_err());
+        assert!(hash(&Value::Null).is_err());
+        assert!(hash(&Value::list(Vec::new())).is_err());
+    }
+
+    #[test]
+    fn set_overwrites_an_existing_key_in_place() {
+        let mut dict = dict_with(&[(number(1.0), "one"), (number(2.0), "two")]);
+        dict.set(number(1.0), Value::string("uno")).expect("set");
+        assert_eq!(dict.entries.len(), 2);
+        assert_eq!(dict.get(&number(1.0)).unwrap().map(|value| text(&value)).as_deref(), Some("uno"));
+    }
+
+    #[test]
+    fn bindings_keep_order_and_promote_to_an_index() {
+        let mut bindings = Bindings::default();
+        bindings.insert("a", Binding { value: number(1.0), constant: false });
+        bindings.insert("b", Binding { value: number(2.0), constant: true });
+        assert!(bindings.contains("a"));
+        assert!(bindings.get("b").unwrap().constant);
+        assert_eq!(bindings.keys().collect::<Vec<_>>(), vec!["a", "b"]);
+
+        // Past the threshold the scope keeps working with its hash index.
+        for index in 0..32 {
+            bindings.insert(&format!("name{index}"), Binding { value: number(index as f64), constant: false });
+        }
+        assert_eq!(bindings.get("a").unwrap().value.type_name(), "number");
+        assert_eq!(bindings.get("name0").unwrap().value.type_name(), "number");
+        assert!(bindings.get("missing").is_none());
+        *bindings.get_mut("b").unwrap() = Binding { value: number(9.0), constant: false };
+        assert_eq!(bindings.get("b").unwrap().value.type_name(), "number");
+    }
+
+    #[test]
+    fn environment_get_and_assign_walk_the_chain() {
+        let outer = Environment::new(None);
+        define(&outer, "x", number(1.0), false).expect("define");
+        let inner = Environment::new(Some(outer.clone()));
+        define(&inner, "y", number(2.0), false).expect("define");
+        assert_eq!(get(&inner, "x").unwrap().type_name(), "number");
+        assert!(get(&inner, "z").is_err());
+        assign(&inner, "x", number(5.0)).expect("assign");
+        assert!(matches!(get(&outer, "x").unwrap(), Value::Number(value) if value == 5.0));
+        // Duplicate declaration in one scope is rejected.
+        assert!(define(&inner, "y", number(0.0), false).is_err());
+        // Reassigning a constant is rejected.
+        let scope = Environment::new(None);
+        define(&scope, "k", number(1.0), true).expect("define");
+        assert!(assign(&scope, "k", number(2.0)).is_err());
     }
 }

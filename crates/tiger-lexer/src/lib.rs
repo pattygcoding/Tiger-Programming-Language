@@ -59,6 +59,51 @@ pub const KEYWORDS: &[&str] = &[
     "as",
 ];
 
+/// Maps an identifier's text to its keyword kind, or `None` when it is not a
+/// reserved word. A `match` on the text beats a linear scan of `KEYWORDS`.
+fn keyword_kind(text: &str) -> Option<Kind> {
+    let kind = match text {
+        "const" => "const",
+        "var" => "var",
+        "function" => "function",
+        "class" => "class",
+        "extends" => "extends",
+        "super" => "super",
+        "this" => "this",
+        "public" => "public",
+        "private" => "private",
+        "protected" => "protected",
+        "return" => "return",
+        "if" => "if",
+        "elif" => "elif",
+        "else" => "else",
+        "while" => "while",
+        "do" => "do",
+        "for" => "for",
+        "in" => "in",
+        "true" => "true",
+        "false" => "false",
+        "null" => "null",
+        "and" => "and",
+        "or" => "or",
+        "not" => "not",
+        "div" => "div",
+        "break" => "break",
+        "continue" => "continue",
+        "switch" => "switch",
+        "match" => "match",
+        "case" => "case",
+        "default" => "default",
+        "try" => "try",
+        "catch" => "catch",
+        "throw" => "throw",
+        "import" => "import",
+        "as" => "as",
+        _ => return None,
+    };
+    Some(kind)
+}
+
 /// One lexical token, including the sub-tokens of a formatted string.
 #[derive(Clone, Debug)]
 pub struct Token {
@@ -183,7 +228,7 @@ impl Scanner {
                     }
                     token.text = self.source[start..self.pos].iter().copied().collect();
                     token.kind = IDENT;
-                    if let Some(keyword) = KEYWORDS.iter().find(|k| **k == token.text.as_str()) {
+                    if let Some(keyword) = keyword_kind(token.text.as_str()) {
                         token.kind = keyword;
                     }
                 }

@@ -110,7 +110,7 @@ fn len_builtin() -> Rc<object::Builtin> {
             return Err(format!("len expects 1 argument, got {}", arguments.len()));
         }
         match &arguments[0] {
-            Value::String(text) => Ok(Value::Number(text.chars().count() as f64)),
+            Value::String(text) => Ok(Value::Number((if text.is_ascii() { text.len() } else { text.chars().count() }) as f64)),
             Value::List(elements) => Ok(Value::Number(elements.borrow().len() as f64)),
             Value::Dict(dict) => Ok(Value::Number(dict.borrow().entries.len() as f64)),
             other => Err(format!("len does not accept {}", other.type_name())),

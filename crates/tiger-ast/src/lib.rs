@@ -193,7 +193,7 @@ pub struct FunctionDecl {
     pub base: Base,
     pub access: String,
     pub name: String,
-    pub parameters: Vec<String>,
+    pub parameters: Vec<Rc<str>>,
     /// Runs parallel to `parameters`; a `None` entry means "required".
     pub defaults: Vec<Option<Expr>>,
     pub variadic: String,
