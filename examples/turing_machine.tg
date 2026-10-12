@@ -34,7 +34,7 @@ class Tape {
 
     function render() {
         var out = "";
-        cfor (var i = this.low; i <= this.high; i++) {
+        for (var i = this.low; i <= this.high; i++) {
             const symbol = i in this.cells and this.cells[i] or BLANK;
             out += i == this.head and f"[{symbol}]" or f" {symbol} ";
         }
@@ -43,12 +43,12 @@ class Tape {
 
     function content() {
         var out = "";
-        cfor (var i = this.low; i <= this.high; i++) {
+        for (var i = this.low; i <= this.high; i++) {
             if i in this.cells and this.cells[i] != BLANK { out += this.cells[i]; } elif out != "" { out += BLANK; }
         }
         while len(out) > 0 and out[-1] == BLANK {
             var trimmed = "";
-            cfor (var i = 0; i < len(out) - 1; i++) { trimmed += out[i]; }
+            for (var i = 0; i < len(out) - 1; i++) { trimmed += out[i]; }
             out = trimmed;
         }
         return out;

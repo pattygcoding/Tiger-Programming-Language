@@ -12,7 +12,7 @@ function parse_int(text) {
     if start == len(text) {
         throw "not a number: " + text;
     }
-    cfor (var index = start; index < len(text); index++) {
+    for (var index = start; index < len(text); index++) {
         const char = text[index];
         if not (char in DIGITS) {
             throw "not a number: " + text;
@@ -42,11 +42,11 @@ function split_words(line) {
 }
 
 function grade(student) {
-    cif (student["score"] >= 90 && student["attendance"] >= 90) {
+    if (student["score"] >= 90 && student["attendance"] >= 90) {
         return "excellent";
-    } celse cif (student["score"] >= 80 || student["attendance"] >= 95) {
+    } else if (student["score"] >= 80 || student["attendance"] >= 95) {
         return "pass";
-    } celse {
+    } else {
         return "fail";
     }
 }
@@ -58,7 +58,7 @@ const count = parse_int(input("How many students? "));
 print("Reading", count, "students");
 
 var roster = [];
-cfor (var row = 0; row < count; row++) {
+for (var row = 0; row < count; row++) {
     const fields = split_words(input());
     roster += [{
         "name": fields[0],

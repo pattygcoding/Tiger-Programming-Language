@@ -102,6 +102,7 @@ pub enum Stmt {
         body: Block,
         else_block: Block,
     },
+    /// `for name in iterable { ... }`, which iterates a list, string, or dictionary.
     For {
         base: Base,
         label: String,
@@ -110,6 +111,9 @@ pub enum Stmt {
         body: Block,
         else_block: Block,
     },
+    /// The three-clause header `for (initializer; condition; update) { ... }`,
+    /// whose parentheses are optional. The `C` name is historical: the header
+    /// shape is C-style, but the keyword is plain `for`.
     CFor {
         base: Base,
         label: String,
@@ -175,7 +179,8 @@ pub struct Catch {
     pub body: Block,
 }
 
-/// One `switch` case; a `None` value is the `default` case.
+/// One `switch` (or `match`) case; a `None` value is the `default` case, which
+/// `case _:` also spells.
 #[derive(Clone, Debug)]
 pub struct Case {
     pub value: Option<Expr>,

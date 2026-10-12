@@ -2,7 +2,9 @@
 //!
 //! Mirrors `pkg/lexer`: keywords and punctuation use their own text as the token
 //! kind (as in Go), f-strings nest to a depth of 512, and every diagnostic
-//! carries a `line:column` position.
+//! carries a `line:column` position. `if`, `else`, and `for` cover both the
+//! Python-style and the C-style header, so `cif`, `celse`, and `cfor` are gone,
+//! and `match` is an extra keyword for `switch`.
 
 use std::rc::Rc;
 
@@ -36,9 +38,6 @@ pub const KEYWORDS: &[&str] = &[
     "while",
     "do",
     "for",
-    "cfor",
-    "cif",
-    "celse",
     "in",
     "true",
     "false",
@@ -50,6 +49,7 @@ pub const KEYWORDS: &[&str] = &[
     "break",
     "continue",
     "switch",
+    "match",
     "case",
     "default",
     "try",
@@ -241,8 +241,6 @@ impl Scanner {
                                 token.text.push(self.advance());
                             } else if (current == '<' || current == '>') && self.peek(0) == current {
                                 token.text.push(self.advance());
-                            } else if current == '!' {
-                                return Err(token.errorf("expected '=' after '!'; use 'not' for negation"));
                             }
                         }
                         '+' | '-' => {
@@ -404,6 +402,7 @@ fn operator_kind(text: &str) -> Result<Kind, String> {
         "=" => "=",
         "==" => "==",
         "!=" => "!=",
+        "!" => "!",
         "<" => "<",
         "<=" => "<=",
         ">" => ">",
@@ -463,18 +462,27 @@ mod tests {
 
     #[test]
     fn rejects_invalid_input() {
-        for source in ["@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\x00", "# old comment", "/* unfinished"] {
+        for source in ["@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "\x00", "# old comment", "/* unfinished"] {
             let error = scan(source).expect_err("expected error");
             assert!(error.contains("1:1:"), "{source:?} => {error}");
         }
     }
 
     #[test]
-    fn scans_c_style_tokens() {
+    fn scans_symbolic_logical_operators() {
         assert_eq!(
-            kinds("cif (a && b || c) {} celse {}"),
-            vec!["cif", "(", IDENT, "&&", IDENT, "||", IDENT, ")", "{", "}", "celse", "{", "}", EOF]
+            kinds("if (a && b || c) {} else {}"),
+            vec!["if", "(", IDENT, "&&", IDENT, "||", IDENT, ")", "{", "}", "else", "{", "}", EOF]
         );
+        assert_eq!(kinds("!a != b;"), vec!["!", IDENT, "!=", IDENT, ";", EOF]);
+    }
+
+    #[test]
+    fn scans_match_and_the_removed_c_style_words() {
+        assert_eq!(kinds("match value { case _: }"), vec!["match", IDENT, "{", "case", IDENT, ":", "}", EOF]);
+        for source in ["cif", "celse", "cfor"] {
+            assert_eq!(kinds(source), vec![IDENT, EOF], "{source} is no longer a keyword");
+        }
     }
 
     #[test]

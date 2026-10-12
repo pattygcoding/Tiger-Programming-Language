@@ -1,6 +1,6 @@
 /* C-style counting, loop completion, and structured recovery. */
 var total = 0;
-cfor (var index = 0; index < 6; ++index) {
+for (var index = 0; index < 6; ++index) {
     switch index {
         case 1:
             continue;

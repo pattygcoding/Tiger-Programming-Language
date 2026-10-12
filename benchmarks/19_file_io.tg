@@ -21,7 +21,7 @@ function trim(text) {
     while start < end and is_space(text[start]) { start = start + 1; }
     while end > start and is_space(text[end - 1]) { end = end - 1; }
     var result = "";
-    cfor (var index = start; index < end; ++index) {
+    for (var index = start; index < end; ++index) {
         result = result + text[index];
     }
     return result;

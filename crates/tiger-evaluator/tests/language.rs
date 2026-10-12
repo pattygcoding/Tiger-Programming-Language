@@ -148,11 +148,11 @@ fn extended_control_flow() {
         ),
         ("const values = {\"n\": 2}; print(--values[\"n\"], values[\"n\"]--, values[\"n\"]);", "1 1 0\n"),
         (
-            "var total = 0; cfor (var index = 0; index < 5; ++index) { if index == 2 { continue; } total = total + index; } else { print(total); }",
+            "var total = 0; for (var index = 0; index < 5; ++index) { if index == 2 { continue; } total = total + index; } else { print(total); }",
             "8\n",
         ),
         (
-            "cfor (;;) { break; } else { print(\"wrong\"); } while false {} else { print(\"empty\"); } for item in [] {} else { print(\"done\"); }",
+            "for (;;) { break; } else { print(\"wrong\"); } while false {} else { print(\"empty\"); } for item in [] {} else { print(\"done\"); }",
             "empty\ndone\n",
         ),
         (
@@ -168,42 +168,68 @@ fn extended_control_flow() {
             "fallback\nfallthrough\n",
         ),
         (
+            "match 9 { case 1: break; case _: print(\"fallback\"); case 2: print(\"fallthrough\"); }",
+            "fallback\nfallthrough\n",
+        ),
+        (
             "for item in [1, 2, 3] { switch item { case 1: continue; case 2: break; default: print(\"three\"); } print(item); } else { print(\"done\"); }",
             "2\nthree\n3\ndone\n",
         ),
-        ("function find() { cfor (;;) { switch 1 { case 1: return 7; } } else { return 0; } } print(find());", "7\n"),
+        ("function find() { for (;;) { switch 1 { case 1: return 7; } } else { return 0; } } print(find());", "7\n"),
         (
-            "function grade(score, attendance, approved) { cif (score >= 90 && attendance >= 90) { return \"A\"; } celse cif ((score >= 80 && attendance >= 80) || approved) { return \"pass\"; } celse { return \"fail\"; } } print(grade(95, 92, false), grade(85, 81, false), grade(50, 50, true), grade(85, 70, false));",
+            "function grade(score, attendance, approved) { if (score >= 90 && attendance >= 90) { return \"A\"; } else if ((score >= 80 && attendance >= 80) || approved) { return \"pass\"; } else { return \"fail\"; } } print(grade(95, 92, false), grade(85, 81, false), grade(50, 50, true), grade(85, 70, false));",
             "A pass pass fail\n",
         ),
-        ("cif (false) { print(\"no\"); } print(\"after\"); cif (1) {} celse { print(\"no\"); }", "after\n"),
+        ("if (false) { print(\"no\"); } print(\"after\"); if 1 {} else { print(\"no\"); }", "after\n"),
         (
-            "var calls = 0; function hit() { calls++; return true; } cif (false && hit()) {} cif (true || hit()) {} print(calls);",
+            "var calls = 0; function hit() { calls++; return true; } if (false && hit()) {} if true || hit() {} print(calls);",
             "0\n",
         ),
         (
-            "cfor (var i = 0; i < 10 && i * i < 20; i++) { print(i, end=\" \"); } cfor (var j = 0; j > 5 || j < 2; j++) { print(j, end=\" \"); } print();",
+            "for (var i = 0; i < 10 && i * i < 20; i++) { print(i, end=\" \"); } for var j = 0; j > 5 || j < 2; j++ { print(j, end=\" \"); } print();",
             "0 1 2 3 4 0 1 \n",
         ),
-        ("cif (not (1 > 2) && \"x\" in \"xy\") { print(\"ok\"); }", "ok\n"),
+        ("if (not (1 > 2) && \"x\" in \"xy\") { print(\"ok\"); }", "ok\n"),
+        ("if (!!true && !false) { print(\"ok\"); } print(true && false, true || false, !true, not false);", "ok\nfalse true false true\n"),
     ]);
     for source in [
         "const count = 1; count++;",
         "var text = \"one\"; ++text;",
         "missing++;",
-        "cfor (var index = 0; index < 1; ++index) {} print(index);",
-        "print(true && false);",
-        "if true && false {}",
-        "while false || false {}",
-        "cif (true) {} celse { if true || false {} }",
-        "cif true {}",
-        "cif (true) {} else {}",
-        "cif (true) {} elif (true) {}",
+        "for (var index = 0; index < 1; ++index) {} print(index);",
         "if true {} celse {}",
         "celse {}",
-        "cif (true) {} celse cif {}",
+        "cif (true) {} celse cif (false) {} celse {}",
+        "cfor (;;) {}",
+        "match 1 { default: break; case _: break; }",
+        "for (int index = 0; index < 2; index++) {}",
+        "for (index) in [1] {}",
+        "switch 1 { case _: break; case _: break; }",
     ] {
         assert!(run(source).is_err(), "expected an error: {}", source);
+    }
+}
+
+/// Every construct accepts a C-style and a Python-style spelling, and both
+/// spellings are the same program.
+#[test]
+fn both_control_flow_spellings_agree() {
+    let pairs = [
+        (
+            "const a = false; const b = true; if (a) { print(1); } else if (b) { print(2); } else { print(3); }",
+            "const a = false; const b = true; if a { print(1); } elif b { print(2); } else { print(3); }",
+        ),
+        ("for (var index = 0; index < 3; index++) { print(index); }", "for var index = 0; index < 3; index++ { print(index); }"),
+        (
+            "switch 2 { case 1: print(\"one\"); default: print(\"other\"); }",
+            "match 2 { case 1: print(\"one\"); case _: print(\"other\"); }",
+        ),
+        ("print(1 && 2 || 0, !0, !!1);", "print(1 and 2 or 0, not 0, not not 1);"),
+    ];
+    for (c_style, python) in pairs {
+        let left = run(c_style).unwrap_or_else(|error| panic!("{}: {}", c_style, error));
+        let right = run(python).unwrap_or_else(|error| panic!("{}: {}", python, error));
+        assert_eq!(left, right, "{}\n{}", c_style, python);
     }
 }
 
@@ -250,7 +276,7 @@ fn range_and_exceptions() {
         assert!(run(source).is_err(), "expected an error: {}", source);
     }
     // The step limit is not catchable.
-    let error = run_with_steps("try { cfor (;;) {} } catch (error) { print(\"cannot catch limits\"); }", 20).unwrap_err();
+    let error = run_with_steps("try { for (;;) {} } catch (error) { print(\"cannot catch limits\"); }", 20).unwrap_err();
     assert!(error.contains("step limit"), "{}", error);
 }
 

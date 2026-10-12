@@ -84,7 +84,7 @@ const BLOCK = [[0, 0], [0, 1], [1, 0], [1, 1]];
 const TOAD = [[0, 1], [0, 2], [0, 3], [1, 0], [1, 1], [1, 2]];
 
 var frames = [seeded(GLIDER, 0, 0)];
-cfor (var generation = 1; generation <= 4; generation++) {
+for (var generation = 1; generation <= 4; generation++) {
     frames += [step(frames[-1])];
 }
 render(frames, ["gen 0", "gen 1", "gen 2", "gen 3", "gen 4"]);
@@ -94,7 +94,7 @@ print();
 function find_cycle(name, start, limit) {
     var history = [start];
     var current = start;
-    cfor (var generation = 1; generation <= limit; generation++) {
+    for (var generation = 1; generation <= limit; generation++) {
         current = step(current);
         for index in range(len(history)) {
             if history[index] == current {

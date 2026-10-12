@@ -69,10 +69,7 @@ fn labeled_loops() {
             "0 0\n1 0\n2 0\ndone\n",
         ),
         ("outer: while true { while true { break outer; } } print(\"after\");", "after\n"),
-        (
-            "outer: cfor (var i = 0; i < 3; i++) { cfor (var j = 0; j < 3; j++) { if i == 2 { break outer; } } } print(\"after\");",
-            "after\n",
-        ),
+        ("outer: for (var i = 0; i < 3; i++) { for (var j = 0; j < 3; j++) { if i == 2 { break outer; } } } print(\"after\");", "after\n"),
         ("outer: do { do { break outer; } while (true); } while (true); print(\"after\");", "after\n"),
         (
             "outer: for i in range(2) { outer: for j in range(3) { if j == 1 { break outer; } print(i, j); } } print(\"done\");",

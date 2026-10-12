@@ -23,10 +23,10 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 | Declarations | `const var function class extends` | `storage.type.tiger` |
 | Module imports | `import as` | `keyword.control.import.tiger` |
 | Access modifiers | `public private protected` | `storage.modifier.tiger` |
-| Control flow | `if elif else cif celse while do for cfor return break continue switch case default try catch finally throw` | `keyword.control.tiger` |
+| Control flow | `if elif else while do for return break continue switch match case default try catch finally throw` | `keyword.control.tiger` |
 | Receiver / parent | `this super` | `variable.language.tiger` |
 | Word operators | `and or not in div` | `keyword.operator.word.tiger` |
-| C-style logical operators | `&& \|\|` (valid only in `cif` and `cfor` headers) | `keyword.operator.logical.tiger` |
+| Symbolic logical operators | `&& \|\| !`, aliases of `and`, `or`, and `not` in any position | `keyword.operator.logical.tiger` |
 | Literal values | `true false null` | `constant.language.tiger` |
 | Built-in calls | `print input str int float bool len range type isinstance sum min max any all zip enumerate map filter sorted open read_file write_file append_file file_exists remove_file list_dir math algo random json time regex` | `support.function.tiger` |
 | Module members | `math.` followed by `ceil floor round sqrt abs pow log sin cos tan min max`; `algo.` followed by one of its exported names | `support.function.math.tiger` / `support.function.algo.tiger` |
@@ -46,9 +46,11 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 | Block comments | `/*` through the next `*/`, including newlines; no nesting | `comment.block.tiger` |
 | Identifiers | Unicode letter or `_`, followed by letters, decimal digits, or `_` | `variable.other.tiger` |
 
-Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, `>=`, `<<`, `>>`, `&&`, and `||` before their single-character prefixes. Match `**` before `*` so that `*args`, `**kwargs`, `*items`, and `**mapping` tokenize as a marker plus a name or value. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
+Recognize comments and strings before operators; markers inside strings are text. Match `++`, `--`, `+=`, `-=`, `*=`, `%=`, `==`, `!=`, `<=`, `>=`, `<<`, `>>`, `&&`, and `||` before their single-character prefixes. Match `**` before `*` so that `*args`, `**kwargs`, `*items`, and `**mapping` tokenize as a marker plus a name or value. `!` is an operator everywhere except in `!=`. Signs are operators, not part of numeric literals except within exponents. Keyword matching must respect identifier boundaries.
 
-`range`, `open`, and the other built-ins are ordinary bindings, not reserved keywords. `init` is an ordinary identifier, not a keyword; constructors are declared with the class name. `self`, `def`, `number`, and `string` are ordinary identifiers; `int`, `float`, and `bool` are built-in conversion functions, not type keywords. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, type annotations, or standalone `!` operators. Single `&` and `|` are bitwise operators, and `**` is exponentiation as well as the call/parameter unpack marker. F-string format specifications and conversions are not supported.
+`range`, `open`, and the other built-ins are ordinary bindings, not reserved keywords. `init` is an ordinary identifier, not a keyword; constructors are declared with the class name. `self`, `def`, `number`, and `string` are ordinary identifiers; `int`, `float`, and `bool` are built-in conversion functions, not type keywords. `#` is invalid outside strings. There are no backtick templates, hexadecimal literals, or type annotations. Single `&` and `|` are bitwise operators, and `**` is exponentiation as well as the call/parameter unpack marker. F-string format specifications and conversions are not supported.
+
+A keyword is still a member name after `.`, so `this.value` and the built-in `regex.match` highlight normally even though `this` and `match` are reserved words; treat the name after the dot as the member and keep the module's own member list authoritative. Keywords are otherwise reserved and cannot declare a variable, function, field, or parameter.
 
 Within f-strings, highlight literal text as string, interpolation delimiters as punctuation, and embedded expressions using normal Tiger token rules. Track nested dictionary braces, quoted strings, comments, and nested f-strings so their braces do not prematurely close an interpolation. Doubled literal braces are string text. The `f`/`F` prefix must directly precede the opening quote.
 
@@ -61,7 +63,7 @@ Within f-strings, highlight literal text as string, interpolation delimiters as 
 | Name declared by `function` and resolved calls | `function` or `method` |
 | Function/method parameters and catch binding | `parameter` or `variable` |
 | `const` variable / field | `variable` / `property` with `readonly` |
-| `var`, for iteration binding, cfor initializer binding | `variable` |
+| `var`, for iteration binding, clause-header initializer binding | `variable` |
 | Declared fields and member accesses | `property` |
 | Built-in binding when not shadowed | `function` with `defaultLibrary` |
 
@@ -77,7 +79,7 @@ Semantic classification needs scope resolution. A lightweight lexical highlighte
 - Highlight prefix and postfix updates identically as operators.
 - Treat `*` and `**` as markers before a name in a parameter list or before a value in a call, and match `**` before `*`.
 - Fold class/function/loop/try/catch/switch bodies and multiline comments.
-- Do not treat switch-label colons as Python-style block syntax.
+- Do not treat switch or match label colons as Python-style block syntax.
 - Test Unicode identifiers, escaped quotes, comment markers in strings, adjacent operators, and incomplete input.
 - Test f-strings with same-quote indexing, nested expressions, escaped braces, and unfinished interpolation.
 - Preserve every source character and render source as text, never HTML.
@@ -95,12 +97,15 @@ class Counter {
     }
 }
 const counter = Counter();
-cfor (var index = 0; index < 2; ++index) {
-    switch counter.next() {
+for (var index = 0; index < 2; ++index) {
+    match counter.next() {
         case 1: print("first"); break;
-        default: continue;
+        case _: continue;
     }
-} else { print("complete"); }
+}
+if (counter.next() > 0 && !false) {
+    print("complete");
+}
 try { throw range(2); } catch (error) { print(error); }
 ```
 

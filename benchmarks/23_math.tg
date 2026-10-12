@@ -91,7 +91,7 @@ function is_prime(n) {
         return false;
     }
     const limit = math.floor(math.sqrt(n));
-    cfor (var divisor = 2; divisor <= limit; divisor++) {
+    for (var divisor = 2; divisor <= limit; divisor++) {
         if n % divisor == 0 {
             return false;
         }

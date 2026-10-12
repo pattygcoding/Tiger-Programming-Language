@@ -1,8 +1,10 @@
 //! Pratt parser for the Tiger language.
 //!
-//! A direct port of `pkg/parser`: identical grammar, precedence table, and
-//! diagnostics. Parser errors are returned as `Err(String)` (already positioned)
-//! instead of Go's panic/recover.
+//! A port of `pkg/parser`'s precedence table and diagnostics, with `if`, `else`,
+//! and `for` accepting both the Python-style and the C-style header, `&&`, `||`,
+//! and `!` accepted as spellings of `and`, `or`, and `not`, and `match` and
+//! `case _:` accepted as spellings of `switch` and `default:`. Parser errors are
+//! returned as `Err(String)` (already positioned) instead of Go's panic/recover.
 
 use std::rc::Rc;
 
@@ -17,7 +19,7 @@ pub fn parse(source: &str) -> Result<Program, String> {
 /// Parses `source`, tagging diagnostics with `filename`.
 pub fn parse_source(source: &str, filename: &str) -> Result<Program, String> {
     let tokens = lexer::scan_named(source, filename)?;
-    let mut parser = Parser { tokens, pos: 0, function_depth: 0, loop_depth: 0, switch_depth: 0, labels: Vec::new(), c_style: 0, depth: 0 };
+    let mut parser = Parser { tokens, pos: 0, function_depth: 0, loop_depth: 0, switch_depth: 0, labels: Vec::new(), depth: 0 };
     let mut program = Program::default();
     while !parser.at(lexer::EOF) {
         program.statements.push(parser.statement()?);
@@ -32,9 +34,11 @@ struct Parser {
     loop_depth: usize,
     switch_depth: usize,
     labels: Vec<String>,
-    c_style: usize,
     depth: usize,
 }
+
+/// The three clauses of a `for` header: initializer, condition, and update.
+type ForClauses = (Option<Box<Stmt>>, Option<Expr>, Option<Box<Stmt>>);
 
 impl Parser {
     fn current(&self) -> &Token {
@@ -68,6 +72,18 @@ impl Parser {
         Ok(self.take())
     }
 
+    /// Consumes a member name after `.`. A keyword is a name there too, so
+    /// `this.value` and the built-in `regex.match` keep working even though
+    /// `this` and `match` are reserved words.
+    fn member_name(&mut self) -> Result<Token, String> {
+        let token = self.current().clone();
+        if self.at(lexer::IDENT) || lexer::KEYWORDS.contains(&token.kind) {
+            self.take();
+            return Ok(token);
+        }
+        Err(token.errorf(&format!("expected a member name after '.', found {:?}", token.kind)))
+    }
+
     fn enter(&mut self) -> Result<(), String> {
         self.depth += 1;
         if self.depth > 512 {
@@ -84,14 +100,34 @@ impl Parser {
         if self.tokens[self.pos].kind != lexer::IDENT || self.tokens[self.pos + 1].kind != ":" {
             return false;
         }
-        matches!(self.tokens[self.pos + 2].kind, "for" | "while" | "cfor" | "do")
+        matches!(self.tokens[self.pos + 2].kind, "for" | "while" | "do")
     }
 
     fn has_label(&self, name: &str) -> bool {
         self.labels.iter().any(|label| label == name)
     }
 
+    /// A hint for the removed `cif`, `celse`, and `cfor` keywords. They are
+    /// ordinary identifiers now that `if`, `else`, and `for` accept both header
+    /// styles, so a program that still uses them would otherwise report only a
+    /// generic parse error.
+    fn removed_keyword(&self) -> Option<String> {
+        if !self.at(lexer::IDENT) {
+            return None;
+        }
+        let hint = match self.current().text.as_str() {
+            "cif" => "write if (condition) { ... } or if condition { ... }",
+            "celse" => "write else or else if",
+            "cfor" => "write for (initializer; condition; update) { ... }",
+            _ => return None,
+        };
+        Some(self.current().errorf(&format!("{} is no longer a keyword; {}", self.current().text, hint)))
+    }
+
     fn statement(&mut self) -> Result<Stmt, String> {
+        if let Some(error) = self.removed_keyword() {
+            return Err(error);
+        }
         let base = Base::from_token(self.current());
         if self.take_if("import") {
             let path = self.expect(lexer::STRING)?;
@@ -278,20 +314,22 @@ impl Parser {
         }
         if self.take_if("if") {
             let mut branches = Vec::new();
+            let mut else_block = Vec::new();
             loop {
                 let condition = self.expression(0)?;
                 let body = self.block()?;
                 branches.push(Branch { condition, body });
-                if !self.take_if("elif") {
-                    break;
+                if self.take_if("elif") {
+                    continue;
                 }
-            }
-            let mut else_block = Vec::new();
-            if self.take_if("else") {
-                else_block = self.block()?;
-            }
-            if self.at("celse") {
-                return Err(self.current().errorf("use elif or else after an if block"));
+                if self.take_if("else") {
+                    // C-style `else if` continues the chain; a bare `else` takes a block.
+                    if self.take_if("if") {
+                        continue;
+                    }
+                    else_block = self.block()?;
+                }
+                break;
             }
             return Ok(Stmt::If { base, branches, else_block });
         }
@@ -310,61 +348,13 @@ impl Parser {
             return Ok(Stmt::DoWhile { base, label: String::new(), condition, body });
         }
         if self.take_if("for") {
-            let name = self.expect(lexer::IDENT)?.text;
-            self.expect("in")?;
-            let iterable = self.expression(0)?;
-            let (body, else_block) = self.loop_body()?;
-            return Ok(Stmt::For { base, label: String::new(), name, iterable, body, else_block });
-        }
-        if self.take_if("cfor") {
-            self.expect("(")?;
-            self.c_style += 1;
-            let mut initializer = None;
-            if !self.at(";") {
-                initializer = Some(Box::new(self.simple_statement()?));
+            if let Some((name, iterable)) = self.for_iterable()? {
+                let (body, else_block) = self.loop_body()?;
+                return Ok(Stmt::For { base, label: String::new(), name, iterable, body, else_block });
             }
-            self.expect(";")?;
-            let mut condition = None;
-            if !self.at(";") {
-                condition = Some(self.expression(0)?);
-            }
-            self.expect(";")?;
-            let mut update = None;
-            if !self.at(")") {
-                let statement = self.simple_statement()?;
-                if let Stmt::Assign { declaration: true, base, .. } = &statement {
-                    return Err(base.errorf("cfor update cannot declare a variable"));
-                }
-                update = Some(Box::new(statement));
-            }
-            self.expect(")")?;
-            self.c_style -= 1;
+            let (initializer, condition, update) = self.for_clauses()?;
             let (body, else_block) = self.loop_body()?;
             return Ok(Stmt::CFor { base, label: String::new(), initializer, condition, update, body, else_block });
-        }
-        if self.take_if("cif") {
-            let mut branches = Vec::new();
-            let mut else_block = Vec::new();
-            loop {
-                self.expect("(")?;
-                self.c_style += 1;
-                let condition = self.expression(0)?;
-                self.c_style -= 1;
-                self.expect(")")?;
-                let body = self.block()?;
-                branches.push(Branch { condition, body });
-                if !self.take_if("celse") {
-                    break;
-                }
-                if !self.take_if("cif") {
-                    else_block = self.block()?;
-                    break;
-                }
-            }
-            if self.at("else") || self.at("elif") {
-                return Err(self.current().errorf("use celse or celse cif after a cif block"));
-            }
-            return Ok(Stmt::If { base, branches, else_block });
         }
         if self.at("break") || self.at("continue") {
             let kind = self.take().text;
@@ -382,7 +372,7 @@ impl Parser {
             self.expect(";")?;
             return Ok(Stmt::Control { base, kind, label });
         }
-        if self.take_if("switch") {
+        if self.take_if("switch") || self.take_if("match") {
             self.enter()?;
             let value = self.expression(0)?;
             self.expect("{")?;
@@ -392,7 +382,16 @@ impl Parser {
             while !self.at("}") && !self.at(lexer::EOF) {
                 let mut case = Case { value: None, body: Vec::new() };
                 if self.take_if("case") {
-                    case.value = Some(self.expression(0)?);
+                    // `case _:` is the wildcard spelling of `default:`.
+                    if self.at(lexer::IDENT) && self.current().text == "_" {
+                        let marker = self.take();
+                        if seen_default {
+                            return Err(marker.errorf("duplicate default case"));
+                        }
+                        seen_default = true;
+                    } else {
+                        case.value = Some(self.expression(0)?);
+                    }
                 } else {
                     let marker = self.expect("default")?;
                     if seen_default {
@@ -487,6 +486,58 @@ impl Parser {
             otherwise = self.block()?;
         }
         Ok((body, otherwise))
+    }
+
+    /// The `for name in iterable` header, or `None` when the loop uses the
+    /// three-clause form instead.
+    fn for_iterable(&mut self) -> Result<Option<(String, Expr)>, String> {
+        let iterates = self.at(lexer::IDENT) && self.tokens.get(self.pos + 1).map(|token| token.kind) == Some("in");
+        if !iterates {
+            return Ok(None);
+        }
+        let name = self.expect(lexer::IDENT)?.text;
+        self.expect("in")?;
+        Ok(Some((name, self.expression(0)?)))
+    }
+
+    /// The three-clause header, with the parentheses optional:
+    /// `for (initializer; condition; update)` and `for initializer; condition; update`.
+    /// Each clause may be empty; the update may assign but not declare.
+    fn for_clauses(&mut self) -> Result<ForClauses, String> {
+        let parenthesized = self.take_if("(");
+        let closer = if parenthesized { ")" } else { "{" };
+        // C-style headers often name a type; Tiger has no type annotations.
+        if self.at(lexer::IDENT)
+            && self.tokens.get(self.pos + 1).map(|token| token.kind) == Some(lexer::IDENT)
+            && self.tokens.get(self.pos + 2).map(|token| token.kind) == Some("=")
+        {
+            return Err(self.current().errorf(&format!(
+                "{} looks like a type name; Tiger has no type annotations, so declare the loop variable with var",
+                self.current().text
+            )));
+        }
+        let mut initializer = None;
+        if !self.at(";") {
+            initializer = Some(Box::new(self.simple_statement()?));
+        }
+        self.expect(";")?;
+        let mut condition = None;
+        if !self.at(";") {
+            condition = Some(self.expression(0)?);
+        }
+        self.expect(";")?;
+        let mut update = None;
+        if !self.at(closer) {
+            let statement = self.simple_statement()?;
+            if let Stmt::Assign { declaration: true, base, .. } = &statement {
+                return Err(base.errorf("the update clause of a for loop cannot declare a variable"));
+            }
+            update = Some(Box::new(statement));
+        }
+        if parenthesized {
+            self.expect(")")?;
+        }
+        Ok((initializer, condition, update))
     }
 
     fn class(&mut self, base: Base) -> Result<Stmt, String> {
@@ -630,7 +681,6 @@ impl Parser {
                         loop_depth: 0,
                         switch_depth: 0,
                         labels: Vec::new(),
-                        c_style: 0,
                         depth: self.depth,
                     };
                     let value = nested.expression(0)?;
@@ -657,7 +707,7 @@ impl Parser {
                     left = Expr::Super { base: base.clone() };
                 } else {
                     self.expect(".")?;
-                    let member = self.expect(lexer::IDENT)?;
+                    let member = self.member_name()?;
                     left = Expr::Property {
                         base: Base::from_token(&member),
                         receiver: Box::new(Expr::Super { base: base.clone() }),
@@ -665,10 +715,12 @@ impl Parser {
                     };
                 }
             }
-            "-" | "+" | "~" | "not" => {
-                let binding = if token.kind == "not" { 2 } else { 10 };
+            "-" | "+" | "~" | "not" | "!" => {
+                // `!` is `not` under another spelling, including its precedence.
+                let binding = if token.kind == "not" || token.kind == "!" { 2 } else { 10 };
+                let operator = if token.kind == "!" { "not".to_string() } else { token.text.clone() };
                 let right = self.expression(binding)?;
-                left = Expr::Unary { base: base.clone(), operator: token.text.clone(), right: Box::new(right) };
+                left = Expr::Unary { base: base.clone(), operator, right: Box::new(right) };
             }
             "++" | "--" => {
                 let target = self.expression(11)?;
@@ -712,12 +764,7 @@ impl Parser {
                     left = Expr::Update { base: base.clone(), target: Box::new(left), operator: operator.text.clone(), prefix: false };
                 }
                 "." => {
-                    let member = self.current().clone();
-                    if self.at("this") {
-                        self.take();
-                    } else {
-                        self.expect(lexer::IDENT)?;
-                    }
+                    let member = self.member_name()?;
                     left = Expr::Property { base: Base::from_token(&member), receiver: Box::new(left), name: member.text };
                 }
                 "(" => {
@@ -740,10 +787,6 @@ impl Parser {
                 _ => {
                     let mut text = operator.text.clone();
                     if text == "&&" || text == "||" {
-                        if self.c_style == 0 {
-                            let replacement = if text == "&&" { "and" } else { "or" };
-                            return Err(operator.errorf(&format!("{} is only allowed in cif and cfor headers; use {}", text, replacement)));
-                        }
                         text = if text == "&&" { "and".to_string() } else { "or".to_string() };
                     }
                     let mut binding = precedence(operator.kind);
@@ -1125,6 +1168,39 @@ mod tests {
     fn hints_at_parenthesized_inheritance() {
         let error = parse_err("class Dog(Animal) {}");
         assert!(error.contains("use 'class Dog extends Parent'"), "{error}");
+    }
+
+    #[test]
+    fn parses_both_control_flow_styles() {
+        let c_style = parse_ok(
+            "if (a && !b) { print(1); } else if (c) {} else {}\n\
+             for (var index = 0; index < 3; index++) { print(index); }\n\
+             match 1 { case 1: break; case _: break; }",
+        );
+        let python = parse_ok(
+            "if a and not b { print(1); } elif c {} else {}\n\
+             for index in range(3) { print(index); }\n\
+             switch 1 { case 1: break; default: break; }",
+        );
+        assert_eq!(c_style.statements.len(), python.statements.len());
+        assert!(matches!(c_style.statements[0], Stmt::If { .. }), "both header styles build one chain");
+        assert!(matches!(c_style.statements[1], Stmt::CFor { .. }), "parenthesized clauses");
+        assert!(matches!(python.statements[1], Stmt::For { .. }), "for ... in iterates");
+        assert!(matches!(c_style.statements[2], Stmt::Switch { .. }), "match builds a switch");
+        assert!(matches!(python.statements[2], Stmt::Switch { .. }), "switch builds a switch");
+    }
+
+    #[test]
+    fn rejects_the_removed_keywords() {
+        for (source, message) in [
+            ("cif (a) { print(1); }", "cif is no longer a keyword"),
+            ("if a {} celse {}", "celse is no longer a keyword"),
+            ("cfor (;;) {}", "cfor is no longer a keyword"),
+            ("for (int index = 0; index < 3; index++) {}", "looks like a type name"),
+        ] {
+            let error = parse_err(source);
+            assert!(error.contains(message), "{}: expected {:?}, got {}", source, message, error);
+        }
     }
 
     #[test]

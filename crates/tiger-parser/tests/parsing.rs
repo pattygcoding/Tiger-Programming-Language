@@ -224,10 +224,13 @@ fn imports() {
 #[test]
 fn control_syntax() {
     for source in [
-        "cfor (var count = 0; count < 3; ++count) { if count == 1 { continue; } } else { print(\"done\"); }",
-        "cfor (;;) { break; }",
+        "for (var count = 0; count < 3; ++count) { if count == 1 { continue; } } else { print(\"done\"); }",
+        "for (;;) { break; }",
+        "for var index = 0; index < 3; index++ { print(index); }",
+        "for index = 0; index < 3; index++ { print(index); }",
         "while false {} else { print(\"empty\"); } for item in [] {} else { print(\"empty\"); }",
         "switch 1 { case 1: print(\"one\"); break; default: print(\"other\"); }",
+        "match 1 { case 1: print(\"one\"); case _: print(\"other\"); }",
         "var count = 0; print(++count, count++, --count, count--);",
     ] {
         parse(source);
@@ -238,9 +241,13 @@ fn control_syntax() {
         "switch 1 { case 1: continue; }",
         "while true { function invalid() { break; } }",
         "switch 1 { default: break; default: break; }",
+        "switch 1 { case _: break; case _: break; }",
         "++1;",
         "print(1)++;",
-        "cfor (; true; var value = 1) {}",
+        "for (; true; var value = 1) {}",
+        "for (int index = 0; index < 3; index++) {}",
+        "for index = 0 index < 3; index++ {}",
+        "for (item in [1]) {}",
         "try { print(1); }",
         "try {} catch {}",
         "try {} catch (error, other) {}",
@@ -254,26 +261,65 @@ fn control_syntax() {
 }
 
 #[test]
-fn c_style_conditions() {
-    let program = parse("cif (a && b || c) { print(1); } celse cif (d) {} celse { print(2); }");
-    let Stmt::If { branches, else_block, .. } = &program.statements[0] else { panic!("if") };
-    assert_eq!(branches.len(), 2);
-    assert_eq!(else_block.len(), 1);
-    let (operator, left, _) = binary(&branches[0].condition);
-    assert_eq!(operator, "or");
-    assert_eq!(binary(&left).0, "and");
-
-    for (source, message) in [
-        ("print(a && b);", "&& is only allowed in cif and cfor headers; use and"),
-        ("if a || b {}", "|| is only allowed in cif and cfor headers; use or"),
-        ("cif (a) {} else {}", "use celse or celse cif after a cif block"),
-        ("if a {} celse {}", "use elif or else after an if block"),
-        ("cif (a) { print(a && b); }", "&& is only allowed"),
-        ("cfor (;;) { print(a || b); }", "|| is only allowed"),
-    ] {
-        let error = reject(source);
-        assert!(error.contains(message), "{}: expected {:?}, got {}", source, message, error);
+fn unified_if_headers() {
+    // Parentheses are optional, and `elif` and `else if` continue the same chain.
+    let parenthesized = parse("if (a) { print(1); } else if (b) { print(2); } else { print(3); }");
+    let bare = parse("if a { print(1); } elif b { print(2); } else { print(3); }");
+    for program in [&parenthesized, &bare] {
+        let Stmt::If { branches, else_block, .. } = &program.statements[0] else { panic!("if") };
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].body.len(), 1);
+        assert_eq!(branches[1].body.len(), 1);
+        assert_eq!(else_block.len(), 1);
+        for branch in branches {
+            assert!(matches!(branch.condition, Expr::Identifier { .. }), "{:?}", branch.condition);
+        }
     }
+}
+
+#[test]
+fn unified_for_headers() {
+    for source in ["for (var index = 0; index < 2; index++) { print(index); }", "for var index = 0; index < 2; index++ { print(index); }"] {
+        let program = parse(source);
+        let Stmt::CFor { initializer, condition, update, body, .. } = &program.statements[0] else { panic!("for clauses") };
+        assert!(initializer.is_some(), "{source}");
+        assert!(condition.is_some(), "{source}");
+        assert!(update.is_some(), "{source}");
+        assert_eq!(body.len(), 1);
+    }
+
+    // A bare target initializer assigns a variable that already exists.
+    let predeclared = parse("var index = 0; for index = 0; index < 2; index++ {}");
+    let Stmt::CFor { initializer, .. } = &predeclared.statements[1] else { panic!("for clauses") };
+    let initializer = initializer.as_ref().expect("initializer");
+    assert!(matches!(**initializer, Stmt::Assign { declaration: false, .. }));
+
+    // Empty clauses stay valid, and `for ... in` is still the iteration form.
+    let empty = parse("for (;;) { break; }");
+    let Stmt::CFor { initializer, condition, update, .. } = &empty.statements[0] else { panic!("for clauses") };
+    assert!(initializer.is_none() && condition.is_none() && update.is_none());
+    let iteration = parse("for item in [1, 2] { print(item); }");
+    assert!(matches!(iteration.statements[0], Stmt::For { .. }), "for ... in must iterate");
+}
+
+#[test]
+fn logical_operator_spellings() {
+    // `&&` and `||` are `and` and `or`, with the same precedence.
+    for source in ["const value = a && b || c;", "const value = a and b or c;"] {
+        let (operator, left, _) = binary(&assigned(source));
+        assert_eq!(operator, "or", "{source}");
+        assert_eq!(binary(&left).0, "and", "{source}");
+    }
+    // `!` is `not`, including `not`'s loose binding: `!a == b` is `!(a == b)`.
+    for source in ["const flag = !a == b;", "const flag = not a == b;"] {
+        let Expr::Unary { operator, right, .. } = assigned(source) else { panic!("unary: {source}") };
+        assert_eq!(operator, "not", "{source}");
+        assert_eq!(binary(&right).0, "==", "{source}");
+    }
+    // `&&` binds looser than `!`, so `!a && b` is `(!a) && b`.
+    let (operator, left, _) = binary(&assigned("const flag = !a && b;"));
+    assert_eq!(operator, "and");
+    assert!(matches!(left, Expr::Unary { ref operator, .. } if operator == "not"));
 }
 
 #[test]

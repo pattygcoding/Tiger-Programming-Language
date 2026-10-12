@@ -23,7 +23,7 @@ function is_pal(s, left, right) {
 function brute_count(s) {
     var count = 0;
     for start in range(len(s)) {
-        cfor (var end = start; end < len(s); end++) {
+        for (var end = start; end < len(s); end++) {
             if is_pal(s, start, end) {
                 count++;
             }
@@ -36,7 +36,7 @@ function brute_longest(s) {
     var best_start = 0;
     var best_length = 0;
     for start in range(len(s)) {
-        cfor (var end = start; end < len(s); end++) {
+        for (var end = start; end < len(s); end++) {
             if end - start + 1 > best_length and is_pal(s, start, end) {
                 best_start = start;
                 best_length = end - start + 1;
@@ -44,7 +44,7 @@ function brute_longest(s) {
         }
     }
     var result = "";
-    cfor (var i = best_start; i < best_start + best_length; i++) {
+    for (var i = best_start; i < best_start + best_length; i++) {
         result += s[i];
     }
     return result;
@@ -52,9 +52,9 @@ function brute_longest(s) {
 
 function brute_cuts(s) {
     var cuts = [0];
-    cfor (var end = 1; end <= len(s); end++) {
+    for (var end = 1; end <= len(s); end++) {
         var best = end;
-        cfor (var start = 0; start < end; start++) {
+        for (var start = 0; start < end; start++) {
             if is_pal(s, start, end - 1) {
                 best = math.min(best, cuts[start] + 1);
             }
@@ -110,7 +110,7 @@ for phrase in ["Step on no pets", "Tiger", "Never odd or even", "Hello", "Was it
 print("phrases", found);
 
 var long = "";
-cfor (var i = 0; i < 5001; i++) {
+for (var i = 0; i < 5001; i++) {
     long += "a";
 }
 print("long valid", algo.palindromeValid(long), algo.palindromeCanBeValid(long + "b"));

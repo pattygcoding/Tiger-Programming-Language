@@ -13,18 +13,18 @@ built-in names can be shadowed and are still colored as built-ins.
 
 | Category | Grammar |
 | --- | --- |
-| Keywords | `const var function class extends super this public private protected return if elif else cif celse while for cfor in and or not break continue switch case default try catch throw import as` |
+| Keywords | `const var function class extends super this public private protected return if elif else while for in and or not break continue switch match case default try catch throw import as` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
 | Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\xHH`, `\uXXXX`, `\UXXXXXXXX`, `\\`, `\"`, `\'` are highlighted separately; an `r`/`R` prefix makes the text raw |
 | Formatted strings | `f`/`F` directly before either quote; string text, `{expression}` tokens, and `{{`/`}}` literal braces |
 | Comments | `//` through the end of the line; `/* ... */` across one or more lines, without nesting |
-| Symbolic operators | `= == != < <= > >= + - * / % ** ++ -- << >> & \| ^ ~ && \|\|` |
+| Symbolic operators | `= == != < <= > >= + - * / % ** ++ -- << >> & \| ^ ~ && \|\| !` |
 | Word operators | `and or not in div`, styled as keywords |
 | Punctuation | `(` `)` `[` `]` `{` `}` `:` `,` `;` `.` |
 | Identifiers | Unicode letters or `_`, followed by Unicode letters, decimal digits, or `_` |
 | Built-in functions | `print input str int float bool len range type isinstance open read_file write_file append_file file_exists remove_file math algo` |
-| Module members | Names exported by `math`, `algo`, `random`, `json`, `time`, and `regex` (such as `math.sqrt` or `algo.isPrime`), styled as built-ins only directly after the module name and a dot |
+| Module members | Names exported by `math`, `algo`, `random`, `json`, `time`, and `regex` (such as `math.sqrt`, `algo.isPrime`, or the keyword-named `regex.match`), styled as built-ins only directly after the module name and a dot |
 
 Tiger is dynamically typed. There are **no reserved primitive-type names or type
 annotations**: `number` and `string` remain identifiers, and `int`, `float`, and `bool` are built-in conversion functions.

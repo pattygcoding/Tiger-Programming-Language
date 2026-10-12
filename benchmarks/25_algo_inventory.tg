@@ -56,7 +56,7 @@ print("reorder", reorder);
 
 function bar(count) {
     var text = "";
-    cfor (var step = 0; step < count; step++) {
+    for (var step = 0; step < count; step++) {
         text = text + "#";
     }
     return text;
@@ -75,7 +75,7 @@ const scores = [82, 95, 67, 95, 74, 88, 67, 100];
 print("podium", algo.findPlace(scores, 1), algo.findPlace(scores, 2), algo.findPlace(scores, 3));
 
 var places = [];
-cfor (var place = 1; place <= 6; place++) {
+for (var place = 1; place <= 6; place++) {
     places += [algo.findPlace(scores, place)];
 }
 print("all places", places, "unchanged", scores);
@@ -160,7 +160,7 @@ function trial_division(n) {
     if n < 2 {
         return false;
     }
-    cfor (var divisor = 2; divisor * divisor <= n; divisor++) {
+    for (var divisor = 2; divisor * divisor <= n; divisor++) {
         if n % divisor == 0 {
             return false;
         }

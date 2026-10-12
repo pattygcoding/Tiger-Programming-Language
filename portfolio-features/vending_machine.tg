@@ -1,4 +1,4 @@
-/* Vending machine: a state machine using fall-through switch, cif/celse with && and ||, cfor, ++/--, continue, and loop else. */
+/* Vending machine: a state machine using fall-through switch, if/else with && and ||, for, ++/--, continue, and loop else. */
 const DENOMINATIONS = [100, 25, 10, 5];
 
 function money(cents) {
@@ -19,15 +19,15 @@ class Machine {
     }
 
     function insert(coin) {
-        cif (not (coin in this.bank)) {
+        if (not (coin in this.bank)) {
             print(f"  rejected coin worth {coin} cents");
             return;
-        } celse cif (this.state == "idle" || this.state == "collecting") {
+        } else if (this.state == "idle" || this.state == "collecting") {
             this.credit += coin;
             this.bank[coin]++;
             this.state = "collecting";
             print(f"  credit {money(this.credit)}");
-        } celse {
+        } else {
             print(f"  cannot take coins while {this.state}");
         }
     }
@@ -38,11 +38,11 @@ class Machine {
             return;
         }
         const item = this.products[code];
-        cif (item["stock"] <= 0) {
+        if (item["stock"] <= 0) {
             print(f"  {item["name"]} is sold out");
-        } celse cif (this.credit < item["price"] && this.state == "collecting") {
+        } else if (this.credit < item["price"] && this.state == "collecting") {
             print(f"  {item["name"]} costs {money(item["price"])}; insert {money(item["price"] - this.credit)} more");
-        } celse cif (this.credit >= item["price"]) {
+        } else if (this.credit >= item["price"]) {
             this.state = "vending";
             item["stock"]--;
             this.sales++;
@@ -50,7 +50,7 @@ class Machine {
             this.credit -= item["price"];
             print(f"  vended {item["name"]}");
             this.refund();
-        } celse {
+        } else {
             print("  insert coins first");
         }
     }
@@ -58,7 +58,7 @@ class Machine {
     function refund() {
         var given = [];
         var remaining = this.credit;
-        cfor (var i = 0; i < len(DENOMINATIONS) && remaining > 0; i++) {
+        for (var i = 0; i < len(DENOMINATIONS) && remaining > 0; i++) {
             const coin = DENOMINATIONS[i];
             while remaining >= coin and this.bank[coin] > 0 {
                 remaining -= coin;

@@ -21,18 +21,27 @@ fn scans_a_program() {
 
 #[test]
 fn rejects_invalid_input() {
-    for source in ["@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "!true", "\u{0}", "# old comment", "/* unfinished"] {
+    for source in ["@", "1e;", "\"unfinished", "\"bad\\q\"", "\"line\nbreak\"", "\u{0}", "# old comment", "/* unfinished"] {
         let error = scan(source).unwrap_err();
         assert!(error.contains("1:1:"), "{:?}: expected a positioned error, got {}", source, error);
     }
 }
 
 #[test]
-fn scans_c_style_tokens() {
+fn scans_symbolic_logical_operators() {
     assert_eq!(
-        kinds("cif (a && b || c) {} celse {}"),
-        vec!["cif", "(", IDENT, "&&", IDENT, "||", IDENT, ")", "{", "}", "celse", "{", "}", EOF]
+        kinds("if (a && b || c) {} else {}"),
+        vec!["if", "(", IDENT, "&&", IDENT, "||", IDENT, ")", "{", "}", "else", "{", "}", EOF]
     );
+    assert_eq!(kinds("!a != b;"), vec!["!", IDENT, "!=", IDENT, ";", EOF]);
+}
+
+#[test]
+fn scans_match_and_the_removed_c_style_words() {
+    assert_eq!(kinds("match value { case _: }"), vec!["match", IDENT, "{", "case", IDENT, ":", "}", EOF]);
+    for source in ["cif", "celse", "cfor"] {
+        assert_eq!(kinds(source), vec![IDENT, EOF], "{} is no longer a keyword", source);
+    }
 }
 
 #[test]

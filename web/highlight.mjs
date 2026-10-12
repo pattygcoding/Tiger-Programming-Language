@@ -1,7 +1,7 @@
 export const keywords = new Set([
   "const", "var", "function", "class", "extends", "super", "return", "if", "elif", "else",
   "while", "do", "for", "in", "and", "or", "not", "div",
-  "cfor", "cif", "celse", "break", "continue", "switch", "case", "default",
+  "break", "continue", "switch", "match", "case", "default",
   "this", "public", "private", "protected", "try", "catch", "finally", "throw",
   "import", "as",
 ]);
@@ -87,10 +87,12 @@ export function tokenize(source) {
     if (text.startsWith("//") || text.startsWith("/*")) kind = "comment";
     else if (text[0] === '"' || text[0] === "'") kind = "string";
     else if (/^[0-9]/.test(text)) kind = "number";
+    // Before the keyword set: a keyword is a member name after `.`, so
+    // `regex.match` is the module member rather than the `match` keyword.
+    else if (isModuleMember(text)) kind = "builtin";
     else if (keywords.has(text)) kind = "keyword";
     else if (literals.has(text)) kind = "literal";
     else if (builtins.has(text)) kind = "builtin";
-    else if (isModuleMember(text)) kind = "builtin";
     else if (/^[\p{L}_]/u.test(text)) kind = "identifier";
     else if (/^(?:[=<>!+*/%&^|~\-]|&&|\|\|)/.test(text)) kind = "operator";
     else if (/^[()[\]{}:;,.]/.test(text)) kind = "punctuation";

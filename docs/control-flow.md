@@ -2,7 +2,7 @@
 
 [Previous: Lists and Dictionaries](collections.md) | [Guide index](README.md) | [Next: Functions and Closures](functions-and-closures.md)
 
-## If, Elif, and Else
+## If, Elif, Else If, and Else
 
 ```tg
 for score in [42, 75, 95] {
@@ -24,46 +24,50 @@ pass
 excellent
 ```
 
-Conditions use [truthiness](types-and-operators.md), not just literal booleans. Branches are tested in order, and only the first matching branch executes. `else` is optional. Blocks require braces; parentheses around conditions are optional.
-
-## C-Style Cif and Celse
+Conditions use [truthiness](types-and-operators.md), not just literal booleans. Branches are tested in order, and only the first matching branch executes. The header may be bare or parenthesized, so `if score >= 90` is the same as `if (score >= 90)`. A chain continues with `elif` or the C-style `else if`, and `else` is optional. Blocks always require braces; a body is never a bare statement.
 
 ```tg
-function grade(score, attendance, has_special_approval) {
-    cif (score >= 90 && attendance >= 90) {
-        return "Grade: Excellent";
-    } celse cif ((score >= 80 && attendance >= 80) || has_special_approval) {
-        return "Grade: Pass";
-    } celse {
-        return "Grade: Fail";
+function bucket(value) {
+    if (value < 0) {
+        return "negative";
+    } else if (value == 0) {
+        return "zero";
+    } elif (value < 10) {
+        return "small";
+    } else {
+        return "big";
     }
 }
-print(grade(95, 92, false));
-print(grade(70, 85, true));
-print(grade(85, 60, false));
+print(bucket(-1), bucket(0), bucket(5), bucket(50));
 ```
 
 Output:
 
 ```text
-Grade: Excellent
-Grade: Pass
-Grade: Fail
+negative zero small big
 ```
 
-`cif` is a C-style alternative to `if`. Its condition must be wrapped in parentheses, and the chain continues with `celse cif (...)` and an optional final `celse`. A `cif` chain cannot mix in `elif`/`else`, and an `if` chain cannot use `celse`.
+## Symbolic and Keyword Operators
 
-Inside `cif` and `cfor` headers, `&&` and `||` mean `and` and `or`, with the same short-circuit behavior and precedence: `&&` binds tighter than `||`, and both bind looser than comparisons. Everywhere else, including inside `cif` bodies, use `and`/`or`; `&&` and `||` are syntax errors there. There is no `!` operator; use `not`.
-
-**Expected error:**
+`&&` and `and` are the same operator, as are `||` and `or`, and `!` and `not`. Each pair has identical precedence and may be used anywhere an expression may appear, so a condition, a clause header, or a plain expression can use either spelling.
 
 ```tg
-print(true && false);
+print(true && false, true || false, !true, !false);
+print(1 && 2 || 3, 0 || 2 && 3);
+if (2 > 1 && !(3 > 4)) {
+    print("truthy", not false and not not true);
+}
 ```
 
-```error
-&& is only allowed in cif and cfor headers; use and
+Output:
+
+```text
+false true false true
+2 3
+truthy true
 ```
+
+`&&` binds tighter than `||`, and both bind looser than comparisons, as in C. `!` is exactly `not`, so it also binds looser than comparison: `!a == b` means `!(a == b)`, and `(!a) == b` is the way to compare a negated value. Both operators short-circuit, so the right operand runs only when it can change the result.
 
 ## Conditional Expressions
 
@@ -172,7 +176,7 @@ first
 second
 ```
 
-Lists produce elements, strings produce Unicode code points, and dictionaries produce keys in insertion order. Numbers are not iterable. Each iteration binds its loop variable in a fresh scope; it does not overwrite an outer variable with the same name. See [iteration snapshots](collections.md) for mutation behavior.
+Lists produce elements, strings produce Unicode code points, and dictionaries produce keys in insertion order. Numbers are not iterable. Each iteration binds its loop variable in a fresh scope; it does not overwrite an outer variable with the same name. See [iteration snapshots](collections.md) for mutation behavior. For the clause header `for (initializer; condition; update)`, see [Three-Clause For and Updates](#three-clause-for-and-updates).
 
 ## Early Exit and Labels
 
@@ -203,7 +207,7 @@ Output:
 done
 ```
 
-A label belongs to the loop it precedes and is visible only inside that loop's body, so an inner loop may reuse the same name and the innermost match wins. `while`, `for`, `cfor`, and `do...while` all accept labels, and a labeled `break` skips the loop's `else` block just like an unlabeled one.
+A label belongs to the loop it precedes and is visible only inside that loop's body, so an inner loop may reuse the same name and the innermost match wins. `while`, `for` (both header styles), and `do...while` all accept labels, and a labeled `break` skips the loop's `else` block just like an unlabeled one.
 
 **Expected error:**
 
@@ -236,29 +240,37 @@ Output:
 
 `return` exits the function, not just the innermost block. It is a syntax error outside a function or method.
 
-## C-Style Loops and Updates
+## Three-Clause For and Updates
 
 ```tg
 var total = 0;
-cfor (var index = 0; index < 5; ++index) {
+for (var index = 0; index < 5; ++index) {
     if index == 2 { continue; }
     total = total + index;
 } else { print(total); }
 var count = 1;
 print(count++, ++count, count--, --count);
-cfor (var step = 0; step < 10 && step * step < 10; step++) {
-    print(step, end=" ");
+var cursor = 0;
+for cursor = 0; cursor < 3; cursor++ { total += cursor; }
+for var step = 0; step < 4 && step * step < 10; step++ {
+    print(step, "squared is", step * step);
 }
-print();
+print("total", total);
 ```
+
+Output:
 
 ```text
 8
 1 3 3 1
-0 1 2 3 
+0 squared is 0
+1 squared is 1
+2 squared is 4
+3 squared is 9
+total 11
 ```
 
-`cfor (initializer; condition; update)` executes the initializer once, tests before each iteration, and runs the update after the body, including after `continue`. Each clause may be empty; an omitted condition means true. Any clause may use `&&` and `||`. `cfor (;;) { break; }` is valid. The initializer may declare a variable; the update may assign or evaluate an expression but cannot declare one. Header variables live in a loop-local scope visible to its body and `else`, not after the loop. Each iteration has a fresh child scope.
+`for (initializer; condition; update)` executes the initializer once, tests before each iteration, and runs the update after the body, including after `continue`. The parentheses are optional, so `for var index = 0; index < 3; index++` is the same header. Each clause may be empty; an omitted condition means true, so `for (;;) { break; }` is valid. The initializer may declare a variable with `var` or `const`, or assign one that already exists. The update may assign or evaluate an expression but cannot declare a variable. Header variables live in a loop-local scope visible to its body and `else`, not after the loop. Each iteration has a fresh child scope. A clause header that names a type instead of `var` is an error, because Tiger has no type annotations.
 
 Prefix `++value` and `--value` return the updated number. Postfix `value++` and `value--` return the old number. Targets may be mutable variables, fields, or list/dictionary entries; receivers and index expressions are evaluated once. Constants and nonnumeric targets fail. Unlike C's unspecified expression-order cases, Tiger evaluates operands and arguments left to right.
 
@@ -277,9 +289,9 @@ else { print("empty range completed"); }
 empty range completed
 ```
 
-`range` returns a list with an exclusive stop; see [Built-ins](builtins.md). `while`, `for`, and `cfor` accept an optional `else`. It runs on normal completion, including zero iterations, but not after a `break` that exits that loop, a `return`, or an escaping exception. `continue` does not suppress it. A `break` consumed by an inner switch or loop does not suppress an outer loop's `else`. A `for` iteration variable is not visible in its `else` block.
+`range` returns a list with an exclusive stop; see [Built-ins](builtins.md). Every loop — `while`, both `for` header styles, and `do...while` — accepts an optional `else`. It runs on normal completion, including zero iterations, but not after a `break` that exits that loop, a `return`, or an escaping exception. `continue` does not suppress it. A `break` consumed by an inner switch or loop does not suppress an outer loop's `else`. A `for` iteration variable is not visible in its `else` block.
 
-## Switch
+## Switch and Match
 
 ```tg
 switch 2 {
@@ -288,14 +300,21 @@ switch 2 {
     case 3: print("fallthrough"); break;
     default: print("other");
 }
+match 9 {
+    case 1: print("one");
+    case _: print("other");
+}
 ```
 
 ```text
 two
 fallthrough
+other
 ```
 
-The selector is evaluated once. Case expressions are checked in order with Tiger equality until a match; `default` is used only if no case matches. Execution falls through later cases until `break`, return, or an exception. There may be at most one `default`. Cases share one switch-local scope. `continue` inside a switch requires an enclosing loop and continues that loop.
+`switch` and `match` are two spellings of one statement, and both accept an optional parenthesized selector, so `switch (value)` and `match value` are the same header. `case _:` is the wildcard spelling of `default:`; both mean "no case matched", and at most one of either may appear. The selector is evaluated once. Case expressions are checked in order with Tiger equality until a match; the default is used only if no case matches. Execution falls through later cases until `break`, return, or an exception, exactly as in C, whichever keyword was used.
+
+Cases share one switch-local scope. `continue` inside a switch requires an enclosing loop and continues that loop.
 
 ## Try It
 

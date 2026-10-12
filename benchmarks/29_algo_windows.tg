@@ -9,9 +9,9 @@ print(algo.slidingWindowMinSubstring("ADOBECODEBANC", "ABC"));
 
 function brute_max(nums, k) {
     var result = [];
-    cfor (var start = 0; start + k <= len(nums); start++) {
+    for (var start = 0; start + k <= len(nums); start++) {
         var high = nums[start];
-        cfor (var i = start; i < start + k; i++) {
+        for (var i = start; i < start + k; i++) {
             high = math.max(high, nums[i]);
         }
         result += [high];
@@ -21,9 +21,9 @@ function brute_max(nums, k) {
 
 function brute_sum(nums, k) {
     var best = null;
-    cfor (var start = 0; start + k <= len(nums); start++) {
+    for (var start = 0; start + k <= len(nums); start++) {
         var sum = 0;
-        cfor (var i = start; i < start + k; i++) {
+        for (var i = start; i < start + k; i++) {
             sum += nums[i];
         }
         if best == null or sum > best {
@@ -37,7 +37,7 @@ function brute_min_len(nums, target) {
     var best = 0;
     for start in range(len(nums)) {
         var sum = 0;
-        cfor (var end = start; end < len(nums); end++) {
+        for (var end = start; end < len(nums); end++) {
             sum += nums[end];
             if sum >= target {
                 if best == 0 or end - start + 1 < best {
@@ -54,7 +54,7 @@ function brute_unique(s) {
     var best = 0;
     for start in range(len(s)) {
         var seen = {};
-        cfor (var end = start; end < len(s); end++) {
+        for (var end = start; end < len(s); end++) {
             if s[end] in seen {
                 break;
             }

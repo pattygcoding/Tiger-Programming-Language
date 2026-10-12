@@ -10,11 +10,11 @@ function brute_force(heights) {
     var total = 0;
     for index in range(len(heights)) {
         var left_max = 0;
-        cfor (var i = 0; i <= index; i++) {
+        for (var i = 0; i <= index; i++) {
             left_max = math.max(left_max, heights[i]);
         }
         var right_max = 0;
-        cfor (var j = index; j < len(heights); j++) {
+        for (var j = index; j < len(heights); j++) {
             right_max = math.max(right_max, heights[j]);
         }
         total += math.min(left_max, right_max) - heights[index];
@@ -32,7 +32,7 @@ function water_columns(heights) {
     }
     var rights = [];
     running = 0;
-    cfor (var k = n - 1; k >= 0; k--) {
+    for (var k = n - 1; k >= 0; k--) {
         running = math.max(running, heights[k]);
         rights = [running] + rights;
     }
@@ -77,7 +77,7 @@ for index in range(len(cases)) {
 function draw(heights) {
     const water = water_columns(heights);
     const tallest = algo.findPlace(heights, 1);
-    cfor (var row = tallest; row >= 1; row--) {
+    for (var row = tallest; row >= 1; row--) {
         var line = "";
         for index in range(len(heights)) {
             if heights[index] >= row {

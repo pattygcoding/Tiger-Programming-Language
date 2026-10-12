@@ -33,7 +33,7 @@ function iterative_list(n) {
     var result = [0];
     var previous = 0;
     var current = 1;
-    cfor (var index = 1; index <= n; index++) {
+    for (var index = 1; index <= n; index++) {
         result += [current];
         const next = previous + current;
         previous = current;
@@ -53,7 +53,7 @@ for index in range(len(full)) {
 print("consistent", consistent);
 
 var recurrence = true;
-cfor (var position = 2; position < len(full); position++) {
+for (var position = 2; position < len(full); position++) {
     if full[position] != full[position - 1] + full[position - 2] {
         recurrence = false;
     }
