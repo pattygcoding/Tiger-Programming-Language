@@ -25,7 +25,7 @@ mod regexmod;
 
 pub use files::{parse_file_mode, FileMode, FileSystem, MemoryFileSystem, OsFileSystem};
 pub use modules::{
-    algo_module, json_module, math_module, random_module, regex_module, time_module, BundleLoader, FileLoader, ModuleLoader,
+    algo_module, json_module, math_module, random_module, regex_module, secrets_module, time_module, BundleLoader, FileLoader, ModuleLoader,
 };
 
 /// A non-local exit: a runtime error, a thrown value, or control flow.

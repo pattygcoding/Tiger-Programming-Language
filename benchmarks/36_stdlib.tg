@@ -1,6 +1,7 @@
 // 36_stdlib.tg - regression workload for the standard library modules.
 //
-// Covers the random PRNG (seed, int, uniform, random, choice, shuffle), JSON
+// Covers the random PRNG (seed, int, uniform, random, choice, shuffle), the
+// non-reproducible secrets module (random, int, uniform, choice, shuffle), JSON
 // parse and stringify (objects, arrays, scalars, escapes, unicode), the native
 // time module (iso, parts), the RE2 regex helpers, and list_dir over the
 // in-memory filesystem, with every error path handled by try/catch.
@@ -31,6 +32,28 @@ for index in range(0, 50) {
     if value < 0 or value >= 1 { fraction_ok = false; }
 }
 print("fraction range", fraction_ok);
+
+print("== secrets ==");
+const secret_fraction = secrets.random();
+print("fraction range", secret_fraction >= 0 and secret_fraction < 1);
+var secrets_in_range = true;
+for index in range(0, 50) {
+    const value = secrets.int(-5, 5);
+    if value < -5 or value > 5 { secrets_in_range = false; }
+}
+print("int range", secrets_in_range);
+print("singleton", secrets.int(9, 9), secrets.choice(["only"]));
+var deck = [1, 2, 3, 4, 5, 6, 7, 8];
+secrets.shuffle(deck);
+var deck_sorted = deck + [];
+deck_sorted.sort();
+print("shuffle", deck_sorted);
+var varies = false;
+const first_draw = secrets.int(0, 1000000);
+for index in range(0, 20) {
+    if secrets.int(0, 1000000) != first_draw { varies = true; }
+}
+print("varies", varies);
 
 print("== json ==");
 const config = json.parse("{\"name\": \"tiger\", \"ports\": [80, 443], \"on\": true, \"note\": null}");
@@ -90,11 +113,18 @@ function bad_stringify() {
 function bad_regex() {
     return regex.match("[", "x");
 }
+function bad_secrets_int() {
+    return secrets.int(5, 1);
+}
+function bad_secrets_choice() {
+    return secrets.choice([]);
+}
 function missing_dir() {
     return list_dir("nope");
 }
 print("low <= high" in fails(bad_int), "empty list" in fails(bad_choice));
 print("json.parse" in fails(bad_json), "requires string keys" in fails(bad_stringify));
 print("invalid pattern" in fails(bad_regex), "file does not exist" in fails(missing_dir));
+print("low <= high" in fails(bad_secrets_int), "empty list" in fails(bad_secrets_choice));
 
 print("done");

@@ -24,7 +24,7 @@ built-in names can be shadowed and are still colored as built-ins.
 | Punctuation | `(` `)` `[` `]` `{` `}` `:` `,` `;` `.` |
 | Identifiers | Unicode letters or `_`, followed by Unicode letters, decimal digits, or `_` |
 | Built-in functions | `print input str int float bool len range type isinstance open read_file write_file append_file file_exists remove_file math algo` |
-| Module members | Names exported by `math`, `algo`, `random`, `json`, `time`, and `regex` (such as `math.sqrt`, `algo.isPrime`, or the keyword-named `regex.match`), styled as built-ins only directly after the module name and a dot |
+| Module members | Names exported by `math`, `algo`, `random`, `secrets`, `json`, `time`, and `regex` (such as `math.sqrt`, `algo.isPrime`, or the keyword-named `regex.match`), styled as built-ins only directly after the module name and a dot |
 
 Tiger is dynamically typed. There are **no reserved primitive-type names or type
 annotations**: `number` and `string` remain identifiers, and `int`, `float`, and `bool` are built-in conversion functions.

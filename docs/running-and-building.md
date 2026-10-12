@@ -89,9 +89,9 @@ cargo build -p tiger-wasm --release --target wasm32-unknown-unknown
 
 `web/tiger.js` instantiates `web/tiger.wasm` directly through its `extern "C"`
 ABI — there is no `wasm_exec.js` and no bindgen step — and `web/worker.js` drives
-it in a module worker. The browser build omits the `regex` and `time` modules and
-raises the documented error for each; everything else, including the in-memory
-filesystem, is available.
+it in a module worker. The browser build omits the `regex`, `time`, and `secrets`
+modules and raises the documented error for each; everything else, including the
+in-memory filesystem, is available.
 
 ### Wasm Size
 
@@ -99,11 +99,12 @@ The runtime stays small because of the release profile and the module split:
 
 - `[profile.release]` sets `opt-level = 3` and `strip = "symbols"`, which drops
   the symbol table and debug data.
-- `regex` and the host clock live behind a
+- `regex`, the host clock, and the host entropy source live behind a
   `#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]` split with stubs
-  that report the documented error, so neither the `regex` crate nor
-  `SystemTime` reaches the browser. The same split covers `time.iso` and
-  `time.parts`, which the native build computes itself.
+  that report the documented error, so neither the `regex` crate, `SystemTime`,
+  nor the entropy source reaches the browser. The same split covers `time.iso`,
+  `time.parts`, and the whole `secrets` module, which the native build computes
+  itself.
 - If Binaryen's `wasm-opt` is on `PATH`, the build also runs `wasm-opt -Oz
   --converge` with the debug and producer sections stripped. Install it from your
   package manager (for example `brew install binaryen`) or the [Binaryen
@@ -179,7 +180,7 @@ cargo clippy --all-targets
 
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty 100-200-line benchmark programs
-against fixed output files, the 143 documentation examples, every example and
+against fixed output files, the 157 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, and the
 browser runtime under Node. The documentation suite checks Tiger examples against
 the output shown in Markdown, and the benchmark suite checks the programs against

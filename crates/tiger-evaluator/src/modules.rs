@@ -1,5 +1,5 @@
-//! Module loaders and the built-in `math`, `algo`, `random`, `json`, `time`,
-//! and `regex` modules.
+//! Module loaders and the built-in `math`, `algo`, `random`, `secrets`, `json`,
+//! `time`, and `regex` modules.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -319,6 +319,122 @@ fn random_number(name: &str, role: &str, value: &Value) -> Result<f64, String> {
         Value::Number(number) if !number.is_nan() && !number.is_infinite() => Ok(*number),
         other => Err(format!("{} {} must be a number, got {}", name, role, other.type_name())),
     }
+}
+
+/// The error the browser build reports for the whole `secrets` module.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+const SECRETS_UNAVAILABLE: &str = "the secrets module is not available in the browser build; use the native CLI or the WASI target";
+
+/// Seeds the `secrets` generator from host entropy, so two runs never match.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn secrets_seed() -> u64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = RandomState::new().build_hasher();
+    hasher.write_u64(host_nanoseconds());
+    hasher.write_u32(std::process::id());
+    let seed = hasher.finish();
+    if seed == 0 {
+        DEFAULT_RANDOM_SEED
+    } else {
+        seed
+    }
+}
+
+/// The browser build has no host entropy, so the module keeps its surface and
+/// reports the documented error, exactly as `time` and `regex` do.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn secrets_seed() -> u64 {
+    0
+}
+
+/// A nanosecond reading from the host clock.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn host_nanoseconds() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_nanos() as u64).unwrap_or(0)
+}
+
+/// Advances the generator, mixing in a fresh clock reading so successive draws
+/// differ even when two runs begin at the same instant.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn secrets_next(state: &mut u64) -> Result<u64, String> {
+    *state ^= host_nanoseconds().rotate_left(21) ^ (std::process::id() as u64);
+    if *state == 0 {
+        *state = DEFAULT_RANDOM_SEED;
+    }
+    Ok(random_next(state))
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn secrets_next(_state: &mut u64) -> Result<u64, String> {
+    Err(SECRETS_UNAVAILABLE.to_string())
+}
+
+/// A value in [0, 1) built from the top 53 bits, which `f64` holds exactly.
+fn secrets_fraction(value: u64) -> f64 {
+    (value >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// The `secrets` module: non-reproducible randomness seeded from the host, so a
+/// program never has to call `seed`.
+pub fn secrets_module() -> Rc<Module> {
+    let state = Rc::new(RefCell::new(secrets_seed()));
+    let random_state = state.clone();
+    let random = object::Builtin::new("secrets.random", move |_host, arguments, keywords| {
+        no_args("secrets.random", arguments, keywords)?;
+        Ok(Value::Number(secrets_fraction(secrets_next(&mut random_state.borrow_mut())?)))
+    });
+    let int_state = state.clone();
+    let int = object::Builtin::new("secrets.int", move |_host, arguments, keywords| {
+        let (low, high) = random_range("secrets.int", arguments, keywords)?;
+        let width = (high - low) as u64 + 1;
+        let offset = secrets_next(&mut int_state.borrow_mut())? % width;
+        Ok(Value::Number((low + offset as i64) as f64))
+    });
+    let uniform_state = state.clone();
+    let uniform = object::Builtin::new("secrets.uniform", move |_host, arguments, keywords| {
+        let (low, high) = random_float_range("secrets.uniform", arguments, keywords)?;
+        let fraction = secrets_fraction(secrets_next(&mut uniform_state.borrow_mut())?);
+        Ok(Value::Number(low + fraction * (high - low)))
+    });
+    let choice_state = state.clone();
+    let choice = object::Builtin::new("secrets.choice", move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err("secrets.choice does not accept keyword arguments".to_string());
+        }
+        if arguments.len() != 1 {
+            return Err(format!("secrets.choice expects 1 argument, got {}", arguments.len()));
+        }
+        let Value::List(list) = &arguments[0] else {
+            return Err(format!("secrets.choice expects a list, got {}", arguments[0].type_name()));
+        };
+        let list = list.borrow();
+        if list.is_empty() {
+            return Err("secrets.choice cannot choose from an empty list".to_string());
+        }
+        let index = (secrets_next(&mut choice_state.borrow_mut())? % list.len() as u64) as usize;
+        Ok(list[index].clone())
+    });
+    let shuffle_state = state.clone();
+    let shuffle = object::Builtin::new("secrets.shuffle", move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err("secrets.shuffle does not accept keyword arguments".to_string());
+        }
+        if arguments.len() != 1 {
+            return Err(format!("secrets.shuffle expects 1 argument, got {}", arguments.len()));
+        }
+        let Value::List(list) = &arguments[0] else {
+            return Err(format!("secrets.shuffle expects a list, got {}", arguments[0].type_name()));
+        };
+        let mut list = list.borrow_mut();
+        let mut state = shuffle_state.borrow_mut();
+        for index in (1..list.len()).rev() {
+            let swap = (secrets_next(&mut state)? % (index as u64 + 1)) as usize;
+            list.swap(index, swap);
+        }
+        Ok(Value::Null)
+    });
+    module("secrets", &[("random", random), ("int", int), ("uniform", uniform), ("choice", choice), ("shuffle", shuffle)])
 }
 
 /// The `json` module: `parse` and `stringify`.

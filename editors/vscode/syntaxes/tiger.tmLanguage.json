@@ -160,6 +160,14 @@
           }
         },
         {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(secrets)\\s*(\\.)\\s*(random|int|uniform|choice|shuffle)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.secrets.tiger" }
+          }
+        },
+        {
           "match": "(?<![\\p{L}\\p{Nd}_.])(json)\\s*(\\.)\\s*(parse|stringify)(?![\\p{L}\\p{Nd}_])",
           "captures": {
             "1": { "name": "support.module.tiger" },
@@ -201,7 +209,7 @@
     },
     "builtins": {
       "patterns": [
-        { "name": "support.module.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:math|algo|random|json|time|regex)(?![\\p{L}\\p{Nd}_])" },
+        { "name": "support.module.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:math|algo|random|secrets|json|time|regex)(?![\\p{L}\\p{Nd}_])" },
         { "name": "support.function.builtin.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:print|input|str|int|float|bool|len|range|type|isinstance|graphemes|sum|min|max|any|all|zip|enumerate|map|filter|sorted|open|read_file|write_file|append_file|file_exists|remove_file|list_dir)(?![\\p{L}\\p{Nd}_])" }
       ]
     },

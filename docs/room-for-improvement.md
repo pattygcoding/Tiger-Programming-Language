@@ -32,6 +32,457 @@ can reuse the list implementation with structural equality, no mutation, no
 `append`/`sort`, and `(1, 2)` syntax with a trailing comma for the one-element
 form.
 
+## 2. List and dictionary comprehensions
+
+**Missing:** comprehension syntax that builds a list or dictionary from an
+iterated expression, and lazy generator expressions.
+
+**Why it matters:** mapping and filtering a sequence is the most common loop in
+real code, and Python-like languages express it in one line. Tiger needs a
+mutable result, a `for`, and repeated `result = result + [value]`
+concatenation, which copies the outer list on every iteration. See
+[Lists and Dictionaries](collections.md).
+
+**Workaround:** build the result explicitly.
+
+```tg
+var squares = [];
+for value in range(1, 5) {
+    squares = squares + [value * value];
+}
+print(squares);
+```
+
+Output:
+
+```text
+[1, 4, 9, 16]
+```
+
+**Suggested direction:** the parser already tells `[` list literals, `{`
+dictionary literals, and `for` headers apart, so the syntax is a small change,
+but a comprehension needs its own scope and evaluation order, and a generator
+expression would require a lazy iterator type that the eager runtime does not
+have (`range`, `map`, and `filter` all return lists). A list-only comprehension
+is the smaller, safer first step; a dictionary form can reuse the same key
+hashing as the dictionary literal.
+
+## 3. Type annotations and optional static checking
+
+**Missing:** a way to annotate parameters, variables, fields, and return values
+with types, and any static checking that could use them.
+
+**Why it matters:** annotations are documentation that a checker can verify, and
+they power editor completion and refactoring. Tiger has none: a clause header
+that names a type instead of `var` is an error, and every value is checked, if
+at all, at run time with `type` and `isinstance`.
+
+**Workaround:** guard at run time.
+
+```tg
+function area(width, height) {
+    if not isinstance(width, "number") or not isinstance(height, "number") {
+        throw "area expects numbers";
+    }
+    return width * height;
+}
+print(area(3, 4));
+```
+
+Output:
+
+```text
+12
+```
+
+**Suggested direction:** annotations can be parsed and ignored first, so they
+document intent and editors can read them, before any checker exists. Because
+the language is dynamically typed, a checker would be a separate tool rather
+than a change to evaluation; the parser would need to accept a `: type` suffix
+after a name and `-> type` after a parameter list without breaking `case` labels
+or dictionary colons.
+
+## 4. Context managers and deterministic cleanup
+
+**Missing:** a `with` statement, or an equivalent, that runs cleanup when a
+block ends, including on an error.
+
+**Why it matters:** file objects are never closed automatically, and the
+runtime has no destructors, so every `open` needs a matching `close` on every
+exit path or a descriptor leaks until the process ends. The [Files](file-io.md)
+guide warns about this directly on Windows.
+
+**Workaround:** close in `finally`.
+
+```tg
+const file = open("notes.txt", "w");
+try {
+    file.write("alpha");
+} finally {
+    file.close();
+}
+print(file_exists("notes.txt"));
+```
+
+Output:
+
+```text
+true
+```
+
+**Suggested direction:** a `with open(path) as handle { ... }` statement that
+desugars to the same `try`/`finally` is the smallest change and needs no new
+value type. Generalizing it to user objects would need a protocol, an `enter`
+and `exit` method pair, plus a way to bind the receiver, which the class system
+can already express once the protocol is named.
+
+## 5. Comparison and membership conveniences
+
+**Missing:** chained comparisons (`lower < value < upper`), a `not in` operator,
+and an identity operator (`is`).
+
+**Why it matters:** Python's chained comparison reads as the math it mirrors,
+and `is`/`is not` distinguishes identity from equality. Tiger has neither, so
+the same tests become `and` chains, `not (...)`, and `==`; for classes,
+functions, and instances `==` already means identity, so the gap shows mainly
+when reading intent.
+
+**Workaround:** spell the operators out.
+
+```tg
+const value = 7;
+print(0 < value and value < 10);
+print(not ("z" in ["a", "b"]));
+```
+
+Output:
+
+```text
+true
+true
+```
+
+**Suggested direction:** chained comparison is a parser change that desugars to
+the `and` chain and must evaluate the middle operand once. `not in` is a single
+new operator that reuses the existing `in` evaluation and negates it. `is` would
+need a defined identity notion for numbers and strings, which are values rather
+than references, so it is the least clear of the three.
+
+## 6. String and list repetition
+
+**Missing:** sequence repetition with `*`, such as `"ab" * 3` or `[0] * 5`.
+
+**Why it matters:** repeating a character, a separator, or a template is a
+common one-liner (`"-" * 40` for a rule), and it composes with `len` and `join`.
+In Tiger `*` accepts only numbers, so the same result needs a loop.
+
+**Workaround:** build the repetition with a loop.
+
+```tg
+var banner = "";
+for step in range(3) {
+    banner = banner + "ab";
+}
+var zeros = [];
+for step in range(4) {
+    zeros = zeros + [0];
+}
+print(banner, zeros);
+```
+
+Output:
+
+```text
+ababab [0, 0, 0, 0]
+```
+
+**Suggested direction:** teach the binary operator path to accept a string or
+list on the left and a non-negative whole number on the right, mirroring the
+existing `+` handling for those types. The count must be range-checked against
+the same 1,000,000-element ceiling that `range` uses. There is likewise no `**=`
+or `div=` compound assignment, though those are only spelling.
+
+## 7. Standard-library collections and algorithms
+
+**Missing:** ready-made collection types and algorithms, such as a deque, a
+binary heap, a counter, and binary search.
+
+**Why it matters:** the [algo](algo.md) module covers named interview problems,
+but everyday work still hand-builds the data structures those problems assume.
+The [task scheduler](../portfolio-features/task_scheduler.tg) writes a binary
+heap by hand, and counting or de-duplicating goes through `algo.takeInventory`
+or `algo.removeDuplicates` rather than a `Counter` or a set.
+
+**Workaround:** use a dictionary as a counter.
+
+```tg
+const counts = {};
+for word in ["red", "blue", "red"] {
+    counts[word] = counts.get(word, 0) + 1;
+}
+print(counts);
+```
+
+Output:
+
+```text
+{"red": 2, "blue": 1}
+```
+
+**Suggested direction:** each addition is a new built-in module rather than
+syntax, so it can reuse the existing value types: a counter is a dictionary
+wrapper, a heap is a list with `push`/`pop` helpers, and binary search operates
+on a sorted list. Keep them in-repo and free of new dependencies so the browser
+build stays within its size budget.
+
+## 8. Introspection and reflection
+
+**Missing:** reflective access such as `getattr`, `setattr`, `hasattr`, and
+`dir`, and a `hash` function.
+
+**Why it matters:** dynamic languages let a program inspect and drive objects by
+name, which powers serialization, plugins, and generic helpers. Tiger exposes
+only `type` and `isinstance`, so a generic routine must hard-code the members it
+touches. Field access is also stricter than in Python: assigning an undeclared
+field is an error, so `setattr` has no natural target.
+
+**Workaround:** dispatch on `type` and `isinstance`.
+
+```tg
+class Point {
+    var x = 0;
+    var y = 0;
+}
+const point = Point();
+print(type(point), isinstance(point, "instance"));
+```
+
+Output:
+
+```text
+instance true
+```
+
+**Suggested direction:** the runtime already stores declared fields and methods
+per class, so `hasattr` and a name-based read are small additions. `setattr`
+would have to respect the declared-field rule, which is a deliberate design
+choice, so a read-only reflection surface is the consistent first step.
+
+## 9. Command-line arguments, environment, and exit codes
+
+**Missing:** access to the process's own context: command-line arguments
+(`sys.argv`), environment variables, and a way to choose the exit status.
+
+**Why it matters:** a script that cannot read its arguments is not a command
+line tool. Tiger programs read configuration through `input()` or files, and
+every program exits `0` on success or `1` on error, so callers cannot
+distinguish outcomes. The CLI itself accepts only `run`, `build`, and `help`.
+
+**Workaround:** read configuration from a file.
+
+```tg
+write_file("config.txt", "port=8080");
+const config = read_file("config.txt");
+print(config.startswith("port="));
+```
+
+Output:
+
+```text
+true
+```
+
+**Suggested direction:** a read-only `sys` module with `args` (the arguments
+after the script path), `env` (a dictionary), and `exit(code)` is the least
+surprising shape, and it matches the existing built-in module pattern. The
+browser and WASI targets have no meaningful `argv` or environment, so those
+members would report the same documented error that the `time` and `regex`
+stubs use.
+
+## 10. Assertions
+
+**Missing:** an `assert` statement, or function, for invariants and quick
+tests.
+
+**Why it matters:** assertions document what a program believes and fail loudly
+at the point the belief breaks, and they are the usual way to write the small
+checks inside a script. Tiger has only `throw`, which is catchable and carries
+no standard "assertion" kind.
+
+**Workaround:** wrap a throw in a helper.
+
+```tg
+function check(condition, message) {
+    if not condition {
+        throw message;
+    }
+}
+try {
+    check(1 > 2, "expected failure");
+} catch (error) {
+    print("caught");
+}
+```
+
+Output:
+
+```text
+caught
+```
+
+**Suggested direction:** `assert condition, message;` is a statement that throws
+a structured error with its own `kind` when the condition is falsey, so existing
+`try`/`catch` and typed guards keep working. Empty blocks are already allowed
+(`if true { }` parses), so no separate no-op statement is needed.
+
+## 11. Exception ergonomics
+
+**Missing:** stack traces, a built-in error hierarchy, and exception chaining
+(`raise ... from`).
+
+**Why it matters:** a single `file:line:column` position and a `kind` string
+identify where an error started but not the call path that reached it, and there
+is no way to say that one failure was caused by another when re-throwing. Users
+also cannot define their own error types; `throw` accepts any value.
+
+**Workaround:** catch and inspect the structured fields.
+
+```tg
+try {
+    [1][5];
+} catch (error) {
+    print(error["kind"]);
+}
+```
+
+Output:
+
+```text
+index range
+```
+
+**Suggested direction:** a call stack can be recorded on the runtime error the
+evaluator already builds, without changing the value model. A hierarchy needs
+classes that the standard error object can extend, and chaining needs a field on
+that object, so those two depend on deciding what a user-defined error class is.
+
+## 12. Selective exports and import forms
+
+**Missing:** an `export` marker, named imports (`import { square } from ...`),
+and wildcard imports (`import * as ...`).
+
+**Why it matters:** a module exports every top-level name, so there is no way to
+keep a helper private or to pull in a single function without an alias prefix.
+The only import form is `import "path.tg" as name;`, and every member is reached
+through `name.member`. See [Importing Tiger Files](modules.md).
+
+**Workaround:** import the whole module under a short alias and reach the members
+you need through it, which is already the only supported form.
+
+**Suggested direction:** named and wildcard imports are aliases over the module
+object the loader already builds, so they are parser-and-binding changes rather
+than new runtime behavior. `export` is the harder half, because it changes what
+the module object exposes and what standalone bundling must carry.
+
+## 13. Class-system breadth
+
+**Missing:** static methods and fields, properties (getters and setters),
+operator overloading, interfaces or abstract classes, and multiple inheritance.
+
+**Why it matters:** these are how object-oriented code shares behavior and
+enforces contracts. Tiger's classes support a single parent, implicit `this`,
+declared fields, and `public`/`private`/`protected`, but a class is only a
+constructor plus instance methods and fields. See
+[Classes and Inheritance](classes-and-inheritance.md).
+
+**Workaround:** use module-level functions and an explicit conversion method.
+
+```tg
+class Vec {
+    var x = 0;
+    var y = 0;
+    function ToString() {
+        return "Vec(" + str(this.x) + ", " + str(this.y) + ")";
+    }
+}
+print(Vec().ToString());
+```
+
+Output:
+
+```text
+Vec(0, 0)
+```
+
+**Suggested direction:** static members are members resolved on the class rather
+than an instance, which the existing class object can hold. Properties need a
+call-on-read rule, and operator overloading needs named hooks that the operator
+and member-access paths consult; both are larger than they look because they
+change how those paths resolve. Interfaces and multiple inheritance would change
+how method lookup walks parents.
+
+## 14. String and number helper breadth
+
+**Missing:** `printf`-style formatting (`"%d" % value`), a `format` method, and
+the smaller string helpers (`lstrip`, `rstrip`, `count`, `capitalize`, `title`),
+plus top-level numeric functions (`abs`, `round`, `pow`, `divmod`, `chr`, `ord`,
+`hex`, `bin`) and constants such as `math.pi`.
+
+**Why it matters:** these are the small conveniences that keep code short. Tiger
+has f-strings with format specs, `trim`, `find`, `replace`, `padStart`, and
+`padEnd`, but `%` on a string is an operator error, `abs`/`round`/`pow` exist
+only as `math.abs`/`math.round`/`math.pow`, and `math` has no constants. See
+[Strings](strings.md) and [the math module](math.md).
+
+**Workaround:** use f-strings and `math`.
+
+```tg
+const name = "Tiger";
+print(f"{name}: {3.14159:.2f}");
+print("  x  ".trim());
+```
+
+Output:
+
+```text
+Tiger: 3.14
+x
+```
+
+**Suggested direction:** the f-string formatter already handles width, padding,
+and precision, so most of the string helpers are one-line additions next to the
+existing methods, and the missing built-ins can delegate to the `math` module.
+`%` formatting is the only large piece, and it overlaps f-strings, so it is the
+weakest candidate.
+
+## 15. Enumerations
+
+**Missing:** an `enum` type for a fixed set of named constants.
+
+**Why it matters:** enumerations give a closed set of names a shared type, so a
+`switch` can be exhaustive and a value can be checked with `isinstance`. Tiger
+uses loose constants, which can collide and are just numbers or strings.
+
+**Workaround:** a constant dictionary of names.
+
+```tg
+const Color = {"RED": 0, "GREEN": 1, "BLUE": 2};
+print(Color["GREEN"]);
+print(Color["RED"] < Color["BLUE"]);
+```
+
+Output:
+
+```text
+1
+true
+```
+
+**Suggested direction:** an enum is a class whose members are read-only
+attributes, so it can be built from the existing class machinery once member
+access can resolve class-level names. Until then a `const` dictionary documents
+intent and keeps the names in one place.
+
 ## Constraints from the Wasm build
 
 Any addition must keep `crates/tiger-wasm` free of the packages listed under "Wasm size
@@ -39,8 +490,9 @@ guardrails" in [`AGENTS.md`](../AGENTS.md). In practice that means:
 
 - The `random` and `json` modules are Wasm-safe: they use integer math and an
   in-repo parser instead of `math/rand` or `encoding/json`.
-- `time` and `regex` are native/WASI-only behind `!js` build tags, with small
-  browser stubs, because `time` and `regexp` would inflate `web/tiger.wasm`.
+- `time`, `regex`, and `secrets` are native/WASI-only behind `!js` build tags,
+  with small browser stubs, because `time`, `regexp`, and the host entropy source
+  are unavailable or costly in `web/tiger.wasm`.
 - Sort-based helpers must keep using the in-repo `stableSort` rather than the
   standard `sort` package.
 
