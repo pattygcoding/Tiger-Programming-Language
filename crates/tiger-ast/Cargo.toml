@@ -1,0 +1,10 @@
+[package]
+name = "tiger-ast"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tiger-lexer = { workspace = true }
+
+[dev-dependencies]
+tiger-parser = { workspace = true }

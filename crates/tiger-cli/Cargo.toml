@@ -1,0 +1,13 @@
+[package]
+name = "tiger-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tiger"
+path = "src/main.rs"
+
+[dependencies]
+tiger-ast = { workspace = true }
+tiger-parser = { workspace = true }
+tiger-evaluator = { workspace = true }

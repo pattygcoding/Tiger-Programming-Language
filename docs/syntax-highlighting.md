@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Syntax](syntax.md) | [Playground implementation](../web/README.md)
 
-Use `.tg` as the source extension and `tiger` as the editor language ID. The authoritative tokens are in [the lexer](../pkg/lexer/lexer.go); the dependency-free browser implementation is [highlight.mjs](../web/highlight.mjs), and the VS Code TextMate grammar is [tiger.tmLanguage.json](../editors/vscode/syntaxes/tiger.tmLanguage.json).
+Use `.tg` as the source extension and `tiger` as the editor language ID. The authoritative tokens are in [the lexer](../crates/tiger-lexer/src/lib.rs); the dependency-free browser implementation is [highlight.mjs](../web/highlight.mjs), and the VS Code TextMate grammar is [tiger.tmLanguage.json](../editors/vscode/syntaxes/tiger.tmLanguage.json).
 
 ## VS Code Extension
 

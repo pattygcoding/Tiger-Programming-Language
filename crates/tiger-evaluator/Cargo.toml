@@ -1,0 +1,17 @@
+[package]
+name = "tiger-evaluator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tiger-format = { workspace = true }
+tiger-lexer = { workspace = true }
+tiger-ast = { workspace = true }
+tiger-parser = { workspace = true }
+tiger-object = { workspace = true }
+
+# The `regex` module wraps the standard RE2 engine on native and WASI targets.
+# The browser build (wasm32-unknown-unknown) omits it, mirroring the Go
+# `regex_os.go` / `regex_js.go` split so the engine stays out of `tiger.wasm`.
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+regex = "1"

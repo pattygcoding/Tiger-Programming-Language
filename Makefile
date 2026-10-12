@@ -1,31 +1,44 @@
-GO ?= go
+CARGO ?= cargo
 EXE :=
 ifeq ($(OS),Windows_NT)
 EXE := .exe
 endif
 
-.PHONY: build run test benchmarks wasm wasm-check web wasi
+.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi
 
 build:
-	$(GO) build -o bin/tiger$(EXE) ./cmd/tiger
+	$(CARGO) build --release
+	@echo "Built target/release/tiger$(EXE)"
 
 run: build
-	./bin/tiger$(EXE) run examples/demo.tg
+	./target/release/tiger$(EXE) run examples/demo.tg
 
 test:
-	$(GO) test ./...
+	$(CARGO) test
 
 benchmarks:
-	$(GO) test ./benchmarks -count=1 -v
+	$(CARGO) test -p tiger-conformance --test benchmarks -- --nocapture
+
+fmt:
+	$(CARGO) fmt --check
+
+clippy:
+	$(CARGO) clippy --all-targets
 
 wasm:
-	$(GO) run ./cmd/web -build-only
+	$(CARGO) run -p tiger-web -- -build-only
 
 wasm-check:
-	$(GO) test ./pkg/wasmcheck -count=1 -v
+	$(CARGO) build -p tiger-wasm --release --target wasm32-unknown-unknown
+	$(CARGO) test -p tiger-wasm
+
+# Boots the served playground over HTTP and runs a program on it.
+startup:
+	$(CARGO) build -p tiger-web --release
+	node crates/tiger-web/tests/startup.mjs
 
 web:
-	$(GO) run ./cmd/web
+	$(CARGO) run -p tiger-web
 
 wasi:
-	GOOS=wasip1 GOARCH=wasm $(GO) build -trimpath -ldflags="-s -w" -o bin/tiger-wasi.wasm ./cmd/wasi
+	$(CARGO) build -p tiger-wasi --release --target wasm32-wasip1

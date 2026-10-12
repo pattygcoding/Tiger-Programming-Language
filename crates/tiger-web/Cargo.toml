@@ -1,0 +1,10 @@
+[package]
+name = "tiger-web"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tiger-web"
+path = "src/main.rs"
+
+[dependencies]

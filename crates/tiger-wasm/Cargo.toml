@@ -1,0 +1,11 @@
+[package]
+name = "tiger-wasm"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+tiger-evaluator = { workspace = true }
