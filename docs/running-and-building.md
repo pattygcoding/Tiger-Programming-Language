@@ -57,6 +57,9 @@ platform the copy was taken on. It bundles a tree-walking interpreter; it is not
 an optimizing translation of Tiger into native instructions. Runtime errors
 remain runtime errors, even if the build succeeds. Building does not execute the
 Tiger program.
+The output keeps the permissions of the `tiger` binary it was copied from, so on
+POSIX systems it is executable as soon as the build writes it; on Windows the
+`.exe` suffix is what makes it runnable.
 
 
 ## Browser WebAssembly

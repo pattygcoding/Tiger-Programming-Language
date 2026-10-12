@@ -166,6 +166,12 @@ pub fn build_standalone(source: &str, filename: &str, output: &str) -> Result<()
     data.extend_from_slice(MAGIC);
     let temporary = PathBuf::from(format!("{}.building", output));
     std::fs::write(&temporary, &data).map_err(|error| error.to_string())?;
+    // `fs::write` creates the file with the process default mode, which on Unix
+    // lacks the execute bits, and both the rename and `fs::copy` below carry the
+    // temporary file's mode to the output. Copying the running executable's
+    // permissions keeps the build runnable: `./standalone` must work.
+    let permissions = std::fs::metadata(&executable).map_err(|error| error.to_string())?.permissions();
+    std::fs::set_permissions(&temporary, permissions).map_err(|error| error.to_string())?;
     let _ = std::fs::remove_file(output);
     match std::fs::rename(&temporary, output) {
         Ok(()) => Ok(()),
@@ -456,5 +462,26 @@ mod tests {
         assert_eq!(find_payload(&bytes), Some(&payload[..]));
         assert_eq!(find_payload(b"an executable"), None);
         assert_eq!(find_payload(b"tiger-bundle-v1\n"), None);
+    }
+
+    /// `build_standalone` writes the bundle with `fs::write`, which creates a
+    /// file without the execute bits on Unix, so the build copies the running
+    /// executable's permissions onto the output. Without that the result cannot
+    /// be launched, which CI catches as `PermissionDenied` from `spawn`.
+    #[cfg(unix)]
+    #[test]
+    fn built_executables_stay_runnable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = temporary("permissions");
+        let entry = directory.join("program.tg");
+        std::fs::write(&entry, "print(1);").expect("write program");
+        let output = directory.join("standalone");
+        build_standalone("print(1);", &entry.to_string_lossy(), &output.to_string_lossy()).expect("build");
+        let tiger = std::fs::metadata(std::env::current_exe().expect("current executable")).expect("tiger metadata");
+        let built = std::fs::metadata(&output).expect("built metadata");
+        assert_ne!(built.permissions().mode() & 0o111, 0, "the built executable is missing its execute bits");
+        assert_eq!(built.permissions().mode(), tiger.permissions().mode(), "the built executable keeps the tiger permissions");
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }
