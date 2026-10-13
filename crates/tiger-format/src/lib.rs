@@ -7,15 +7,28 @@
 //! behaviour exactly. Every function here is checked against captured Go output
 //! in the unit tests.
 
+use std::fmt::Write;
+
 /// Formats a finite float exactly like Go's `strconv.FormatFloat(x, 'f', -1, 64)`.
 pub fn number(value: f64) -> String {
+    let mut out = String::new();
+    write_number(&mut out, value);
+    out
+}
+
+/// Appends [`number`]'s rendering of `value` to `out`.
+///
+/// A caller that assembles a line — `print`, or a list rendering — writes every
+/// value into one buffer instead of allocating a string per value.
+pub fn write_number(out: &mut String, value: f64) {
     if value.is_nan() {
-        return "NaN".to_string();
+        out.push_str("NaN");
+        return;
     }
     if value.is_infinite() {
-        return if value > 0.0 { "+Inf" } else { "-Inf" }.to_string();
+        out.push_str(if value > 0.0 { "+Inf" } else { "-Inf" });
+        return;
     }
-    let mut out = String::new();
     let mut magnitude = value;
     if magnitude.is_sign_negative() {
         out.push('-');
@@ -23,13 +36,13 @@ pub fn number(value: f64) -> String {
     }
     if magnitude == 0.0 {
         out.push('0');
-        return out;
+        return;
     }
     // Integral values below 2^53 are exactly representable, so print them
     // directly and skip the scientific-notation round trip below.
     if magnitude.fract() == 0.0 && magnitude < 9_007_199_254_740_992.0 {
-        out.push_str(&(magnitude as i64).to_string());
-        return out;
+        write!(out, "{}", magnitude as i64).expect("a string never fails to format");
+        return;
     }
     // Rust's `{:e}` produces the shortest round-tripping mantissa, matching Go's
     // shortest-mode digit selection. Re-expand it into fixed notation.
@@ -55,7 +68,6 @@ pub fn number(value: f64) -> String {
         out.push('.');
         out.push_str(&digits[point as usize..]);
     }
-    out
 }
 
 /// Formats a float exactly like Go's `strconv.FormatFloat(x, 'f', precision, 64)`.
@@ -185,17 +197,22 @@ fn push_escaped_rune(out: &mut String, ch: char) {
 /// Quotes a string exactly like Go's `strconv.Quote`.
 pub fn quote(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
+    write_quote(&mut out, text);
+    out
+}
+
+/// Appends [`quote`]'s rendering of `text` to `out`.
+pub fn write_quote(out: &mut String, text: &str) {
     out.push('"');
     for ch in text.chars() {
         match ch {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             _ if is_print(ch) => out.push(ch),
-            _ => push_escaped_rune(&mut out, ch),
+            _ => push_escaped_rune(out, ch),
         }
     }
     out.push('"');
-    out
 }
 
 /// Quotes a single character exactly like Go's `strconv.QuoteRune`.

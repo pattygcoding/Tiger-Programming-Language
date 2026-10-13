@@ -9,11 +9,14 @@
 //! ```
 //!
 //! `TIGER_TIMING_ITERATIONS` sets how many times each program runs (default 10).
+//! `TIGER_ENGINE=tree` runs `time_source_file`'s program on the tree-walking
+//! interpreter instead of the compiled engine, which is how the compiled engine's
+//! share of a workload is measured without a profiler.
 
 use std::path::PathBuf;
 use std::time::Instant;
 
-use tiger_conformance::{run, Files};
+use tiger_conformance::{run, Engine, Files, RunOptions};
 
 fn benchmark_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = std::fs::read_dir(tiger_conformance::root().join("benchmarks"))
@@ -32,12 +35,21 @@ fn time_source_file() {
     let iterations: u32 = std::env::var("TIGER_BENCH_ITERATIONS").ok().and_then(|value| value.parse().ok()).unwrap_or(30);
     let source = std::fs::read_to_string(&path).expect("read program");
     let name = std::path::Path::new(&path).file_name().expect("file name").to_string_lossy().to_string();
-    let _ = tiger_evaluator::run_with_input(&source, &name, None, None, None, Box::new(std::io::sink()));
+    // `TIGER_ENGINE=tree` runs the same program on the tree-walker instead, which
+    // is how the compiled engine's share of a workload is measured in-process.
+    let mut options = RunOptions { max_steps: 0, ..RunOptions::default() };
+    if std::env::var("TIGER_ENGINE").is_ok_and(|value| value == "tree") {
+        options.engine = Engine::Tree;
+    }
+    let run_once = |source: &str, name: &str| {
+        tiger_evaluator::run_with_options(source, name, None, None, None, Box::new(std::io::sink()), options).expect("run")
+    };
+    let _ = run_once(&source, &name);
     let mut best = f64::INFINITY;
     let mut total = 0.0;
     for _ in 0..iterations {
         let start = Instant::now();
-        tiger_evaluator::run_with_input(&source, &name, None, None, None, Box::new(std::io::sink())).expect("run");
+        run_once(&source, &name);
         let elapsed = start.elapsed().as_secs_f64() * 1000.0;
         best = best.min(elapsed);
         total += elapsed;

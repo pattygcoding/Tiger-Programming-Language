@@ -593,61 +593,114 @@ pub fn format(value: &Value) -> String {
 }
 
 fn format_value(value: &Value, seen: &mut Vec<usize>, nested: bool) -> String {
+    let mut out = String::new();
+    write_value(&mut out, value, seen, nested);
+    out
+}
+
+/// Appends `value` in the form [`format`] returns to `out`.
+///
+/// Every value of a printed line, and every element of a nested collection, is
+/// written into the one buffer, so rendering allocates nothing beyond the
+/// caller's own string.
+pub fn write_format(out: &mut String, value: &Value) {
+    write_value(out, value, &mut Vec::new(), false);
+}
+
+fn write_value(out: &mut String, value: &Value, seen: &mut Vec<usize>, nested: bool) {
     match value {
-        Value::Number(number) => tiger_format::number(*number),
+        Value::Number(number) => tiger_format::write_number(out, *number),
         Value::String(text) => {
             if nested {
-                tiger_format::quote(text)
+                tiger_format::write_quote(out, text);
             } else {
-                text.to_string()
+                out.push_str(text);
             }
         }
-        Value::Bool(flag) => flag.to_string(),
-        Value::Null => "null".to_string(),
+        Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+        Value::Null => out.push_str("null"),
         Value::List(elements) => {
             let pointer = Rc::as_ptr(elements) as usize;
             if seen.contains(&pointer) {
-                return "[...]".to_string();
+                out.push_str("[...]");
+                return;
             }
             seen.push(pointer);
-            let parts: Vec<String> = {
+            out.push('[');
+            {
                 let borrowed = elements.borrow();
-                borrowed.iter().map(|element| format_value(element, seen, true)).collect()
-            };
+                for (index, element) in borrowed.iter().enumerate() {
+                    if index > 0 {
+                        out.push_str(", ");
+                    }
+                    write_value(out, element, seen, true);
+                }
+            }
+            out.push(']');
             seen.pop();
-            format!("[{}]", parts.join(", "))
         }
         Value::Dict(dict) => {
             let pointer = Rc::as_ptr(dict) as usize;
             if seen.contains(&pointer) {
-                return "{...}".to_string();
+                out.push_str("{...}");
+                return;
             }
             seen.push(pointer);
-            let parts: Vec<String> = {
+            out.push('{');
+            {
                 let borrowed = dict.borrow();
-                borrowed
-                    .entries
-                    .iter()
-                    .map(|(key, value)| format!("{}: {}", format_value(key, seen, true), format_value(value, seen, true)))
-                    .collect()
-            };
+                for (index, (key, entry)) in borrowed.entries.iter().enumerate() {
+                    if index > 0 {
+                        out.push_str(", ");
+                    }
+                    write_value(out, key, seen, true);
+                    out.push_str(": ");
+                    write_value(out, entry, seen, true);
+                }
+            }
+            out.push('}');
             seen.pop();
-            format!("{{{}}}", parts.join(", "))
         }
         Value::Function(function) => {
             let name: &str = if function.declaration.name.is_empty() { "anonymous" } else { &function.declaration.name };
-            format!("<function {}>", name)
+            out.push_str("<function ");
+            out.push_str(name);
+            out.push('>');
         }
-        Value::Module(module) => format!("<module {}>", module.name),
-        Value::File(file) => format!("<file {}>", tiger_format::quote(&file.borrow().name)),
-        Value::Class(class) => format!("<class {}>", class.name),
-        Value::Instance(instance) => format!("<{} instance>", instance.class.name),
+        Value::Module(module) => {
+            out.push_str("<module ");
+            out.push_str(&module.name);
+            out.push('>');
+        }
+        Value::File(file) => {
+            out.push_str("<file ");
+            tiger_format::write_quote(out, &file.borrow().name);
+            out.push('>');
+        }
+        Value::Class(class) => {
+            out.push_str("<class ");
+            out.push_str(&class.name);
+            out.push('>');
+        }
+        Value::Instance(instance) => {
+            out.push('<');
+            out.push_str(&instance.class.name);
+            out.push_str(" instance>");
+        }
         Value::BoundMethod(bound) => {
-            format!("<bound method {}.{}>", bound.method.owner.name, bound.method.function.declaration.name)
+            out.push_str("<bound method ");
+            out.push_str(&bound.method.owner.name);
+            out.push('.');
+            out.push_str(&bound.method.function.declaration.name);
+            out.push('>');
         }
-        Value::Super(_) => "<super>".to_string(),
-        Value::Builtin(builtin) => format!("<builtin {}>", builtin.name),
-        Value::Error(error) => error.text(),
+        Value::Super(_) => out.push_str("<super>"),
+        Value::Builtin(builtin) => {
+            out.push_str("<builtin ");
+            out.push_str(&builtin.name);
+            out.push('>');
+        }
+        Value::Error(error) => out.push_str(&error.text()),
     }
 }
 

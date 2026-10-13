@@ -54,6 +54,9 @@ pub enum Instr {
     DefineName { name: u32, constant: bool },
     /// Pop a value and declare it at `slot` in the current scope.
     DefineLocal { name: u32, slot: u32, constant: bool },
+    /// Pop two values and push whether they are equal, with the same rule the
+    /// interpreter's `switch` uses, which never raises.
+    Equal,
     /// Discard the top of the stack.
     Pop,
     /// Duplicate the top of the stack.
@@ -120,6 +123,8 @@ pub enum Instr {
     Import { path: u32, name: u32 },
     /// Runs `chunk.tries[i]`: the body, then its catch clauses, then its `finally`.
     Try(u32),
+    /// Pop a collection and push `chunk.slices[i]` applied to it.
+    Slice(u32),
 }
 
 /// A compiled function prototype: a declaration and its compiled body.
@@ -134,6 +139,14 @@ pub struct ClassProto {
     pub declaration: Rc<tiger_ast::ClassDecl>,
     pub constructor: Option<Rc<Chunk>>,
     pub methods: Vec<Rc<Chunk>>,
+}
+
+/// The bounds of one slice expression, which the engine evaluates against the
+/// collection's length exactly as the interpreter does.
+pub struct SliceProto {
+    pub start: Option<Box<tiger_ast::Expr>>,
+    pub stop: Option<Box<tiger_ast::Expr>>,
+    pub step: Option<Box<tiger_ast::Expr>>,
 }
 
 /// One catch clause of a `try`: the name the caught value binds to, an optional
@@ -163,6 +176,7 @@ pub struct Chunk {
     pub functions: Vec<Rc<FunctionProto>>,
     pub classes: Vec<Rc<ClassProto>>,
     pub tries: Vec<Rc<TryProto>>,
+    pub slices: Vec<Rc<SliceProto>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
     /// The source name every position in this chunk belongs to.
