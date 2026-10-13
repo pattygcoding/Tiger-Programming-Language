@@ -45,16 +45,35 @@ pub enum Instr {
     /// indexes straight into the scope instead of scanning it. `name` is kept for
     /// diagnostics and as the fallback when the slot is not there.
     LoadLocal { name: u32, hops: u32, slot: u32 },
+    /// Push the value in flat slot `slot` of the current frame.
+    ///
+    /// A flat slot belongs to the frame alone — no nested function can reach it —
+    /// so it is a plain index into the frame's locals with no borrow and no scope
+    /// to find first.
+    LoadFlat(u32),
     /// Push the `super` binding, with its dedicated error when unavailable.
-    LoadSuper,
+    ///
+    /// A method whose frame binds `super` flat carries its slot here; the engine
+    /// then reads the frame's locals directly, exactly as [`Instr::LoadFlat`] does.
+    /// Otherwise the binding is looked up by name, which is where a captured or
+    /// absent `super` has to be found.
+    LoadSuper(Option<u32>),
     /// Pop a value and reassign the existing variable `chunk.names[i]`.
     StoreName(u32),
     /// Pop a value into slot `slot`, `hops` scopes up the chain.
     StoreLocal { name: u32, hops: u32, slot: u32 },
+    /// Pop a value into flat slot `slot`. `constant` is the binding's, which the
+    /// compiler knows, so a write to a flat `const` is refused without a flag to
+    /// read at run time.
+    StoreFlat { name: u32, slot: u32, constant: bool },
     /// Pop a value and declare it as `chunk.names[i]` in the current scope.
     DefineName { name: u32, constant: bool },
     /// Pop a value and declare it at `slot` in the current scope.
     DefineLocal { name: u32, slot: u32, constant: bool },
+    /// Pop a value and declare it in flat slot `slot`. `duplicate` is set when the
+    /// compiler saw the name already declared in the same scope, which is an error
+    /// raised when the declaration runs, exactly as the interpreter raises it.
+    DefineFlat { name: u32, slot: u32, duplicate: bool },
     /// Pop two values and push whether they are equal, with the same rule the
     /// interpreter's `switch` uses, which never raises.
     Equal,
@@ -65,6 +84,36 @@ pub enum Instr {
     /// Pop two values and push `left <op> right`. `op` selects an inlined fast
     /// path; `chunk.names[i]` is the operator for the fallback and diagnostics.
     Binary { op: Op, name: u32 },
+    /// Push flat slot `a`, push flat slot `b`, then apply the tagged operator.
+    ///
+    /// This is the fused form of `LoadFlat(a)`, `LoadFlat(b)`, and
+    /// `Binary { op, name }` in that order. The compiler rewrites the first of the
+    /// three in place and the engine steps over the other two, so a pair of loads
+    /// feeding one operator costs a single dispatch and touches the operand stack
+    /// not at all.
+    FlatBinaryFlat { a: u32, b: u32, op: Op, name: u32 },
+    /// Push flat slot `a`, take constant `b`, then apply the tagged operator.
+    ///
+    /// The fused form of `LoadFlat(a)`, `Constant(b)`, and `Binary { op, name }`.
+    FlatBinaryConstant { a: u32, b: u32, op: Op, name: u32 },
+    /// Apply the tagged operator to constant `b` and the value below it, pushing the
+    /// result.
+    ///
+    /// The fused form of `Constant(b)` and `Binary { op, name }`, where the left
+    /// operand is whatever the preceding instruction left on the stack.
+    BinaryConstant { b: u32, op: Op, name: u32 },
+    /// Push the property `name` of flat slot `value`.
+    ///
+    /// The fused form of `LoadFlat(value)` and `GetProperty(name)`. `cache` is the
+    /// inline-cache slot this access uses, which is the one the `GetProperty` it
+    /// replaced would have used.
+    FlatProperty { value: u32, name: u32, cache: u32 },
+    /// Push the value of the free name `name`, leaving the `Call` that follows to run
+    /// as it is.
+    ///
+    /// The fused form of `LoadName(name)` and the call that consumes it, so the two
+    /// share one dispatch. The instruction after this one is that call.
+    CallName { name: u32 },
     /// Pop one value and push `<op> value`; `chunk.names[i]` is the operator.
     Unary(u32),
     /// Unconditional jump to the absolute instruction index `target`.
@@ -169,6 +218,47 @@ pub struct TryProto {
     pub finally: Option<Rc<Chunk>>,
 }
 
+/// Where a compiled function's call bindings go.
+///
+/// `None` means the binding stays in the shared environment, which is where a
+/// nested function will look for it; `Some(slot)` means the frame's own flat
+/// locals, which the engine writes directly without touching a scope.
+#[derive(Default)]
+pub struct CallLayout {
+    /// A method's `this` and `super`, which the engine binds before any parameter.
+    pub this: Option<u32>,
+    pub super_: Option<u32>,
+    /// One entry per parameter, in declaration order.
+    pub parameters: Vec<Option<u32>>,
+    /// The `*rest` list and the `**options` dictionary, when the function has them.
+    pub variadic: Option<u32>,
+    pub keyword: Option<u32>,
+    /// Whether every parameter went to a flat slot, which is the case a call
+    /// binds without looking at the layout again.
+    pub flat_parameters: bool,
+    /// Whether the body — or a nested function inside it — can reach `super`.
+    ///
+    /// Binding `super` builds a fresh object, so a method that never mentions it
+    /// skips that allocation. A name that reaches above the frame walks the
+    /// environment chain, and the compiler knows whether anything in the body does.
+    pub super_used: bool,
+}
+
+/// What an inline cache remembered for one property instruction.
+#[derive(Clone)]
+pub enum CachedProperty {
+    /// A value that cannot change for one receiver: a module binding, a class
+    /// method, or a builtin. The receiver is the guard.
+    Value { receiver: Value, value: Value },
+    /// A field of an instance of one class.
+    ///
+    /// The class is the guard rather than the receiver, because a field's position
+    /// is fixed once its class is defined. A store into a freshly built instance is
+    /// then a plain index as well, which is what a constructor does, and the value
+    /// is still read fresh on every access.
+    Field { class: Rc<crate::Class>, position: u32 },
+}
+
 /// A compiled script or function body.
 pub struct Chunk {
     pub code: Vec<Instr>,
@@ -178,13 +268,23 @@ pub struct Chunk {
     pub classes: Vec<Rc<ClassProto>>,
     pub tries: Vec<Rc<TryProto>>,
     pub slices: Vec<Rc<SliceProto>>,
+    /// How many flat locals this frame needs: the number of its declarations that
+    /// no nested function can reach.
+    pub flat_count: usize,
+    /// Where a call's arguments bind, which is what lets the engine write a
+    /// parameter straight into a flat slot.
+    pub call_layout: CallLayout,
+    /// Whether running this chunk needs an environment of its own. When every name
+    /// it binds is flat, it does not, and the engine runs the body directly in the
+    /// environment the function captured.
+    pub frame_needed: bool,
     /// One monomorphic inline cache slot per instruction: the receiver a property
     /// access last resolved, and the value it resolved to.
     ///
     /// The receiver is held rather than only its address, so the slot cannot be
     /// mistaken for a different object that later reuses that address. The engine
     /// fills and reads it; the compiler only makes room.
-    pub property_cache: RefCell<Vec<Option<(Value, Value)>>>,
+    pub property_cache: RefCell<Vec<Option<CachedProperty>>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
     /// The source name every position in this chunk belongs to.

@@ -486,12 +486,33 @@ pub struct Field {
     pub declaration: FieldDecl,
     pub owner: Rc<Class>,
     pub env: Env,
+    /// The field's name, interned once when the class is defined. An instance
+    /// stores this handle rather than a fresh string, so building one allocates
+    /// nothing for its field names.
+    pub name: Rc<str>,
 }
 
 /// An instance with its own field storage.
 pub struct Instance {
     pub class: Rc<Class>,
-    pub fields: RefCell<HashMap<String, Value>>,
+    /// The declared fields in declaration order, each with the name its class
+    /// interned.
+    ///
+    /// A class declares a handful of fields, so an ordered vector beats a map: a
+    /// lookup is a short scan of short string comparisons instead of a hash of the
+    /// name, and it never allocates.
+    pub fields: RefCell<Vec<(Rc<str>, Value)>>,
+}
+
+impl Instance {
+    /// Sets the field named `name` to `value`.
+    pub fn set_field(&self, name: &Rc<str>, value: Value) {
+        let mut fields = self.fields.borrow_mut();
+        match fields.iter_mut().find(|(field, _)| field == name) {
+            Some(slot) => slot.1 = value,
+            None => fields.push((name.clone(), value)),
+        }
+    }
 }
 
 /// A method bound to a receiver.

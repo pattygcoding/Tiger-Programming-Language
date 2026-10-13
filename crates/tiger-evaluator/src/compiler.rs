@@ -4,11 +4,11 @@
 //! case the interpreter runs it instead. That fallback keeps the engine always
 //! correct: a program it cannot lower is simply not compiled.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use tiger_ast::{Base, Block, Expr, FunctionDecl, LiteralValue, Stmt};
-use tiger_object::bytecode::{CatchProto, Chunk, ClassProto, FunctionProto, Instr, Op, SliceProto, TryProto};
+use tiger_ast::{Base, Block, ClassDecl, Expr, FunctionDecl, LiteralValue, Stmt};
+use tiger_object::bytecode::{CallLayout, CatchProto, Chunk, ClassProto, FunctionProto, Instr, Op, SliceProto, TryProto};
 use tiger_object::Value;
 
 use crate::declares_in;
@@ -63,7 +63,7 @@ fn chunk_of(
     escape_return: bool,
 ) -> Result<Rc<Chunk>, Unsupported> {
     let base = statements.first().map(Stmt::base).cloned().unwrap_or(Base { line: 1, column: 1, source: source.clone() });
-    let mut compiler = Compiler::new(source, prefix, declaration, escape_return);
+    let mut compiler = Compiler::new(source, prefix, declaration, escape_return, captured_by_nesting(statements));
     compiler.block(statements)?;
     compiler.emit(Instr::Null, &base);
     compiler.emit(Instr::Return, &base);
@@ -97,13 +97,29 @@ struct ScopeFrame {
     /// name can be addressed by slot. A `switch` scope is not: which of its cases
     /// ran depends on the subject, so its names are addressed by name instead.
     stable: bool,
+    /// The names this scope keeps in the shared environment, in binding order, so
+    /// each one's position is its slot.
     names: Vec<Rc<str>>,
+    /// The names this scope keeps in the frame's own flat locals, with the slot
+    /// each was given and whether its declaration was constant. A name lands here
+    /// only when nothing outside the frame can reach it.
+    flat: Vec<(Rc<str>, u32, bool)>,
 }
 
 impl Default for ScopeFrame {
     fn default() -> ScopeFrame {
-        ScopeFrame { stable: true, names: Vec::new() }
+        ScopeFrame { stable: true, names: Vec::new(), flat: Vec::new() }
     }
+}
+
+/// Where a name resolved to.
+#[derive(Clone, Copy)]
+enum Local {
+    /// A slot in the shared environment, `hops` scopes up the chain.
+    Env { hops: u32, slot: u32 },
+    /// A slot in the current frame's own flat locals. Carrying `constant` here
+    /// lets a store refuse a write to a flat `const` without reading a flag.
+    Flat { slot: u32, constant: bool },
 }
 
 struct Compiler {
@@ -125,24 +141,68 @@ struct Compiler {
     tries: Vec<Rc<TryProto>>,
     slices: Vec<Rc<SliceProto>>,
     escape_return: bool,
+    /// The names a nested function, class, `try`, or slice bound mentions, which
+    /// therefore have to stay in the shared environment.
+    captured: HashSet<String>,
+    /// The next flat slot this frame will hand out.
+    flat_slots: u32,
+    /// Where the engine will bind a call's arguments, filled in as the frame scope
+    /// is seeded with them.
+    call_layout: CallLayout,
+    /// Whether this chunk is a method body.
+    ///
+    /// A method's call sets the class context on its own scope, which member
+    /// visibility is checked against, so a method always needs a frame to put it
+    /// in — even when everything it binds is flat.
+    is_method: bool,
+    /// Whether the body compiled here named `super`.
+    super_used: bool,
 }
 
 impl Compiler {
-    fn new(source: Rc<str>, prefix: &[&str], declaration: Option<&FunctionDecl>, escape_return: bool) -> Compiler {
+    fn new(
+        source: Rc<str>,
+        prefix: &[&str],
+        declaration: Option<&FunctionDecl>,
+        escape_return: bool,
+        captured: HashSet<String>,
+    ) -> Compiler {
         // The engine binds a method's `this` and `super`, a catch clause's caught
         // value, then the parameters in declaration order, the variadic list, and
         // the `**kwargs` dictionary, all before the body runs. Seeding the frame
         // scope with exactly those names gives every declaration in the body the
         // slot the engine will give it, which is what a slot-based access relies on.
+        let is_method = prefix.first() == Some(&"this");
         let mut frame = ScopeFrame::default();
-        frame.names.extend(prefix.iter().map(|name| Rc::from(*name)));
+        let mut flat_slots = 0u32;
+        let mut call_layout = CallLayout::default();
+        for (index, name) in prefix.iter().enumerate() {
+            // A prefix outside a method is a catch clause's caught name, which stays
+            // in the environment however little the body does with it: the clause's
+            // condition is an un-compiled expression that the tree-walking engine
+            // resolves by name, so the name has to be there for both engines.
+            let slot = if declaration.is_none() {
+                frame.names.push(Rc::from(*name));
+                None
+            } else {
+                seed_name(&mut frame, &mut flat_slots, name, true, &captured)
+            };
+            if index == 0 {
+                call_layout.this = slot;
+            } else {
+                call_layout.super_ = slot;
+            }
+        }
         if let Some(declaration) = declaration {
-            frame.names.extend(declaration.parameters.iter().cloned());
+            for parameter in &declaration.parameters {
+                let slot = seed_name(&mut frame, &mut flat_slots, parameter, false, &captured);
+                call_layout.parameters.push(slot);
+            }
             if !declaration.variadic.is_empty() {
-                frame.names.push(Rc::from(declaration.variadic.as_str()));
+                call_layout.variadic = seed_name(&mut frame, &mut flat_slots, &declaration.variadic, false, &captured);
             }
             if !declaration.keyword.is_empty() {
-                frame.names.push(Rc::from(declaration.keyword.as_str()));
+                call_layout.keyword = seed_name(&mut frame, &mut flat_slots, &declaration.keyword, false, &captured);
             }
         }
         Compiler {
@@ -161,6 +221,11 @@ impl Compiler {
             tries: Vec::new(),
             slices: Vec::new(),
             escape_return,
+            captured,
+            flat_slots,
+            call_layout,
+            is_method,
+            super_used: false,
         }
     }
 
@@ -176,19 +241,44 @@ impl Compiler {
         self.scope_depth -= 1;
     }
 
-    /// Resolves a name to `(hops, slot)` within this chunk, or `None` when the
-    /// name is not a local of this chunk and must be looked up the chain instead.
-    fn resolve(&self, name: &str) -> Option<(u32, u32)> {
+    /// Resolves a name within this chunk, or `None` when it is not a local of this
+    /// chunk and must be looked up the chain instead.
+    fn resolve(&self, name: &str) -> Option<Local> {
         let depth = self.scopes.len();
         for (index, scope) in self.scopes.iter().enumerate().rev() {
             if !scope.stable {
                 continue;
             }
+            if let Some((_, slot, constant)) = scope.flat.iter().find(|(declared, _, _)| &**declared == name) {
+                return Some(Local::Flat { slot: *slot, constant: *constant });
+            }
             if let Some(slot) = scope.names.iter().position(|declared| &**declared == name) {
-                return Some(((depth - 1 - index) as u32, slot as u32));
+                return Some(Local::Env { hops: (depth - 1 - index) as u32, slot: slot as u32 });
             }
         }
         None
+    }
+
+    /// Emits the load for a name: its flat slot, a slot in a scope up the chain, or
+    /// a lookup by name when the compiler cannot place it.
+    fn emit_load(&mut self, name: &str, base: &Base) {
+        let index = self.name(name);
+        match self.resolve(name) {
+            Some(Local::Flat { slot, .. }) => self.emit(Instr::LoadFlat(slot), base),
+            Some(Local::Env { hops, slot }) => self.emit(Instr::LoadLocal { name: index, hops, slot }, base),
+            None => self.emit(Instr::LoadName(index), base),
+        }
+    }
+
+    /// Emits the store for a name, with the same resolution [`Compiler::emit_load`]
+    /// uses.
+    fn emit_store(&mut self, name: &str, base: &Base) {
+        let index = self.name(name);
+        match self.resolve(name) {
+            Some(Local::Flat { slot, constant }) => self.emit(Instr::StoreFlat { name: index, slot, constant }, base),
+            Some(Local::Env { hops, slot }) => self.emit(Instr::StoreLocal { name: index, hops, slot }, base),
+            None => self.emit(Instr::StoreName(index), base),
+        }
     }
 
     /// Records a declaration in the current scope, for a construct whose own
@@ -202,21 +292,38 @@ impl Compiler {
     }
 
     /// Records a declaration in the current scope and emits the instruction that
-    /// binds it: a slot-based one where the scope's layout is fixed, or a
-    /// name-based one where it is not.
+    /// binds it.
+    ///
+    /// A name that nothing outside the frame can reach goes into the frame's own
+    /// flat slots, where reading and writing it needs no borrow and no scope to
+    /// find first. Anything a nested function, class, `try`, or slice bound mentions
+    /// stays in the shared environment instead, since that is where it will be
+    /// looked for by name. A `switch` scope is addressed by name throughout, because
+    /// which of its cases ran decides what it holds.
     fn define(&mut self, name: &str, constant: bool, base: &Base) {
         let index = self.name(name);
         if !self.scopes.last().expect("a scope is always open").stable {
             self.emit(Instr::DefineName { name: index, constant }, base);
             return;
         }
-        let slot = {
-            let scope = self.scopes.last_mut().expect("a scope is always open");
-            let slot = scope.names.len() as u32;
-            scope.names.push(Rc::from(name));
-            slot
+        let duplicate = {
+            let scope = self.scopes.last().expect("a scope is always open");
+            scope.names.iter().any(|declared| &**declared == name) || scope.flat.iter().any(|(declared, _, _)| &**declared == name)
         };
-        self.emit(Instr::DefineLocal { name: index, slot, constant }, base);
+        if self.captured.contains(name) {
+            let slot = {
+                let scope = self.scopes.last_mut().expect("a scope is always open");
+                let slot = scope.names.len() as u32;
+                scope.names.push(Rc::from(name));
+                slot
+            };
+            self.emit(Instr::DefineLocal { name: index, slot, constant }, base);
+            return;
+        }
+        let slot = self.flat_slots;
+        self.flat_slots += 1;
+        self.scopes.last_mut().expect("a scope is always open").flat.push((Rc::from(name), slot, constant));
+        self.emit(Instr::DefineFlat { name: index, slot, duplicate }, base);
     }
 
     fn emit(&mut self, instr: Instr, base: &Base) {
@@ -255,8 +362,75 @@ impl Compiler {
         index
     }
 
-    fn finish(self) -> Rc<Chunk> {
+    /// Fuses a pair of flat loads — or a flat load and a constant, or just a
+    /// constant — with the operator that consumes them, so the engine runs one
+    /// instruction where it would otherwise run two or three.
+    ///
+    /// A group keeps its slots: the fused instruction replaces the first and the
+    /// engine steps over the rest, which stay where they were. Nothing moves, so
+    /// every jump target still points at what it did, and the only check needed is
+    /// that nothing jumps into the middle of a group.
+    fn fuse(&mut self) {
+        if self.code.len() < 2 {
+            return;
+        }
+        let mut targets = vec![false; self.code.len()];
+        for instruction in &self.code {
+            if let Some(target) = jump_target(instruction) {
+                if let Some(slot) = targets.get_mut(target as usize) {
+                    *slot = true;
+                }
+            }
+        }
+        let mut index = 0;
+        while index < self.code.len() {
+            let room = self.code.len() - index;
+            if room >= 3 && !targets[index + 1] && !targets[index + 2] {
+                let fused = match (&self.code[index], &self.code[index + 1], &self.code[index + 2]) {
+                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name }) => {
+                        Some(Instr::FlatBinaryFlat { a: *a, b: *b, op: *op, name: *name })
+                    }
+                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name }) => {
+                        Some(Instr::FlatBinaryConstant { a: *a, b: *b, op: *op, name: *name })
+                    }
+                    _ => None,
+                };
+                if let Some(fused) = fused {
+                    self.code[index] = fused;
+                    index += 3;
+                    continue;
+                }
+            }
+            if room >= 2 && !targets[index + 1] {
+                let fused = match (&self.code[index], &self.code[index + 1]) {
+                    (Instr::Constant(b), Instr::Binary { op, name }) => Some(Instr::BinaryConstant { b: *b, op: *op, name: *name }),
+                    (Instr::LoadFlat(a), Instr::GetProperty(name)) => {
+                        Some(Instr::FlatProperty { value: *a, name: *name, cache: (index + 1) as u32 })
+                    }
+                    (Instr::LoadName(name), Instr::Call { .. }) => Some(Instr::CallName { name: *name }),
+                    _ => None,
+                };
+                if let Some(fused) = fused {
+                    self.code[index] = fused;
+                    index += 2;
+                    continue;
+                }
+            }
+            index += 1;
+        }
+    }
+
+    fn finish(mut self) -> Rc<Chunk> {
+        self.fuse();
         let slots = self.code.len();
+        // A method that never names `super` — neither itself nor through a nested
+        // function, which the capture set already accounts for — does not get one
+        // bound, because building the binding allocates.
+        let call_layout = CallLayout {
+            flat_parameters: self.call_layout.parameters.iter().all(|slot| slot.is_some()),
+            super_used: self.super_used || self.captured.contains("super"),
+            ..self.call_layout
+        };
         Rc::new(Chunk {
             property_cache: std::cell::RefCell::new(vec![None; slots]),
             code: self.code,
@@ -266,6 +440,9 @@ impl Compiler {
             classes: self.classes,
             tries: self.tries,
             slices: self.slices,
+            flat_count: self.flat_slots as usize,
+            call_layout,
+            frame_needed: !self.scopes[0].names.is_empty() || self.is_method,
             positions: self.positions,
             source: self.source,
         })
@@ -283,15 +460,17 @@ impl Compiler {
                 let index = self.constant(value);
                 self.emit(Instr::Constant(index), base);
             }
-            Expr::Identifier { base, name } => {
-                let index = self.name(name);
-                match self.resolve(name) {
-                    Some((hops, slot)) => self.emit(Instr::LoadLocal { name: index, hops, slot }, base),
-                    None => self.emit(Instr::LoadName(index), base),
-                }
-            }
+            Expr::Identifier { base, name } => self.emit_load(name, base),
             Expr::Super { base } => {
-                self.emit(Instr::LoadSuper, base);
+                self.super_used = true;
+                // A method whose frame binds `super` flat reads it from the frame's
+                // own locals; every other `super` — a captured one, or one outside a
+                // method — is looked up by name at run time.
+                let slot = match self.resolve("super") {
+                    Some(Local::Flat { slot, .. }) => Some(slot),
+                    _ => None,
+                };
+                self.emit(Instr::LoadSuper(slot), base);
             }
             Expr::Binary { base, left, operator, right } => {
                 if operator == "and" {
@@ -400,9 +579,13 @@ impl Compiler {
                 let Expr::Identifier { name, .. } = &**target else { return Err(Unsupported) };
                 let index = self.name(name);
                 let decrement = operator == "--";
+                // An update target is never flat — the analysis keeps it in the
+                // environment — so only the environment slot case applies here.
                 match self.resolve(name) {
-                    Some((hops, slot)) => self.emit(Instr::UpdateLocal { name: index, hops, slot, decrement, prefix: *prefix }, base),
-                    None => self.emit(Instr::UpdateName { name: index, decrement, prefix: *prefix }, base),
+                    Some(Local::Env { hops, slot }) => {
+                        self.emit(Instr::UpdateLocal { name: index, hops, slot, decrement, prefix: *prefix }, base)
+                    }
+                    _ => self.emit(Instr::UpdateName { name: index, decrement, prefix: *prefix }, base),
                 }
             }
             Expr::FormattedString { base, parts } => {
@@ -692,7 +875,7 @@ impl Compiler {
                 // by name, and a name no case defines still reads through to the
                 // enclosing scope.
                 self.emit(Instr::PushScope, base);
-                self.scopes.push(ScopeFrame { stable: false, names: Vec::new() });
+                self.scopes.push(ScopeFrame { stable: false, names: Vec::new(), flat: Vec::new() });
                 self.scope_depth += 1;
                 self.expression(value)?;
                 // A ladder of equality tests. The subject stays on the stack and
@@ -827,30 +1010,19 @@ impl Compiler {
         }
         if operator != "=" {
             let Expr::Identifier { name, .. } = target else { return Err(Unsupported) };
-            let index = self.name(name);
-            match self.resolve(name) {
-                Some((hops, slot)) => self.emit(Instr::LoadLocal { name: index, hops, slot }, base),
-                None => self.emit(Instr::LoadName(index), base),
-            }
+            self.emit_load(name, base);
             self.expression(value)?;
             let trimmed = operator.trim_end_matches('=');
             let index_of_op = self.name(trimmed);
             let op = operator_code(trimmed);
             self.emit(Instr::Binary { op, name: index_of_op }, base);
-            match self.resolve(name) {
-                Some((hops, slot)) => self.emit(Instr::StoreLocal { name: index, hops, slot }, base),
-                None => self.emit(Instr::StoreName(index), base),
-            }
+            self.emit_store(name, base);
             return Ok(());
         }
         match target {
             Expr::Identifier { name, .. } => {
                 self.expression(value)?;
-                let index = self.name(name);
-                match self.resolve(name) {
-                    Some((hops, slot)) => self.emit(Instr::StoreLocal { name: index, hops, slot }, base),
-                    None => self.emit(Instr::StoreName(index), base),
-                }
+                self.emit_store(name, base);
             }
             // A property or index target reports its errors at the target's own
             // position (the member name, or the `[`), as the interpreter does,
@@ -884,5 +1056,231 @@ impl Compiler {
         let index = self.classes.len() as u32;
         self.classes.push(Rc::new(ClassProto { declaration: declaration.clone(), constructor, methods }));
         Ok(index)
+    }
+}
+
+/// The absolute instruction index an instruction jumps to, when it jumps.
+///
+/// Every instruction the fusion pass consults for a branch target goes through
+/// here, so a variant that carries one has to be listed or a group could be fused
+/// across it.
+fn jump_target(instruction: &Instr) -> Option<u32> {
+    match instruction {
+        Instr::Jump(target)
+        | Instr::JumpIfFalse(target)
+        | Instr::JumpIfFalseOrPop(target)
+        | Instr::JumpIfTrueOrPop(target)
+        | Instr::IterNext(target) => Some(*target),
+        _ => None,
+    }
+}
+
+/// Seeds one name the engine binds before a body runs, returning its flat slot when
+/// it gets one: a name no nested function can reach goes into the frame's own
+/// locals, and anything else stays in the shared environment.
+fn seed_name(frame: &mut ScopeFrame, flat_slots: &mut u32, name: &str, constant: bool, captured: &HashSet<String>) -> Option<u32> {
+    if captured.contains(name) {
+        frame.names.push(Rc::from(name));
+        return None;
+    }
+    let slot = *flat_slots;
+    *flat_slots += 1;
+    frame.flat.push((Rc::from(name), slot, constant));
+    Some(slot)
+}
+
+/// The names one chunk declares that something outside its frame may read.
+///
+/// A local can live in the frame's own flat slot only when nothing outside the
+/// frame will ever ask for it by name. That is true unless one of these reaches it,
+/// and every one of them evaluates somewhere the frame is not:
+///
+/// * a nested function body, and its default argument expressions, which run in the
+///   environment the function captured;
+/// * a nested class's field initializers, constructor, and methods;
+/// * a `try`, `catch`, or `finally` block, and a catch condition, which compile into
+///   their own chunks and so reach outwards by name;
+/// * a slice bound, which the engine evaluates as an expression against the scope.
+///
+/// The walk is deliberately generous: it gathers every identifier it meets in those
+/// places, so a name is only ever treated as flat when nothing mentions it there.
+fn captured_by_nesting(statements: &[Stmt]) -> HashSet<String> {
+    let mut found = HashSet::new();
+    scan_block(statements, false, &mut found);
+    found
+}
+
+fn scan_block(statements: &[Stmt], inside: bool, out: &mut HashSet<String>) {
+    for statement in statements {
+        scan_stmt(statement, inside, out);
+    }
+}
+
+fn scan_stmt(statement: &Stmt, inside: bool, out: &mut HashSet<String>) {
+    match statement {
+        Stmt::Expression { value, .. } => scan_expr(value, inside, out),
+        Stmt::Assign { target, value, .. } => {
+            scan_expr(target, inside, out);
+            scan_expr(value, inside, out);
+        }
+        Stmt::Throw { value, .. } => scan_expr(value, inside, out),
+        Stmt::Return { value, .. } => {
+            if let Some(value) = value {
+                scan_expr(value, inside, out);
+            }
+        }
+        Stmt::Destructure { value, .. } => scan_expr(value, inside, out),
+        Stmt::Import { .. } | Stmt::Control { .. } => {}
+        Stmt::Try { body, catches, finally, .. } => {
+            scan_block(body, true, out);
+            for clause in catches {
+                if let Some(condition) = &clause.condition {
+                    scan_expr(condition, true, out);
+                }
+                scan_block(&clause.body, true, out);
+            }
+            scan_block(finally, true, out);
+        }
+        Stmt::Function(declaration) => scan_function(declaration, out),
+        Stmt::Class(declaration) => scan_class(declaration, out),
+        Stmt::If { branches, else_block, .. } => {
+            for branch in branches {
+                scan_expr(&branch.condition, inside, out);
+                scan_block(&branch.body, inside, out);
+            }
+            scan_block(else_block, inside, out);
+        }
+        Stmt::While { condition, body, else_block, .. } => {
+            scan_expr(condition, inside, out);
+            scan_block(body, inside, out);
+            scan_block(else_block, inside, out);
+        }
+        Stmt::For { iterable, body, else_block, .. } => {
+            scan_expr(iterable, inside, out);
+            scan_block(body, inside, out);
+            scan_block(else_block, inside, out);
+        }
+        Stmt::CFor { initializer, condition, update, body, else_block, .. } => {
+            if let Some(initializer) = initializer {
+                scan_stmt(initializer, inside, out);
+            }
+            if let Some(condition) = condition {
+                scan_expr(condition, inside, out);
+            }
+            if let Some(update) = update {
+                scan_stmt(update, inside, out);
+            }
+            scan_block(body, inside, out);
+            scan_block(else_block, inside, out);
+        }
+        Stmt::DoWhile { condition, body, .. } => {
+            scan_block(body, inside, out);
+            scan_expr(condition, inside, out);
+        }
+        Stmt::Switch { value, cases, .. } => {
+            scan_expr(value, inside, out);
+            for case in cases {
+                if let Some(case_value) = &case.value {
+                    scan_expr(case_value, inside, out);
+                }
+                scan_block(&case.body, inside, out);
+            }
+        }
+    }
+}
+
+fn scan_function(declaration: &FunctionDecl, out: &mut HashSet<String>) {
+    for default in declaration.defaults.iter().flatten() {
+        scan_expr(default, true, out);
+    }
+    scan_block(&declaration.body, true, out);
+}
+
+fn scan_class(declaration: &ClassDecl, out: &mut HashSet<String>) {
+    // The parent is found by name at run time, so it has to stay in the
+    // environment even though nothing in the class body mentions it.
+    if let Some(parent) = &declaration.parent_name {
+        out.insert(parent.clone());
+    }
+    for field in &declaration.fields {
+        if let Some(value) = &field.value {
+            scan_expr(value, true, out);
+        }
+    }
+    if let Some(constructor) = &declaration.constructor {
+        scan_function(constructor, out);
+    }
+    for method in &declaration.methods {
+        scan_function(method, out);
+    }
+}
+
+fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
+    match expression {
+        Expr::Literal { .. } => {}
+        // `super` has its own syntax but is bound under its own name, and a nested
+        // function reaches it through the environment, so it is captured like any
+        // other name the frame has to keep.
+        Expr::Super { .. } => {
+            if inside {
+                out.insert("super".to_string());
+            }
+        }
+        Expr::Identifier { name, .. } => {
+            if inside {
+                out.insert(name.clone());
+            }
+        }
+        Expr::FormattedString { parts, .. } => {
+            for part in parts {
+                scan_expr(part, inside, out);
+            }
+        }
+        Expr::Interpolation { value, .. } => scan_expr(value, inside, out),
+        Expr::Conditional { condition, then, otherwise, .. } => {
+            scan_expr(condition, inside, out);
+            scan_expr(then, inside, out);
+            scan_expr(otherwise, inside, out);
+        }
+        Expr::Slice { collection, start, stop, step, .. } => {
+            scan_expr(collection, inside, out);
+            for bound in [start, stop, step].into_iter().flatten() {
+                scan_expr(bound, true, out);
+            }
+        }
+        Expr::Unary { right, .. } => scan_expr(right, inside, out),
+        // An update target stays in the environment: the engine has an update for
+        // an environment slot but not yet for a flat one.
+        Expr::Update { target, .. } => scan_expr(target, true, out),
+        Expr::Binary { left, right, .. } => {
+            scan_expr(left, inside, out);
+            scan_expr(right, inside, out);
+        }
+        Expr::Call { function, arguments, keywords, .. } => {
+            scan_expr(function, inside, out);
+            for argument in arguments {
+                scan_expr(&argument.value, inside, out);
+            }
+            for entry in keywords {
+                scan_expr(&entry.value, inside, out);
+            }
+        }
+        Expr::Index { collection, key, .. } => {
+            scan_expr(collection, inside, out);
+            scan_expr(key, inside, out);
+        }
+        Expr::Property { receiver, .. } => scan_expr(receiver, inside, out),
+        Expr::List { elements, .. } => {
+            for element in elements {
+                scan_expr(element, inside, out);
+            }
+        }
+        Expr::Dict { pairs, .. } => {
+            for pair in pairs {
+                scan_expr(&pair.key, inside, out);
+                scan_expr(&pair.value, inside, out);
+            }
+        }
+        Expr::Function(declaration) => scan_function(declaration, out),
     }
 }

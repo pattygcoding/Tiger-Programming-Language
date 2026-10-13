@@ -362,3 +362,32 @@ fn output_errors_are_reported() {
     let error = run_failing_output("print(\"hello\");").unwrap_err();
     assert!(error.contains("output closed"), "{}", error);
 }
+
+/// A parameter that nothing outside the frame can reach binds straight into the
+/// frame's own locals, and one a nested function reads stays in the environment
+/// where the closure will look for it.
+#[test]
+fn flat_parameters_and_frames() {
+    expect_outputs(&[
+        (
+            "function add(a, b) { const total = a + b; return total; }\n\
+             print(add(2, 3), add(-1, 1));",
+            "5 0\n",
+        ),
+        (
+            "function counter(start) { function next() { return start; } return next; }\n\
+             print(counter(7)());",
+            "7\n",
+        ),
+        (
+            "function outer(seed) { function inner(step) { return seed + step; } return inner; }\n\
+             print(outer(10)(5));",
+            "15\n",
+        ),
+        (
+            "function fib(n) { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); }\n\
+             print(fib(10));",
+            "55\n",
+        ),
+    ]);
+}
