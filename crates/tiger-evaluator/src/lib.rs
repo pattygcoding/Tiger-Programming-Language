@@ -14,6 +14,7 @@ use tiger_object::{Env, Keyword, Module, RuntimeError, Value};
 
 mod algo;
 mod builtins;
+mod compiler;
 mod files;
 mod methods;
 mod modules;
@@ -22,6 +23,7 @@ mod regex_engine;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod regex_stub;
 mod regexmod;
+mod vm;
 
 pub use files::{parse_file_mode, FileMode, FileSystem, MemoryFileSystem, OsFileSystem};
 pub use modules::{
@@ -88,7 +90,7 @@ pub fn new_runtime_error(base: &Base, message: String) -> Rc<RuntimeError> {
     Rc::new(RuntimeError { kind: error_kind(&message).to_string(), message, origin: base.location() })
 }
 
-fn runtime(base: &Base, message: String) -> Signal {
+pub(crate) fn runtime(base: &Base, message: String) -> Signal {
     Signal::Runtime { error: new_runtime_error(base, message), fatal: false }
 }
 
@@ -108,7 +110,7 @@ fn finite_number(base: &Base, value: f64) -> Eval {
 /// Reports whether a block's own statements introduce a binding in its scope.
 /// A body that only reads or assigns outer names can share one scope across
 /// loop iterations, so a tight loop does not allocate a scope per iteration.
-fn declares_in(statements: &[Stmt]) -> bool {
+pub(crate) fn declares_in(statements: &[Stmt]) -> bool {
     statements.iter().any(|statement| match statement {
         Stmt::Import { .. } | Stmt::Destructure { .. } | Stmt::Function(_) | Stmt::Class(_) => true,
         Stmt::Assign { declaration, .. } => *declaration,
@@ -154,6 +156,8 @@ pub struct Evaluator {
     /// Call scopes freed by calls that did not capture them, reused to avoid a
     /// scope allocation per call.
     scope_pool: Vec<Env>,
+    /// Value stacks freed by finished calls, reused so a call does not allocate.
+    stack_pool: Vec<Vec<Value>>,
     /// Shared names for the bindings every method call creates, so binding them
     /// does not allocate.
     this_name: Rc<str>,
@@ -175,6 +179,7 @@ impl Evaluator {
             steps: 0,
             depth: 0,
             scope_pool: Vec::new(),
+            stack_pool: Vec::new(),
             this_name: Rc::from("this"),
             super_name: Rc::from("super"),
         }
@@ -219,8 +224,14 @@ impl Evaluator {
         builtins::install(&builtins);
         let env = object::Environment::new(Some(builtins));
         env.borrow_mut().source_path = self.source_path.clone();
-        match self.block(&program.statements, &env) {
-            Ok(_) => Ok(()),
+        // Run the linear engine when the program lowers, and fall back to the
+        // tree-walking interpreter otherwise, so any program still runs.
+        let outcome: Result<(), Signal> = match compiler::compile(&program.statements, &self.source_path) {
+            Ok(chunk) => self.run_chunk(&chunk, &env).map(|_| ()),
+            Err(compiler::Unsupported) => self.block(&program.statements, &env).map(|_| ()),
+        };
+        match outcome {
+            Ok(()) => Ok(()),
             Err(Signal::Runtime { error, .. }) => Err(error.text()),
             Err(Signal::Throw { value, origin }) => Err(format!("{}: uncaught throw: {}", origin, object::format(&value))),
             Err(_) => Ok(()),
@@ -382,7 +393,8 @@ impl Evaluator {
                 }
             }
             Stmt::Function(declaration) => {
-                let function = Value::Function(Rc::new(object::FunctionValue { declaration: declaration.clone(), env: env.clone() }));
+                let function =
+                    Value::Function(Rc::new(object::FunctionValue { declaration: declaration.clone(), env: env.clone(), code: None }));
                 object::define(env, &declaration.name, function, false).map_err(|message| runtime(&declaration.base, message))?;
             }
             Stmt::Class(declaration) => {
@@ -629,7 +641,7 @@ impl Evaluator {
                 Ok(Value::Dict(dict))
             }
             Expr::Function(declaration) => {
-                Ok(Value::Function(Rc::new(object::FunctionValue { declaration: declaration.clone(), env: env.clone() })))
+                Ok(Value::Function(Rc::new(object::FunctionValue { declaration: declaration.clone(), env: env.clone(), code: None })))
             }
             Expr::Unary { base, operator, right } => {
                 let right = self.expression(right, env)?;
@@ -1101,14 +1113,16 @@ impl Evaluator {
         // a recursive or repeated call does not allocate a scope and its bindings
         // each time.
         let scope = self.acquire_scope(function.env.clone());
-        let result = self.run_call(base, function, arguments, keywords, bound, &scope);
+        let result = match &function.code {
+            Some(code) => self.run_compiled(base, function, arguments, keywords, bound, &scope, code.clone()),
+            None => self.run_call(base, function, arguments, keywords, bound, &scope),
+        };
         self.release_scope(scope);
         result
     }
 
-    /// Binds the call's `this`/`super`, parameters, keywords, and defaults in
-    /// `scope`, then runs the body.
-    fn run_call(
+    /// Binds a call's arguments and runs the body with the linear engine.
+    fn run_compiled(
         &mut self,
         base: &Base,
         function: &Rc<object::FunctionValue>,
@@ -1116,7 +1130,29 @@ impl Evaluator {
         keywords: &[Keyword],
         bound: Option<&Rc<object::BoundMethod>>,
         scope: &Env,
+        code: Rc<tiger_object::bytecode::Chunk>,
     ) -> Eval {
+        self.depth += 1;
+        if self.depth >= 512 {
+            self.depth -= 1;
+            return Err(fatal(base, "maximum evaluation depth exceeded".to_string()));
+        }
+        let result = self.bind_call(base, function, arguments, keywords, bound, scope).and_then(|()| self.run_chunk(&code, scope));
+        self.depth -= 1;
+        result
+    }
+
+    /// Binds the call's `this`/`super`, parameters, keywords, and defaults in
+    /// `scope`, so either engine can then run the body.
+    fn bind_call(
+        &mut self,
+        base: &Base,
+        function: &Rc<object::FunctionValue>,
+        arguments: &[Value],
+        keywords: &[Keyword],
+        bound: Option<&Rc<object::BoundMethod>>,
+        scope: &Env,
+    ) -> Result<(), Signal> {
         let scope = scope.clone();
         let declaration = &function.declaration;
         let parameters = &declaration.parameters;
@@ -1185,7 +1221,21 @@ impl Evaluator {
             let dict = collected.unwrap_or_else(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
             object::define(&scope, &declaration.keyword, Value::Dict(dict), false).map_err(|message| runtime(base, message))?;
         }
-        if let Some(flow) = self.block(&declaration.body, &scope)? {
+        Ok(())
+    }
+
+    /// Binds a call's arguments and runs the body with the tree-walking engine.
+    fn run_call(
+        &mut self,
+        base: &Base,
+        function: &Rc<object::FunctionValue>,
+        arguments: &[Value],
+        keywords: &[Keyword],
+        bound: Option<&Rc<object::BoundMethod>>,
+        scope: &Env,
+    ) -> Eval {
+        self.bind_call(base, function, arguments, keywords, bound, scope)?;
+        if let Some(flow) = self.block(&function.declaration.body, scope)? {
             return Ok(flow.value);
         }
         Ok(Value::Null)
@@ -1237,6 +1287,21 @@ impl Evaluator {
     }
 
     fn define_class(&mut self, declaration: &Rc<tiger_ast::ClassDecl>, env: &Env) -> Result<(), Signal> {
+        self.define_class_with(declaration, env, None)
+    }
+
+    /// Defines a class produced by the bytecode engine, whose constructor and
+    /// methods carry compiled bodies.
+    fn define_class_code(&mut self, proto: &Rc<tiger_object::bytecode::ClassProto>, env: &Env) -> Result<(), Signal> {
+        self.define_class_with(&proto.declaration, env, Some(proto))
+    }
+
+    fn define_class_with(
+        &mut self,
+        declaration: &Rc<tiger_ast::ClassDecl>,
+        env: &Env,
+        bodies: Option<&Rc<tiger_object::bytecode::ClassProto>>,
+    ) -> Result<(), Signal> {
         let mut parent = None;
         if let (Some(parent_base), Some(parent_name)) = (&declaration.parent, &declaration.parent_name) {
             let value = object::get(env, parent_name).map_err(|message| runtime(parent_base, message))?;
@@ -1248,20 +1313,28 @@ impl Evaluator {
         let class = object::Class::new(declaration.name.clone(), parent);
         if let Some(constructor) = &declaration.constructor {
             let method = Rc::new(object::Method {
-                function: Rc::new(object::FunctionValue { declaration: constructor.clone(), env: env.clone() }),
+                function: Rc::new(object::FunctionValue {
+                    declaration: constructor.clone(),
+                    env: env.clone(),
+                    code: bodies.and_then(|proto| proto.constructor.clone()),
+                }),
                 owner: class.clone(),
                 constructor: true,
             });
             *class.constructor.borrow_mut() = Some(method);
         }
-        for method in &declaration.methods {
+        for (index, method) in declaration.methods.iter().enumerate() {
             if let Some(parent) = &class.parent {
                 if parent.find_field(&method.name).is_some() {
                     return Err(runtime(&method.base, format!("cannot override inherited field {:?}", method.name)));
                 }
             }
             let bound = Rc::new(object::Method {
-                function: Rc::new(object::FunctionValue { declaration: method.clone(), env: env.clone() }),
+                function: Rc::new(object::FunctionValue {
+                    declaration: method.clone(),
+                    env: env.clone(),
+                    code: bodies.map(|proto| proto.methods[index].clone()),
+                }),
                 owner: class.clone(),
                 constructor: false,
             });
@@ -1722,6 +1795,96 @@ impl Evaluator {
             }
         }
         Err(runtime(base, format!("operator {} is not supported for {} and {}", operator, left.type_name(), right.type_name())))
+    }
+}
+
+/// The value-producing operations the linear engine shares with the interpreter.
+impl Evaluator {
+    /// `operator value` for `not`, `-`, and `~`.
+    fn unary(&mut self, base: &Base, operator: &str, right: Value) -> Eval {
+        if operator == "not" {
+            return Ok(Value::Bool(!object::truthy(&right)));
+        }
+        let Value::Number(number) = right else {
+            return Err(runtime(base, format!("operator {} requires a number", operator)));
+        };
+        if operator == "-" {
+            return Ok(Value::Number(-number));
+        }
+        if operator == "~" {
+            return Ok(Value::Number(!self.bitwise_integer(base, number)? as f64));
+        }
+        Ok(Value::Number(number))
+    }
+
+    /// `collection[key]` for a list, string, dictionary, or error value.
+    fn index_value(&mut self, base: &Base, collection: Value, key: Value) -> Eval {
+        match &collection {
+            Value::List(elements) => {
+                let index = self.index_at(base, &key, elements.borrow().len())?;
+                Ok(elements.borrow()[index].clone())
+            }
+            Value::String(text) => {
+                if text.is_ascii() {
+                    let index = self.index_at(base, &key, text.len())?;
+                    Ok(Value::string(&text[index..index + 1]))
+                } else {
+                    let runes: Vec<char> = text.chars().collect();
+                    let index = self.index_at(base, &key, runes.len())?;
+                    Ok(Value::string(&runes[index].to_string()))
+                }
+            }
+            Value::Dict(dict) => match dict.borrow().get(&key) {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => Err(runtime(base, format!("dictionary key not found: {}", object::format(&key)))),
+                Err(message) => Err(runtime(base, message)),
+            },
+            Value::Error(error) => self.error_field(base, error, &key),
+            other => Err(runtime(base, format!("{} cannot be indexed", other.type_name()))),
+        }
+    }
+
+    /// Stores `collection[key] = value`, matching the interpreter's index target.
+    fn set_index(&mut self, base: &Base, collection: Value, key: Value, value: Value) -> Result<(), Signal> {
+        match collection {
+            Value::List(elements) => {
+                let index = self.index_at(base, &key, elements.borrow().len())?;
+                elements.borrow_mut()[index] = value;
+                Ok(())
+            }
+            Value::Dict(dict) => dict.borrow_mut().set(key, value).map_err(|message| runtime(base, message)),
+            other => Err(runtime(base, format!("cannot assign an index of {}", other.type_name()))),
+        }
+    }
+
+    /// Stores `receiver.name = value`, matching the interpreter's property target.
+    fn set_property(&mut self, base: &Base, receiver: Value, name: &str, value: Value, env: &Env) -> Result<(), Signal> {
+        let Value::Instance(instance) = receiver else {
+            return Err(runtime(base, format!("cannot assign a property of {}", receiver.type_name())));
+        };
+        self.member_access(base, &instance.class, name, env, true)?;
+        if instance.class.find_field(name).is_none() {
+            return Err(runtime(
+                base,
+                format!("{} has no field {:?}; declare it in the class with var or const", instance.class.name, name),
+            ));
+        }
+        instance.fields.borrow_mut().insert(name.to_string(), value);
+        Ok(())
+    }
+
+    /// Applies `++`/`--` to a named variable, matching the interpreter's update.
+    fn update_name(&mut self, base: &Base, env: &Env, name: &str, decrement: bool, prefix: bool) -> Eval {
+        let previous = match object::get(env, name).map_err(|message| runtime(base, message))? {
+            Value::Number(number) => number,
+            _ => return Err(runtime(base, format!("{} requires a number", if decrement { "--" } else { "++" }))),
+        };
+        let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
+        if updated.is_infinite() || updated.is_nan() {
+            return Err(runtime(base, "non-finite numeric result".to_string()));
+        }
+        object::assign(env, name, Value::Number(updated)).map_err(|message| runtime(base, message))?;
+        Ok(if prefix { Value::Number(updated) } else { Value::Number(previous) })
     }
 }
 

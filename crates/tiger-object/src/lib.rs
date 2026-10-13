@@ -10,6 +10,8 @@ use std::rc::Rc;
 
 use tiger_ast::{FieldDecl, FunctionDecl};
 
+pub mod bytecode;
+
 /// One evaluated keyword argument, in call order.
 #[derive(Clone)]
 pub struct Keyword {
@@ -170,6 +172,7 @@ pub struct Bindings {
 const BINDINGS_INDEX_THRESHOLD: usize = 8;
 
 impl Bindings {
+    #[inline]
     fn position(&self, name: &str) -> Option<usize> {
         match &self.index {
             Some(index) => index.get(name).copied(),
@@ -177,14 +180,17 @@ impl Bindings {
         }
     }
 
+    #[inline]
     pub fn contains(&self, name: &str) -> bool {
         self.position(name).is_some()
     }
 
+    #[inline]
     pub fn get(&self, name: &str) -> Option<&Binding> {
         self.position(name).map(|position| &self.entries[position].1)
     }
 
+    #[inline]
     fn get_mut(&mut self, name: &str) -> Option<&mut Binding> {
         match self.position(name) {
             Some(position) => Some(&mut self.entries[position].1),
@@ -241,6 +247,7 @@ pub struct Environment {
 pub type Env = Rc<RefCell<Environment>>;
 
 impl Environment {
+    #[inline]
     pub fn new(parent: Option<Env>) -> Env {
         Rc::new(RefCell::new(Environment { parent, bindings: Bindings::default(), access_class: None, source_path: String::new() }))
     }
@@ -305,6 +312,7 @@ pub fn define_shared(env: &Env, name: &Rc<str>, value: Value, constant: bool) ->
 }
 
 /// Looks a name up the scope chain, borrowing each scope exactly once.
+#[inline]
 pub fn get(env: &Env, name: &str) -> Result<Value, String> {
     let mut current = Some(env.clone());
     while let Some(scope) = current {
@@ -322,6 +330,7 @@ pub fn get(env: &Env, name: &str) -> Result<Value, String> {
 }
 
 /// Reassigns an existing binding, borrowing each scope exactly once.
+#[inline]
 pub fn assign(env: &Env, name: &str, value: Value) -> Result<(), String> {
     let mut current = Some(env.clone());
     while let Some(scope) = current {
@@ -404,6 +413,8 @@ impl Class {
 pub struct FunctionValue {
     pub declaration: Rc<FunctionDecl>,
     pub env: Env,
+    /// The compiled body, when the bytecode engine produced this function.
+    pub code: Option<Rc<bytecode::Chunk>>,
 }
 
 /// A method bound to its owning class.
@@ -584,6 +595,7 @@ fn format_value(value: &Value, seen: &mut Vec<usize>, nested: bool) -> String {
 }
 
 /// Reports whether a value is truthy, matching the language's rules.
+#[inline]
 pub fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
