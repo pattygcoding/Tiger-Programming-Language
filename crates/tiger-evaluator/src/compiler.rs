@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use tiger_ast::{Base, Block, Expr, FunctionDecl, LiteralValue, Stmt};
-use tiger_object::bytecode::{CatchProto, Chunk, ClassProto, FunctionProto, Instr, Op, TryProto};
+use tiger_object::bytecode::{CatchProto, Chunk, ClassProto, FunctionProto, Instr, Op, SliceProto, TryProto};
 use tiger_object::Value;
 
 use crate::declares_in;
@@ -82,6 +82,9 @@ struct LoopTarget {
     continue_scope_depth: usize,
     iter_depth: usize,
     for_in: bool,
+    /// A `switch` target, which only a `break` can use: an unlabeled `continue`
+    /// inside a `switch` belongs to the loop around it.
+    is_switch: bool,
 }
 
 /// The names one lexical scope of a chunk declares, in declaration order.
@@ -89,9 +92,18 @@ struct LoopTarget {
 /// A name's slot is its index here, and the runtime binds a scope's names in the
 /// same order, so the two agree with no bookkeeping at run time: the compiler
 /// just has to count every declaration, in source order.
-#[derive(Default)]
 struct ScopeFrame {
+    /// Whether the scope's bindings appear in a fixed order at run time, so a
+    /// name can be addressed by slot. A `switch` scope is not: which of its cases
+    /// ran depends on the subject, so its names are addressed by name instead.
+    stable: bool,
     names: Vec<Rc<str>>,
+}
+
+impl Default for ScopeFrame {
+    fn default() -> ScopeFrame {
+        ScopeFrame { stable: true, names: Vec::new() }
+    }
 }
 
 struct Compiler {
@@ -111,6 +123,7 @@ struct Compiler {
     iter_depth: usize,
     loops: Vec<LoopTarget>,
     tries: Vec<Rc<TryProto>>,
+    slices: Vec<Rc<SliceProto>>,
     escape_return: bool,
 }
 
@@ -146,6 +159,7 @@ impl Compiler {
             iter_depth: 0,
             loops: Vec::new(),
             tries: Vec::new(),
+            slices: Vec::new(),
             escape_return,
         }
     }
@@ -167,6 +181,9 @@ impl Compiler {
     fn resolve(&self, name: &str) -> Option<(u32, u32)> {
         let depth = self.scopes.len();
         for (index, scope) in self.scopes.iter().enumerate().rev() {
+            if !scope.stable {
+                continue;
+            }
             if let Some(slot) = scope.names.iter().position(|declared| &**declared == name) {
                 return Some(((depth - 1 - index) as u32, slot as u32));
             }
@@ -174,13 +191,32 @@ impl Compiler {
         None
     }
 
-    /// Records a declaration in the current scope and returns its `(hops, slot)`.
-    /// A declaration always lands in the scope being compiled, so `hops` is 0.
-    fn declare(&mut self, name: &str) -> (u32, u32) {
+    /// Records a declaration in the current scope, for a construct whose own
+    /// instruction binds the name — a `class` or an `import` — so that the
+    /// declarations after it in the same scope get the slots the engine gives them.
+    fn record(&mut self, name: &str) {
         let scope = self.scopes.last_mut().expect("a scope is always open");
-        let slot = scope.names.len() as u32;
-        scope.names.push(Rc::from(name));
-        (0, slot)
+        if scope.stable {
+            scope.names.push(Rc::from(name));
+        }
+    }
+
+    /// Records a declaration in the current scope and emits the instruction that
+    /// binds it: a slot-based one where the scope's layout is fixed, or a
+    /// name-based one where it is not.
+    fn define(&mut self, name: &str, constant: bool, base: &Base) {
+        let index = self.name(name);
+        if !self.scopes.last().expect("a scope is always open").stable {
+            self.emit(Instr::DefineName { name: index, constant }, base);
+            return;
+        }
+        let slot = {
+            let scope = self.scopes.last_mut().expect("a scope is always open");
+            let slot = scope.names.len() as u32;
+            scope.names.push(Rc::from(name));
+            slot
+        };
+        self.emit(Instr::DefineLocal { name: index, slot, constant }, base);
     }
 
     fn emit(&mut self, instr: Instr, base: &Base) {
@@ -227,6 +263,7 @@ impl Compiler {
             functions: self.functions,
             classes: self.classes,
             tries: self.tries,
+            slices: self.slices,
             positions: self.positions,
             source: self.source,
         })
@@ -344,6 +381,14 @@ impl Compiler {
                 self.expression(key)?;
                 self.emit(Instr::GetIndex, base);
             }
+            // The bounds stay as expressions: the engine evaluates them against
+            // the collection's length, exactly as the interpreter does.
+            Expr::Slice { base, collection, start, stop, step } => {
+                self.expression(collection)?;
+                let index = self.slices.len() as u32;
+                self.slices.push(Rc::new(SliceProto { start: start.clone(), stop: stop.clone(), step: step.clone() }));
+                self.emit(Instr::Slice(index), base);
+            }
             Expr::Property { base, receiver, name } => {
                 self.expression(receiver)?;
                 let index = self.name(name);
@@ -428,16 +473,14 @@ impl Compiler {
             Stmt::Function(declaration) => {
                 let proto = self.function_proto(declaration)?;
                 self.emit(Instr::MakeFunction(proto), &declaration.base);
-                let index = self.name(&declaration.name);
-                let (_, slot) = self.declare(&declaration.name);
-                self.emit(Instr::DefineLocal { name: index, slot, constant: false }, &declaration.base);
+                self.define(&declaration.name, false, &declaration.base);
             }
             Stmt::Class(declaration) => {
                 let index = self.class_proto(declaration)?;
                 self.emit(Instr::Class(index), &declaration.base);
                 // The `Class` instruction binds the name itself; record it here so
                 // the declarations that follow in this scope get the right slots.
-                self.declare(&declaration.name);
+                self.record(&declaration.name);
             }
             Stmt::Return { base, value } => {
                 match value {
@@ -459,7 +502,7 @@ impl Compiler {
             Stmt::Import { base, path, name } => {
                 // The `Import` instruction binds the name itself; record it here so
                 // the declarations that follow in this scope get the right slots.
-                self.declare(name);
+                self.record(name);
                 let path = self.name(path);
                 let name = self.name(name);
                 self.emit(Instr::Import { path, name }, base);
@@ -504,6 +547,7 @@ impl Compiler {
                     continue_scope_depth: self.scope_depth,
                     iter_depth: self.iter_depth,
                     for_in: false,
+                    is_switch: false,
                 });
                 self.branch_body(body, base)?;
                 self.emit(Instr::Jump(start as u32), base);
@@ -535,9 +579,7 @@ impl Compiler {
                 self.emit(Instr::IterNext(0), base);
                 self.emit(Instr::PushScope, base);
                 self.enter_scope();
-                let var = self.name(name);
-                let (_, slot) = self.declare(name);
-                self.emit(Instr::DefineLocal { name: var, slot, constant: false }, base);
+                self.define(name, false, base);
                 self.loops.push(LoopTarget {
                     label: label.clone(),
                     breaks: Vec::new(),
@@ -546,6 +588,7 @@ impl Compiler {
                     continue_scope_depth: self.scope_depth - 1,
                     iter_depth: self.iter_depth - 1,
                     for_in: true,
+                    is_switch: false,
                 });
                 self.block(body)?;
                 self.emit(Instr::PopScope, base);
@@ -588,6 +631,7 @@ impl Compiler {
                     continue_scope_depth: outer_depth + 1,
                     iter_depth: self.iter_depth,
                     for_in: false,
+                    is_switch: false,
                 });
                 self.branch_body(body, base)?;
                 let update_start = self.here();
@@ -621,6 +665,7 @@ impl Compiler {
                     continue_scope_depth: self.scope_depth,
                     iter_depth: self.iter_depth,
                     for_in: false,
+                    is_switch: false,
                 });
                 self.branch_body(body, base)?;
                 let condition_start = self.here();
@@ -636,6 +681,75 @@ impl Compiler {
                 }
                 for position in target.continues {
                     self.patch(position, condition_start);
+                }
+            }
+            Stmt::Switch { value, cases, .. } => {
+                let base = statement.base();
+                // A `switch` scope is not slot-addressed: which of its cases ran
+                // depends on the subject, so a case body's declarations are bound
+                // by name, and a name no case defines still reads through to the
+                // enclosing scope.
+                self.emit(Instr::PushScope, base);
+                self.scopes.push(ScopeFrame { stable: false, names: Vec::new() });
+                self.scope_depth += 1;
+                self.expression(value)?;
+                // A ladder of equality tests. The subject stays on the stack and
+                // each case value is evaluated in order, only until one matches.
+                let mut enter: Vec<Option<usize>> = Vec::with_capacity(cases.len());
+                for case in cases {
+                    match &case.value {
+                        None => enter.push(None),
+                        Some(case_value) => {
+                            self.emit(Instr::Dup, base);
+                            self.expression(case_value)?;
+                            self.emit(Instr::Equal, base);
+                            let to_next = self.here();
+                            self.emit(Instr::JumpIfFalse(0), base);
+                            self.emit(Instr::Pop, base);
+                            let to_body = self.here();
+                            self.emit(Instr::Jump(0), base);
+                            let next = self.here();
+                            self.patch(to_next, next);
+                            enter.push(Some(to_body));
+                        }
+                    }
+                }
+                // Nothing matched: drop the subject and enter the last `default`,
+                // which then falls through like any other case.
+                self.emit(Instr::Pop, base);
+                let no_match = self.here();
+                self.emit(Instr::Jump(0), base);
+                // The bodies, in order, falling through into each other. An
+                // unlabeled `break` leaves the whole `switch`, so its target is the
+                // scope outside it, and its pops take the `switch` scope with them.
+                self.loops.push(LoopTarget {
+                    label: String::new(),
+                    breaks: Vec::new(),
+                    continues: Vec::new(),
+                    scope_depth: self.scope_depth - 1,
+                    continue_scope_depth: self.scope_depth - 1,
+                    iter_depth: self.iter_depth,
+                    for_in: false,
+                    is_switch: true,
+                });
+                let mut starts = Vec::with_capacity(cases.len());
+                for (index, case) in cases.iter().enumerate() {
+                    if let Some(to_body) = enter[index] {
+                        let body = self.here();
+                        self.patch(to_body, body);
+                    }
+                    starts.push(self.here());
+                    self.block(&case.body)?;
+                }
+                let target = self.loops.pop().expect("loop target");
+                let default = cases.iter().enumerate().rev().find(|(_, case)| case.value.is_none()).map(|(index, _)| starts[index]);
+                self.emit(Instr::PopScope, base);
+                self.scopes.pop();
+                self.scope_depth -= 1;
+                let end = self.here();
+                self.patch(no_match, default.unwrap_or(end));
+                for position in target.breaks {
+                    self.patch(position, end);
                 }
             }
             Stmt::Try { base, body, catches, finally } => {
@@ -667,7 +781,10 @@ impl Compiler {
         match statement {
             Stmt::Control { base, kind, label, .. } => {
                 let index = if label.is_empty() {
-                    self.loops.len().checked_sub(1)
+                    // An unlabeled `break` leaves the innermost loop or `switch`;
+                    // an unlabeled `continue` targets the innermost loop, stepping
+                    // over any `switch` in between.
+                    self.loops.iter().rposition(|target| kind == "break" || !target.is_switch)
                 } else {
                     self.loops.iter().rposition(|target| &target.label == label)
                 };
@@ -703,9 +820,7 @@ impl Compiler {
         if declaration || constant {
             let Expr::Identifier { name, .. } = target else { return Err(Unsupported) };
             self.expression(value)?;
-            let index = self.name(name);
-            let (_, slot) = self.declare(name);
-            self.emit(Instr::DefineLocal { name: index, slot, constant }, base);
+            self.define(name, constant, base);
             return Ok(());
         }
         if operator != "=" {

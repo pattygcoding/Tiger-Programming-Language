@@ -85,18 +85,28 @@ fn range_builtin() -> Rc<object::Builtin> {
 /// Implements `print(*values, end="\n")`.
 fn print_builtin() -> Rc<object::Builtin> {
     object::Builtin::new("print", |host, arguments, keywords| {
-        let mut ending = "\n".to_string();
+        let mut ending = "\n";
         for entry in keywords {
             if entry.name != "end" {
                 return Err(format!("print does not accept keyword argument {:?}", entry.name));
             }
             match &entry.value {
-                Value::String(text) => ending = text.to_string(),
+                Value::String(text) => ending = text,
                 other => return Err(format!("print end must be a string, got {}", other.type_name())),
             }
         }
-        let parts: Vec<String> = arguments.iter().map(object::format).collect();
-        host.output(&format!("{}{}", parts.join(" "), ending))?;
+        // One buffer for the whole line. `print` is the busiest formatting path in
+        // most programs, and a string per argument plus a `Vec`, a join and a
+        // `format!` would allocate several times for every call.
+        let mut line = String::new();
+        for (index, argument) in arguments.iter().enumerate() {
+            if index > 0 {
+                line.push(' ');
+            }
+            object::write_format(&mut line, argument);
+        }
+        line.push_str(ending);
+        host.output(&line)?;
         Ok(Value::Null)
     })
 }

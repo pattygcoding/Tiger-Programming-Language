@@ -124,7 +124,7 @@ fn programs(directory: &str) -> Vec<Fixture> {
 /// condition sees, what happens when the `finally` itself leaves or fails, and
 /// how the blocks scope their declarations.
 fn semantics() -> Vec<Fixture> {
-    const SOURCES: [&str; 12] = [
+    const SOURCES: [&str; 20] = [
         // A `finally` runs on normal completion, on a caught throw, and on an
         // error that no clause takes.
         r#"try { print("body"); } finally { print("finally"); }"#,
@@ -146,6 +146,19 @@ fn semantics() -> Vec<Fixture> {
         r#"try { const bad = 1 / 0; } catch (error) { print("zero division" in error, type(error)); }"#,
         // The body and each clause have their own scope.
         r#"var value = 1; try { var value = 2; print(value); } catch (error) { value = 9; } print(value);"#,
+        // A `switch` falls through from the case that matched, takes the last
+        // `default` when nothing matches, and its case values are evaluated in
+        // order only until one matches. A case value of another type is simply
+        // unequal, never an error.
+        r#"switch 2 { case 1: print("one"); case 2: print("two"); case 3: print("three"); }"#,
+        r#"switch 9 { case 1: print("one"); default: print("default"); }"#,
+        r#"switch "x" { case 1: print("number"); case "x": print("string"); }"#,
+        r#"for n in [1, 2, 3] { switch n { case 2: break; default: print(n); } }"#,
+        r#"var log = []; function seen(x) { log = log + [x]; return x; } switch 2 { case seen(1): print("a"); case seen(2): print("b"); case seen(3): print("c"); default: print("d"); } print(log);"#,
+        r#"var total = 0; switch 3 { case 1: total = total + 1; case 3: total = total + 10; default: total = total + 100; } print(total);"#,
+        // Slices of a list and a string, with negative bounds and a step.
+        r#"print([1, 2, 3, 4, 5][1:3], [1, 2, 3, 4, 5][-2:], [1, 2, 3, 4, 5][::-1], [1, 2, 3, 4, 5][::2]);"#,
+        r#"print("hello"[1:3], "hello"[::-1], "hello"[-3:]);"#,
     ];
     SOURCES
         .iter()

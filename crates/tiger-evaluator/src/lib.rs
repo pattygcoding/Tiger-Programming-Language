@@ -779,29 +779,7 @@ impl Evaluator {
             Expr::Interpolation { .. } => Err(runtime(expression.base(), "unsupported expression".to_string())),
             Expr::Slice { base, collection, start, stop, step } => {
                 let collection = self.expression(collection, env)?;
-                match &collection {
-                    Value::List(elements) => {
-                        let (start, stop, step) = self.slice_bounds(base, start, stop, step, elements.borrow().len(), env)?;
-                        let indices = slice_indices(start, stop, step);
-                        let borrowed = elements.borrow();
-                        Ok(Value::list(indices.iter().map(|index| borrowed[*index as usize].clone()).collect()))
-                    }
-                    Value::String(text) => {
-                        if text.is_ascii() {
-                            let (start, stop, step) = self.slice_bounds(base, start, stop, step, text.len(), env)?;
-                            let indices = slice_indices(start, stop, step);
-                            let value: String = indices.iter().map(|index| text.as_bytes()[*index as usize] as char).collect();
-                            Ok(Value::string(&value))
-                        } else {
-                            let runes: Vec<char> = text.chars().collect();
-                            let (start, stop, step) = self.slice_bounds(base, start, stop, step, runes.len(), env)?;
-                            let indices = slice_indices(start, stop, step);
-                            let value: String = indices.iter().map(|index| runes[*index as usize]).collect();
-                            Ok(Value::string(&value))
-                        }
-                    }
-                    other => Err(runtime(base, format!("{} cannot be sliced", other.type_name()))),
-                }
+                self.slice_value(base, collection, start, stop, step, env)
             }
             Expr::Index { base, collection, key } => {
                 let collection = self.expression(collection, env)?;
@@ -1000,6 +978,43 @@ impl Evaluator {
             return Err(runtime(base, "index out of range".to_string()));
         }
         Ok(number as usize)
+    }
+
+    /// Slices `collection`, with `start`/`stop`/`step` evaluated against its
+    /// length. The interpreter's `Expr::Slice` case and the compiled engine's
+    /// `Slice` instruction both come through here, so the two cannot drift apart.
+    fn slice_value(
+        &mut self,
+        base: &Base,
+        collection: Value,
+        start: &Option<Box<Expr>>,
+        stop: &Option<Box<Expr>>,
+        step: &Option<Box<Expr>>,
+        env: &Env,
+    ) -> Eval {
+        match &collection {
+            Value::List(elements) => {
+                let (start, stop, step) = self.slice_bounds(base, start, stop, step, elements.borrow().len(), env)?;
+                let indices = slice_indices(start, stop, step);
+                let borrowed = elements.borrow();
+                Ok(Value::list(indices.iter().map(|index| borrowed[*index as usize].clone()).collect()))
+            }
+            Value::String(text) => {
+                if text.is_ascii() {
+                    let (start, stop, step) = self.slice_bounds(base, start, stop, step, text.len(), env)?;
+                    let indices = slice_indices(start, stop, step);
+                    let value: String = indices.iter().map(|index| text.as_bytes()[*index as usize] as char).collect();
+                    Ok(Value::string(&value))
+                } else {
+                    let runes: Vec<char> = text.chars().collect();
+                    let (start, stop, step) = self.slice_bounds(base, start, stop, step, runes.len(), env)?;
+                    let indices = slice_indices(start, stop, step);
+                    let value: String = indices.iter().map(|index| runes[*index as usize]).collect();
+                    Ok(Value::string(&value))
+                }
+            }
+            other => Err(runtime(base, format!("{} cannot be sliced", other.type_name()))),
+        }
     }
 
     fn slice_bounds(

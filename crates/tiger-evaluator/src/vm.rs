@@ -129,6 +129,11 @@ impl Evaluator {
                     object::define_at(&env, &chunk.names[name as usize], slot as usize, value, constant)
                         .map_err(|message| runtime(&chunk.base_at(position), message))?;
                 }
+                Instr::Equal => {
+                    let right = stack.pop().expect("stack");
+                    let left = stack.pop().expect("stack");
+                    stack.push(Value::Bool(object::equal(&left, &right)));
+                }
                 Instr::Pop => {
                     stack.pop();
                 }
@@ -382,6 +387,12 @@ impl Evaluator {
                 Instr::Try(index) => {
                     let proto = chunk.tries[index as usize].clone();
                     self.run_try(&chunk.base_at(position), &proto, &env)?;
+                }
+                Instr::Slice(index) => {
+                    let collection = stack.pop().expect("stack");
+                    let proto = &chunk.slices[index as usize];
+                    let value = self.slice_value(&chunk.base_at(position), collection, &proto.start, &proto.stop, &proto.step, &env)?;
+                    stack.push(value);
                 }
             }
         }
