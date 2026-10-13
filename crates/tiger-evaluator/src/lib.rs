@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use tiger_ast::{Base, Block, Expr, Stmt};
 use tiger_object as object;
+use tiger_object::bytecode::CallLayout;
 use tiger_object::{Env, Keyword, Module, RuntimeError, Value};
 
 mod algo;
@@ -193,9 +194,10 @@ pub struct Evaluator {
     scope_pool: Vec<Env>,
     /// Value stacks freed by finished calls, reused so a call does not allocate.
     stack_pool: Vec<Vec<Value>>,
+    /// Flat local frames freed by finished calls, reused the same way.
+    locals_pool: Vec<Vec<Value>>,
     /// Argument buffers freed by finished calls, reused so a call does not
     /// allocate a vector for the arguments it passes.
-    args_pool: Vec<Vec<Value>>,
     keywords_pool: Vec<Vec<Keyword>>,
     /// Shared names for the bindings every method call creates, so binding them
     /// does not allocate.
@@ -220,7 +222,8 @@ impl Evaluator {
             depth: 0,
             scope_pool: Vec::new(),
             stack_pool: Vec::new(),
-            args_pool: Vec::new(),
+            locals_pool: Vec::new(),
+
             keywords_pool: Vec::new(),
             this_name: Rc::from("this"),
             super_name: Rc::from("super"),
@@ -931,13 +934,13 @@ impl Evaluator {
             Target::Name { base, name } => object::assign(env, name, value).map_err(|message| runtime(base, message)),
             Target::Property { base, instance, name } => {
                 self.member_access(base, &instance.class, name, env, true)?;
-                if instance.class.find_field(name).is_none() {
+                let Some(field) = instance.class.find_field(name) else {
                     return Err(runtime(
                         base,
                         format!("{} has no field {:?}; declare it in the class with var or const", instance.class.name, name),
                     ));
-                }
-                instance.fields.borrow_mut().insert(name.clone(), value);
+                };
+                instance.set_field(&field.name, value);
                 Ok(())
             }
             Target::ListIndex { elements, index } => {
@@ -1121,7 +1124,9 @@ impl Evaluator {
                 (builtin.call)(self, arguments, keywords).map_err(|message| runtime(base, message))
             }
             Value::Function(function) => self.invoke(base, &function, arguments, keywords, None),
-            Value::BoundMethod(bound) => self.invoke(base, &bound.method.function, arguments, keywords, Some(&bound)),
+            Value::BoundMethod(bound) => {
+                self.invoke(base, &bound.method.function, arguments, keywords, Some((&bound.method, &bound.receiver)))
+            }
             Value::Super(super_value) => {
                 if !super_value.constructor {
                     return Err(runtime(base, "super(...) can only be called inside a constructor".to_string()));
@@ -1129,24 +1134,43 @@ impl Evaluator {
                 let Some(parent) = super_value.parent.clone() else {
                     return Err(runtime(base, "super requires a parent class".to_string()));
                 };
-                if let Some(constructor) = parent.find_constructor() {
+                let constructor = parent.find_constructor();
+                if let Some(constructor) = &constructor {
                     self.accessible(base, &constructor.function.declaration.access, &constructor.owner, env)?;
                 }
-                self.construct(base, &parent, &super_value.receiver, arguments, keywords)?;
+                self.construct(base, &parent, constructor.as_ref(), &super_value.receiver, arguments, keywords)?;
                 Ok(Value::Null)
             }
             Value::Class(class) => {
-                let instance = Rc::new(object::Instance { class: class.clone(), fields: std::cell::RefCell::new(HashMap::new()) });
-                if let Some(constructor) = class.find_constructor() {
+                let instance = Rc::new(object::Instance {
+                    class: class.clone(),
+                    fields: std::cell::RefCell::new(Vec::with_capacity(field_count(&class))),
+                });
+                // Found once and handed on: a class's constructor cannot change
+                // between here and the call, and finding it walks the chain.
+                let constructor = class.find_constructor();
+                if let Some(constructor) = &constructor {
                     self.accessible(base, &constructor.function.declaration.access, &constructor.owner, env)?;
                 }
                 self.initialize_fields(&instance, &class)?;
-                self.construct(base, &class, &instance, arguments, keywords)?;
+                self.construct(base, &class, constructor.as_ref(), &instance, arguments, keywords)?;
                 Ok(Value::Instance(instance))
             }
             other => Err(runtime(base, format!("{} is not callable", other.type_name()))),
         }
     }
+}
+
+/// How many fields an instance of this class ends up with, counting the whole
+/// chain, so its storage can be sized once instead of grown field by field.
+fn field_count(class: &Rc<object::Class>) -> usize {
+    let mut total = 0;
+    let mut current = Some(class);
+    while let Some(level) = current {
+        total += level.fields.borrow().len();
+        current = level.parent.as_ref();
+    }
+    total
 }
 
 /// Names a function in diagnostics, covering anonymous functions. Borrows the
@@ -1157,6 +1181,13 @@ fn function_label(declaration: &tiger_ast::FunctionDecl) -> &str {
     } else {
         &declaration.name
     }
+}
+
+/// The flat slot a parameter binds to, when the compiler gave it one. A parameter
+/// that reaches no nested function stays in the frame's own locals instead of the
+/// shared environment, and the body's slot-based access expects the argument there.
+fn parameter_slot(layout: Option<&CallLayout>, index: usize) -> Option<u32> {
+    layout.and_then(|layout| layout.parameters.get(index).copied().flatten())
 }
 
 /// Reports whether any parameter at or after `index` lacks a default.
@@ -1176,7 +1207,7 @@ impl Evaluator {
         function: &Rc<object::FunctionValue>,
         arguments: &[Value],
         keywords: &[Keyword],
-        bound: Option<&Rc<object::BoundMethod>>,
+        bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
     ) -> Eval {
         let declaration = &function.declaration;
         let parameters = &declaration.parameters;
@@ -1195,12 +1226,25 @@ impl Evaluator {
         // A call scope is pooled and reused when the call does not capture it, so
         // a recursive or repeated call does not allocate a scope and its bindings
         // each time.
-        let scope = self.acquire_scope(function.env.clone());
+        //
+        // A compiled function whose frame holds nothing the environment has to
+        // carry — every name it binds is flat — needs no scope at all: the body
+        // runs directly in the environment the function captured. A name that
+        // resolves above the frame is a free name that walks the environment chain,
+        // so skipping an empty frame leaves every slot-based access where the
+        // compiler placed it.
+        let frame_needed = function.code.as_ref().map_or(true, |code| code.frame_needed);
+        // A function whose frame is skipped runs in the environment it captured, so
+        // its call needs no scope of its own — and no clone of the one it has.
+        let pooled = if frame_needed { Some(self.acquire_scope(function.env.clone())) } else { None };
+        let scope: &Env = pooled.as_ref().unwrap_or(&function.env);
         let result = match &function.code {
-            Some(code) => self.run_compiled(base, function, arguments, keywords, bound, &scope, code.clone()),
-            None => self.run_call(base, function, arguments, keywords, bound, &scope),
+            Some(code) => self.run_compiled(base, function, arguments, keywords, bound, scope, code),
+            None => self.run_call(base, function, arguments, keywords, bound, scope),
         };
-        self.release_scope(scope);
+        if let Some(scope) = pooled {
+            self.release_scope(scope);
+        }
         // A `return` inside a `try` leaves its sub-chunk as a `Signal::Return` and
         // unwinds to here, which is the function boundary: it becomes the result.
         match result {
@@ -1216,16 +1260,34 @@ impl Evaluator {
         function: &Rc<object::FunctionValue>,
         arguments: &[Value],
         keywords: &[Keyword],
-        bound: Option<&Rc<object::BoundMethod>>,
+        bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
         scope: &Env,
-        code: Rc<tiger_object::bytecode::Chunk>,
+        code: &Rc<tiger_object::bytecode::Chunk>,
     ) -> Eval {
         self.depth += 1;
         if self.depth >= 512 {
             self.depth -= 1;
             return Err(fatal(base, "maximum evaluation depth exceeded".to_string()));
         }
-        let result = self.bind_call(base, function, arguments, keywords, bound, scope).and_then(|()| self.run_chunk(&code, scope));
+        // The frame's flat locals are the call's too: a parameter the compiler gave
+        // a flat slot is written straight into it, so the body never looks a
+        // parameter up in an environment.
+        // A frame whose flat locals fit in a small fixed array keeps them on this
+        // activation's own stack, so binding and running it touch no pool at all.
+        // A deeper frame takes the pooled vector instead.
+        let mut inline = [const { Value::Null }; 8];
+        if code.flat_count <= inline.len() {
+            let locals = &mut inline[..code.flat_count];
+            let result = self
+                .bind_call(base, function, arguments, keywords, bound, scope, Some(&code.call_layout), Some(locals))
+                .and_then(|()| self.run_frame(code, scope, locals));
+            self.depth -= 1;
+            return result;
+        }
+        let mut locals = self.take_locals(code.flat_count);
+        let result = self
+            .bind_call(base, function, arguments, keywords, bound, scope, Some(&code.call_layout), Some(&mut locals[..]))
+            .and_then(|()| self.run_chunk_with(code, scope, locals));
         self.depth -= 1;
         result
     }
@@ -1242,29 +1304,70 @@ impl Evaluator {
         function: &Rc<object::FunctionValue>,
         arguments: &[Value],
         keywords: &[Keyword],
-        bound: Option<&Rc<object::BoundMethod>>,
+        bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
         scope: &Env,
+        layout: Option<&CallLayout>,
+        mut locals: Option<&mut [Value]>,
     ) -> Result<(), Signal> {
-        let scope = scope.clone();
         let declaration = &function.declaration;
         let parameters = &declaration.parameters;
         let fixed = parameters.len();
         let label = function_label(declaration);
+        // The shape almost every call has: one positional argument per parameter, no
+        // keywords, nothing variadic, and every binding landing in a flat slot. It
+        // needs no lookup, no default, and no visibility decision beyond the class
+        // context, so it is a straight copy into the frame's own locals.
+        if keywords.is_empty()
+            && declaration.variadic.is_empty()
+            && declaration.keyword.is_empty()
+            && arguments.len() == fixed
+            && layout.is_some_and(|layout| !layout.super_used && (bound.is_none() || layout.this.is_some()))
+        {
+            let layout = layout.expect("the layout was just checked");
+            if let Some(locals) = locals.as_deref_mut() {
+                if layout.flat_parameters {
+                    if let Some(bound) = bound {
+                        scope.borrow_mut().access_class = Some(bound.0.owner.clone());
+                        locals[layout.this.expect("checked") as usize] = Value::Instance(bound.1.clone());
+                    }
+                    for (index, slot) in layout.parameters.iter().enumerate() {
+                        locals[slot.expect("checked") as usize] = arguments[index].clone();
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        // Binds one argument: into the frame's own flat slot when the compiler gave
+        // it one, or into the shared environment when a nested function can reach it.
+        let mut frame = locals;
+        let mut bind = |slot: Option<u32>, name: &str, shared: Option<&Rc<str>>, value: Value| -> Result<(), Signal> {
+            match (slot, frame.as_deref_mut()) {
+                (Some(slot), Some(locals)) => locals[slot as usize] = value,
+                _ => match shared {
+                    Some(shared) => object::define_shared(scope, shared, value, false),
+                    None => object::define(scope, name, value, false),
+                }
+                .map_err(|message| runtime(base, message))?,
+            }
+            Ok(())
+        };
         if let Some(bound) = bound {
-            scope.borrow_mut().access_class = Some(bound.method.owner.clone());
-            object::define_shared(&scope, &self.this_name, Value::Instance(bound.receiver.clone()), true)
-                .map_err(|message| runtime(base, message))?;
-            object::define_shared(
-                &scope,
-                &self.super_name,
-                Value::Super(Rc::new(object::Super {
-                    parent: bound.method.owner.parent.clone(),
-                    receiver: bound.receiver.clone(),
-                    constructor: bound.method.constructor,
-                })),
-                true,
-            )
-            .map_err(|message| runtime(base, message))?;
+            scope.borrow_mut().access_class = Some(bound.0.owner.clone());
+            bind(layout.and_then(|layout| layout.this), "this", Some(&self.this_name), Value::Instance(bound.1.clone()))?;
+            // The tree-walking engine has no layout and always binds `super`, since
+            // it resolves the name at run time.
+            if layout.map_or(true, |layout| layout.super_used) {
+                bind(
+                    layout.and_then(|layout| layout.super_),
+                    "super",
+                    Some(&self.super_name),
+                    Value::Super(Rc::new(object::Super {
+                        parent: bound.0.owner.parent.clone(),
+                        receiver: bound.1.clone(),
+                        constructor: bound.0.constructor,
+                    })),
+                )?;
+            }
         }
         // Resolve each parameter's value in declaration order and bind them in
         // that same order: a positional argument, then keyword, then default. A
@@ -1282,11 +1385,12 @@ impl Evaluator {
             // parameters take their defaults, in declaration order.
             let bound = arguments.len().min(fixed);
             for (index, parameter) in parameters.iter().take(bound).enumerate() {
-                object::define_shared(&scope, parameter, arguments[index].clone(), false).map_err(|message| runtime(base, message))?;
+                let value = arguments[index].clone();
+                bind(parameter_slot(layout, index), parameter, Some(parameter), value)?;
             }
             for (index, parameter) in parameters.iter().enumerate().skip(bound) {
-                object::define_shared(&scope, parameter, self.default_argument(base, function, index)?, false)
-                    .map_err(|message| runtime(base, message))?;
+                let value = self.default_argument(base, function, index)?;
+                bind(parameter_slot(layout, index), parameter, Some(parameter), value)?;
             }
         } else {
             // Resolve every parameter's value first — positional, then keyword,
@@ -1316,16 +1420,18 @@ impl Evaluator {
                     Some(value) => value,
                     None => self.default_argument(base, function, index)?,
                 };
-                object::define_shared(&scope, parameter, value, false).map_err(|message| runtime(base, message))?;
+                bind(parameter_slot(layout, index), parameter, Some(parameter), value)?;
             }
         }
         if !declaration.variadic.is_empty() {
             let extra: Vec<Value> = if arguments.len() > fixed { arguments[fixed..].to_vec() } else { Vec::new() };
-            object::define(&scope, &declaration.variadic, Value::list(extra), false).map_err(|message| runtime(base, message))?;
+            let shared = Rc::from(declaration.variadic.as_str());
+            bind(layout.and_then(|layout| layout.variadic), &declaration.variadic, Some(&shared), Value::list(extra))?;
         }
         if !declaration.keyword.is_empty() {
             let dict = collected.unwrap_or_else(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
-            object::define(&scope, &declaration.keyword, Value::Dict(dict), false).map_err(|message| runtime(base, message))?;
+            let shared = Rc::from(declaration.keyword.as_str());
+            bind(layout.and_then(|layout| layout.keyword), &declaration.keyword, Some(&shared), Value::Dict(dict))?;
         }
         Ok(())
     }
@@ -1349,10 +1455,10 @@ impl Evaluator {
         function: &Rc<object::FunctionValue>,
         arguments: &[Value],
         keywords: &[Keyword],
-        bound: Option<&Rc<object::BoundMethod>>,
+        bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
         scope: &Env,
     ) -> Eval {
-        self.bind_call(base, function, arguments, keywords, bound, scope)?;
+        self.bind_call(base, function, arguments, keywords, bound, scope, None, None)?;
         if let Some(flow) = self.block(&function.declaration.body, scope)? {
             return Ok(flow.value);
         }
@@ -1363,18 +1469,18 @@ impl Evaluator {
         &mut self,
         base: &Base,
         class: &Rc<object::Class>,
+        constructor: Option<&Rc<object::Method>>,
         instance: &Rc<object::Instance>,
         arguments: &[Value],
         keywords: &[Keyword],
     ) -> Result<(), Signal> {
-        let Some(constructor) = class.find_constructor() else {
+        let Some(constructor) = constructor else {
             if !arguments.is_empty() || !keywords.is_empty() {
                 return Err(runtime(base, format!("{} expects 0 arguments; it declares no constructor", class.name)));
             }
             return Ok(());
         };
-        let bound = Rc::new(object::BoundMethod { method: constructor.clone(), receiver: instance.clone() });
-        self.invoke(base, &constructor.function, arguments, keywords, Some(&bound))?;
+        self.invoke(base, &constructor.function, arguments, keywords, Some((constructor, instance)))?;
         Ok(())
     }
 
@@ -1382,8 +1488,22 @@ impl Evaluator {
         if let Some(parent) = &class.parent {
             self.initialize_fields(instance, parent)?;
         }
-        let fields: Vec<Rc<object::Field>> = class.fields.borrow().clone();
-        for field in fields {
+        // The class's own fields, fetched one at a time: a field with no initializer
+        // needs neither a scope nor a borrow held across evaluation, so the whole
+        // vector is not cloned for every instance built.
+        let count = class.fields.borrow().len();
+        for index in 0..count {
+            let field = class.fields.borrow()[index].clone();
+            // A field with no initializer is simply `null`, so there is no
+            // expression to evaluate and no scope to build for it. This is the
+            // common case, and skipping the scope — which exists only to give an
+            // initializer `this` and `super` — is most of what a construction costs.
+            // The instance's fields are pushed in declaration order, and a name is
+            // never declared twice along the chain, so a field is always added.
+            let Some(expression) = &field.declaration.value else {
+                instance.fields.borrow_mut().push((field.name.clone(), Value::Null));
+                continue;
+            };
             let scope = object::Environment::new(Some(field.env.clone()));
             scope.borrow_mut().access_class = Some(class.clone());
             object::define(&scope, "this", Value::Instance(instance.clone()), true)
@@ -1395,11 +1515,8 @@ impl Evaluator {
                 true,
             )
             .map_err(|message| runtime(&field.declaration.base, message))?;
-            let value = match &field.declaration.value {
-                Some(expression) => self.expression(expression, &scope)?,
-                None => Value::Null,
-            };
-            instance.fields.borrow_mut().insert(field.declaration.name.clone(), value);
+            let value = self.expression(expression, &scope)?;
+            instance.fields.borrow_mut().push((field.name.clone(), value));
         }
         Ok(())
     }
@@ -1464,7 +1581,12 @@ impl Evaluator {
                     return Err(runtime(&field.base, format!("cannot redeclare inherited member {:?}", field.name)));
                 }
             }
-            class.fields.borrow_mut().push(Rc::new(object::Field { declaration: field.clone(), owner: class.clone(), env: env.clone() }));
+            class.fields.borrow_mut().push(Rc::new(object::Field {
+                declaration: field.clone(),
+                owner: class.clone(),
+                env: env.clone(),
+                name: Rc::from(field.name.as_str()),
+            }));
         }
         object::define(env, &declaration.name, Value::Class(class), false).map_err(|message| runtime(&declaration.base, message))?;
         Ok(())
@@ -1501,6 +1623,37 @@ impl Evaluator {
             }
         }
         Err(runtime(base, format!("cannot access {} member of {}", access, owner.name)))
+    }
+
+    /// The value of `instance.name` when the class declares `name` as a field,
+    /// along with the field's position in the instance's field vector and whether
+    /// that position may be remembered.
+    ///
+    /// `None` means the name is not a field at all, so the caller can look for a
+    /// method instead. The returned position is what lets the compiled engine turn
+    /// a repeat access into a plain index.
+    fn instance_field(
+        &mut self,
+        base: &Base,
+        instance: &Rc<object::Instance>,
+        name: &str,
+        env: &Env,
+    ) -> Result<Option<(u32, Value, bool)>, Signal> {
+        let Some(field) = instance.class.find_field(name) else {
+            return Ok(None);
+        };
+        self.accessible(base, &field.declaration.access, &field.owner, env)?;
+        let fields = instance.fields.borrow();
+        let Some(position) = fields.iter().position(|(declared, _)| *declared == field.name) else {
+            return Ok(None);
+        };
+        let value = fields[position].1.clone();
+        drop(fields);
+        // A private or protected field is checked against the caller, which can
+        // differ between two accesses of one receiver, so only a public one is
+        // remembered.
+        let remember = field.declaration.access.is_empty() || field.declaration.access == "public";
+        Ok(Some((position as u32, value, remember)))
     }
 
     fn property(&mut self, base: &Base, receiver: &Value, name: &str, env: &Env) -> Eval {
@@ -1552,12 +1705,10 @@ impl Evaluator {
                 // Look the member up once: a field and a method cannot share a
                 // name, so at most one class-chain walk is needed, not the three
                 // that a separate access check plus lookup would cost.
-                if let Some(field) = instance.class.find_field(name) {
-                    self.accessible(base, &field.declaration.access, &field.owner, env)?;
-                    if let Some(value) = instance.fields.borrow().get(name) {
-                        return Ok(value.clone());
-                    }
-                } else if let Some(method) = instance.class.find_method(name) {
+                if let Some((_, value, _)) = self.instance_field(base, instance, name, env)? {
+                    return Ok(value);
+                }
+                if let Some(method) = instance.class.find_method(name) {
                     self.accessible(base, &method.function.declaration.access, &method.owner, env)?;
                     return Ok(Value::BoundMethod(Rc::new(object::BoundMethod { method, receiver: instance.clone() })));
                 }
@@ -1975,20 +2126,35 @@ impl Evaluator {
         }
     }
 
-    /// Stores `receiver.name = value`, matching the interpreter's property target.
-    fn set_property(&mut self, base: &Base, receiver: Value, name: &str, value: Value, env: &Env) -> Result<(), Signal> {
-        let Value::Instance(instance) = receiver else {
-            return Err(runtime(base, format!("cannot assign a property of {}", receiver.type_name())));
-        };
+    /// Stores `instance.name = value`, matching the interpreter's property target,
+    /// and reports the field's position when that position may be remembered for the
+    /// next store to the same receiver.
+    ///
+    /// A position is only worth remembering for a public, non-`const` field, because
+    /// the check that a remembered store skips — visibility and `const` — is the one
+    /// that can differ between two stores of one receiver.
+    fn store_instance_field(
+        &mut self,
+        base: &Base,
+        instance: &Rc<object::Instance>,
+        name: &str,
+        value: Value,
+        env: &Env,
+    ) -> Result<Option<u32>, Signal> {
         self.member_access(base, &instance.class, name, env, true)?;
-        if instance.class.find_field(name).is_none() {
+        let Some(field) = instance.class.find_field(name) else {
             return Err(runtime(
                 base,
                 format!("{} has no field {:?}; declare it in the class with var or const", instance.class.name, name),
             ));
-        }
-        instance.fields.borrow_mut().insert(name.to_string(), value);
-        Ok(())
+        };
+        let position = instance.fields.borrow().iter().position(|(declared, _)| *declared == field.name);
+        let Some(position) = position else {
+            return Err(runtime(base, format!("{} has no field {:?}", instance.class.name, name)));
+        };
+        instance.fields.borrow_mut()[position].1 = value;
+        let remember = (field.declaration.access.is_empty() || field.declaration.access == "public") && !field.declaration.constant;
+        Ok(if remember { Some(position as u32) } else { None })
     }
 
     /// Applies `++`/`--` to a named variable, matching the interpreter's update.

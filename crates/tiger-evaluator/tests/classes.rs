@@ -203,3 +203,70 @@ fn member_access() {
         assert!(error.contains(message), "{}: expected {:?}, got {}", source, message, error);
     }
 }
+
+/// A nested function reaches `super` through the environment, so the frame that
+/// binds it has to keep it there; the same name read directly in the method comes
+/// from the frame's own slot.
+#[test]
+fn super_inside_a_nested_function() {
+    expect_outputs(&[(
+        "class Root {\n\
+         var name;\n\
+         Root(name) { this.name = name; }\n\
+         function label() { return \"root:\" + this.name; }\n\
+         }\n\
+         class Mid extends Root {\n\
+         Mid(name) { super(name); }\n\
+         function label() { return super.label() + \"/mid\"; }\n\
+         function callback() { function later() { return super.label(); } return later; }\n\
+         function direct() { return super.label; }\n\
+         }\n\
+         const m = Mid(\"x\");\n\
+         print(m.label()); print(m.callback()()); print(m.direct()());",
+        "root:x/mid\nroot:x\nroot:x\n",
+    )]);
+}
+
+/// The compiled engine's inline cache remembers an instance field by position, so
+/// a repeated read has to see the value a method wrote in between, and a private
+/// field still has to be refused on the second visit to the same access.
+#[test]
+fn cached_field_access() {
+    expect_outputs(&[(
+        "class Box {\n\
+         var value = 0;\n\
+         function bump() { this.value = this.value + 1; return this.value; }\n\
+         }\n\
+         const box = Box();\n\
+         var seen = [];\n\
+         for i in range(3) { seen = seen + [box.value]; box.bump(); }\n\
+         print(seen, box.bump(), box.value);",
+        "[0, 1, 2] 4 4\n",
+    )]);
+    expect_errors(&[(
+        "class Box { private var value = 1; function read() { return this.value; } }\n\
+         const box = Box();\n\
+         var total = 0;\n\
+         for i in range(2) { total = total + box.value; }\n\
+         print(total);",
+        "cannot access private",
+    )]);
+}
+
+/// A method carries the class context its member visibility is checked against, and
+/// it must live in the method's own call scope. A class whose constructor binds
+/// only flat names must not leave that context behind in the scope it was defined
+/// in, which would let unrelated code reach a private field.
+#[test]
+fn member_context_stays_in_the_call() {
+    expect_errors(&[(
+        "class Base {\n\
+         private var secret = 1;\n\
+         Base() {}\n\
+         }\n\
+         Base();\n\
+         const b = Base();\n\
+         print(b.secret);",
+        "cannot access private",
+    )]);
+}

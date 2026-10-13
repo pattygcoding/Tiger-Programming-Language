@@ -124,7 +124,7 @@ fn programs(directory: &str) -> Vec<Fixture> {
 /// condition sees, what happens when the `finally` itself leaves or fails, and
 /// how the blocks scope their declarations.
 fn semantics() -> Vec<Fixture> {
-    const SOURCES: [&str; 20] = [
+    const SOURCES: [&str; 21] = [
         // A `finally` runs on normal completion, on a caught throw, and on an
         // error that no clause takes.
         r#"try { print("body"); } finally { print("finally"); }"#,
@@ -159,6 +159,9 @@ fn semantics() -> Vec<Fixture> {
         // Slices of a list and a string, with negative bounds and a step.
         r#"print([1, 2, 3, 4, 5][1:3], [1, 2, 3, 4, 5][-2:], [1, 2, 3, 4, 5][::-1], [1, 2, 3, 4, 5][::2]);"#,
         r#"print("hello"[1:3], "hello"[::-1], "hello"[-3:]);"#,
+        // A method's class context belongs to its own call, so a private field
+        // stays out of reach after a same-class constructor has run.
+        r#"class Base { private var secret = 1; Base() {} } Base(); const b = Base(); print(b.secret);"#,
     ];
     SOURCES
         .iter()
