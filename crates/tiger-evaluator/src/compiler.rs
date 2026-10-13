@@ -256,7 +256,9 @@ impl Compiler {
     }
 
     fn finish(self) -> Rc<Chunk> {
+        let slots = self.code.len();
         Rc::new(Chunk {
+            property_cache: std::cell::RefCell::new(vec![None; slots]),
             code: self.code,
             constants: self.constants,
             names: self.names,

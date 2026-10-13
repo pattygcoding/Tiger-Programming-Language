@@ -193,6 +193,10 @@ pub struct Evaluator {
     scope_pool: Vec<Env>,
     /// Value stacks freed by finished calls, reused so a call does not allocate.
     stack_pool: Vec<Vec<Value>>,
+    /// Argument buffers freed by finished calls, reused so a call does not
+    /// allocate a vector for the arguments it passes.
+    args_pool: Vec<Vec<Value>>,
+    keywords_pool: Vec<Vec<Keyword>>,
     /// Shared names for the bindings every method call creates, so binding them
     /// does not allocate.
     this_name: Rc<str>,
@@ -216,6 +220,8 @@ impl Evaluator {
             depth: 0,
             scope_pool: Vec::new(),
             stack_pool: Vec::new(),
+            args_pool: Vec::new(),
+            keywords_pool: Vec::new(),
             this_name: Rc::from("this"),
             super_name: Rc::from("super"),
         }

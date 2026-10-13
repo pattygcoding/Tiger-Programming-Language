@@ -20,6 +20,34 @@ struct IterState {
 
 type Vm = Result<Value, Signal>;
 
+/// Whether two values are the same receiver. Clones of one `Rc` share their
+/// address, so a cache hit means this instruction resolved this very object before.
+fn same_receiver(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Dict(a), Value::Dict(b)) => Rc::ptr_eq(a, b),
+        (Value::Module(a), Value::Module(b)) => Rc::ptr_eq(a, b),
+        (Value::Instance(a), Value::Instance(b)) => Rc::ptr_eq(a, b),
+        _ => false,
+    }
+}
+
+/// Whether a resolved property may be reused for the same receiver.
+///
+/// A module's bindings and a class's methods are fixed once defined, so those are
+/// remembered. An instance *field* read is mutable state and is never remembered,
+/// and a private method's visibility is checked against the caller — which can
+/// differ between two accesses of one receiver — so neither is.
+fn reusable_property(receiver: &Value, value: &Value) -> bool {
+    match (receiver, value) {
+        (Value::Dict(_), _) | (Value::Module(_), _) => true,
+        (Value::Instance(_), Value::Builtin(_)) => true,
+        (Value::Instance(_), Value::BoundMethod(bound)) => {
+            bound.method.function.declaration.access.is_empty() || bound.method.function.declaration.access == "public"
+        }
+        _ => false,
+    }
+}
+
 /// The scope `hops` levels up the runtime chain: offset 0 is the current scope,
 /// and the frame's own scope is the bottom of `scopes`.
 ///
@@ -252,14 +280,22 @@ impl Evaluator {
                     let argument_count = positional as usize + 2 * keyword_count;
                     let at = stack.len() - argument_count;
                     let callee = stack[at - 1].clone();
-                    let positional_arguments: Vec<Value> = stack[at..at + positional as usize].to_vec();
-                    let mut named = Vec::with_capacity(keyword_count);
+                    // The arguments come off the value stack into pooled buffers: a
+                    // call is the hottest operation in most programs, and a fresh
+                    // vector for every one of them adds up.
+                    let mut positional_arguments = self.args_pool.pop().unwrap_or_default();
+                    positional_arguments.extend_from_slice(&stack[at..at + positional as usize]);
+                    let mut named = self.keywords_pool.pop().unwrap_or_default();
                     for pair in stack[at + positional as usize..].chunks(2) {
                         let Value::String(name) = &pair[0] else { unreachable!("keyword name") };
                         named.push(Keyword { name: name.to_string(), value: pair[1].clone() });
                     }
                     stack.truncate(at - 1);
                     let value = self.call(&chunk.base_at(position), callee, &positional_arguments, &named, &env)?;
+                    positional_arguments.clear();
+                    self.args_pool.push(positional_arguments);
+                    named.clear();
+                    self.keywords_pool.push(named);
                     stack.push(value);
                 }
                 Instr::GetIndex => {
@@ -270,7 +306,7 @@ impl Evaluator {
                 }
                 Instr::GetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
-                    let value = self.property(&chunk.base_at(position), &receiver, &chunk.names[index as usize], &env)?;
+                    let value = self.cached_property(chunk, pc - 1, index as usize, receiver, &env)?;
                     stack.push(value);
                 }
                 Instr::SetIndex => {
@@ -396,6 +432,29 @@ impl Evaluator {
                 }
             }
         }
+    }
+
+    /// Resolves `receiver.name` for one `GetProperty` instruction, remembering the
+    /// answer for when the same instruction next sees the same receiver.
+    ///
+    /// This is a monomorphic inline cache, and it is worth it because a property
+    /// access is a name match plus — for every receiver but an instance field — a
+    /// freshly built method object. A loop over one receiver, which is the common
+    /// shape, pays neither after its first pass.
+    fn cached_property(&mut self, chunk: &Rc<Chunk>, pc: usize, name: usize, receiver: Value, env: &Env) -> Vm {
+        let name = &chunk.names[name];
+        if let Some(Some((cached, value))) = chunk.property_cache.borrow().get(pc) {
+            if same_receiver(cached, &receiver) {
+                return Ok(value.clone());
+            }
+        }
+        let value = self.property(&chunk.base_at(chunk.position(pc)), &receiver, name, env)?;
+        if reusable_property(&receiver, &value) {
+            if let Some(slot) = chunk.property_cache.borrow_mut().get_mut(pc) {
+                *slot = Some((receiver, value.clone()));
+            }
+        }
+        Ok(value)
     }
 
     /// Runs one compiled `try`: its body, then the first catch clause that takes
