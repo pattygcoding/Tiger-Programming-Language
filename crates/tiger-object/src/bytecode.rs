@@ -6,6 +6,7 @@
 //! operations (`Value`, environments, operators), so a compiled program has
 //! exactly the semantics of the tree-walking interpreter.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::Value;
@@ -177,6 +178,13 @@ pub struct Chunk {
     pub classes: Vec<Rc<ClassProto>>,
     pub tries: Vec<Rc<TryProto>>,
     pub slices: Vec<Rc<SliceProto>>,
+    /// One monomorphic inline cache slot per instruction: the receiver a property
+    /// access last resolved, and the value it resolved to.
+    ///
+    /// The receiver is held rather than only its address, so the slot cannot be
+    /// mistaken for a different object that later reuses that address. The engine
+    /// fills and reads it; the compiler only makes room.
+    pub property_cache: RefCell<Vec<Option<(Value, Value)>>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
     /// The source name every position in this chunk belongs to.

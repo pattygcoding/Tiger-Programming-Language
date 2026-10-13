@@ -209,9 +209,10 @@ cargo clippy --all-targets
 For wall-clock timings, `cargo test -p tiger-conformance --test timing --release
 -- --ignored --nocapture` reports a minimum and mean for every benchmark program
 in-process. `TIGER_BENCH_FILE` times a single program, `TIGER_TIMING_ITERATIONS`
-sets the batch size, and `TIGER_ENGINE=tree` runs the same program on the
-tree-walking interpreter instead of the compiled engine, which is how the
-compiled engine's share of a workload is measured without a profiler.
+sets the batch size, `TIGER_ENGINE=tree` runs the same program on the tree-walking
+interpreter instead of the compiled engine, which is how the compiled engine's
+share of a workload is measured without a profiler, and `TIGER_SHOW_OUTPUT=1`
+keeps the program's own output for a program that times itself.
 
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty 100-200-line benchmark programs

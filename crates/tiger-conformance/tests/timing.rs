@@ -11,7 +11,9 @@
 //! `TIGER_TIMING_ITERATIONS` sets how many times each program runs (default 10).
 //! `TIGER_ENGINE=tree` runs `time_source_file`'s program on the tree-walking
 //! interpreter instead of the compiled engine, which is how the compiled engine's
-//! share of a workload is measured without a profiler.
+//! share of a workload is measured without a profiler. `TIGER_SHOW_OUTPUT=1` keeps
+//! the program's own output, which a program that times itself needs in order to
+//! report its numbers.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -41,8 +43,12 @@ fn time_source_file() {
     if std::env::var("TIGER_ENGINE").is_ok_and(|value| value == "tree") {
         options.engine = Engine::Tree;
     }
+    // `TIGER_SHOW_OUTPUT=1` keeps the program's own output visible, which a
+    // benchmark that times itself needs in order to report its numbers.
+    let show = std::env::var_os("TIGER_SHOW_OUTPUT").is_some();
     let run_once = |source: &str, name: &str| {
-        tiger_evaluator::run_with_options(source, name, None, None, None, Box::new(std::io::sink()), options).expect("run")
+        let writer: Box<dyn std::io::Write> = if show { Box::new(std::io::stdout()) } else { Box::new(std::io::sink()) };
+        tiger_evaluator::run_with_options(source, name, None, None, None, writer, options).expect("run")
     };
     let _ = run_once(&source, &name);
     let mut best = f64::INFINITY;
