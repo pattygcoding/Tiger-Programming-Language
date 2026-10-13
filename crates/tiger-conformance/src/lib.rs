@@ -14,7 +14,7 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-pub use tiger_evaluator::{FileLoader, FileSystem, MemoryFileSystem, ModuleLoader};
+pub use tiger_evaluator::{Engine, FileLoader, FileSystem, MemoryFileSystem, ModuleLoader, RunOptions};
 
 /// The repository root, two directories above this crate's manifest.
 pub fn root() -> PathBuf {
@@ -68,6 +68,20 @@ pub struct Outcome {
 /// `loader` selects whether `import` is available, mirroring the Go tests that
 /// pass either a `FileLoader` or `nil`.
 pub fn run(source: &str, filename: &str, files: Files, loader: bool, input: Option<&str>) -> Outcome {
+    run_with(source, filename, files, loader, input, RunOptions::default())
+}
+
+/// Runs a program on a chosen engine with no step limit.
+///
+/// The differential tests run every fixture this way under [`Engine::Tree`] and
+/// compare the result with the same fixture under [`Engine::Auto`], so the two
+/// engines are compared on semantics rather than on how they count steps.
+pub fn run_engine(source: &str, filename: &str, files: Files, loader: bool, input: Option<&str>, engine: Engine) -> Outcome {
+    run_with(source, filename, files, loader, input, RunOptions { engine, max_steps: 0 })
+}
+
+/// Runs a program with explicit engine options on a big-stack thread.
+pub fn run_with(source: &str, filename: &str, files: Files, loader: bool, input: Option<&str>, options: RunOptions) -> Outcome {
     let source = source.to_string();
     let filename = filename.to_string();
     let input = input.map(str::to_string);
@@ -81,8 +95,16 @@ pub fn run(source: &str, filename: &str, files: Files, loader: bool, input: Opti
             };
             let reader: Option<Box<dyn BufRead>> = input.map(|text| Box::new(std::io::Cursor::new(text.into_bytes())) as Box<dyn BufRead>);
             let modules: Option<Rc<dyn ModuleLoader>> = if loader { Some(Rc::new(FileLoader)) } else { None };
-            let error =
-                tiger_evaluator::run_with_input(&source, &filename, modules, filesystem, reader, Box::new(Shared(buffer.0.clone()))).err();
+            let error = tiger_evaluator::run_with_options(
+                &source,
+                &filename,
+                modules,
+                filesystem,
+                reader,
+                Box::new(Shared(buffer.0.clone())),
+                options,
+            )
+            .err();
             Outcome { output: buffer.text(), error }
         })
         .expect("the interpreter thread must start");

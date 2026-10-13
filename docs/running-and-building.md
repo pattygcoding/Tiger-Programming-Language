@@ -111,7 +111,7 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 720 KB, about 265 KB with gzip, and smaller still
+The stripped binary is about 740 KB, about 265 KB with gzip, and smaller still
 with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable
 gzip or Brotli for the `application/wasm` content type. The local `cargo run -p
 tiger-web` server does not compress.
@@ -168,6 +168,33 @@ engine.execute(&program).expect("the program runs");
 evaluator holds mutable execution state, so do not share one between threads, and
 there is no API for persisting Tiger bindings across separate executions.
 
+A program runs on the compiled engine when it lowers, and falls back to the
+tree-walking interpreter for the constructs the compiler does not cover yet:
+slicing, destructuring, spread calls, and a `break` or `continue` that would
+leave a `try`. `try`/`catch`/`finally` itself is compiled, including a `return`
+from any of its blocks, which unwinds through the `finally` on its way out of the
+enclosing function.
+`tiger_evaluator::run_with_options` pins both the engine and the step limit, which
+is how the differential test runs every fixture on both engines and checks that
+they agree. `Engine::Tree` forces the tree-walker, and `max_steps` counts
+statements there but instructions on the compiled engine, so `0` — no limit — is
+the useful setting when comparing them:
+
+```rust
+use tiger_evaluator::{Engine, RunOptions};
+let options = RunOptions { engine: Engine::Tree, max_steps: 0 };
+tiger_evaluator::run_with_options(
+    "print(6 * 7);",
+    "embedded.tg",
+    None,
+    None,
+    None,
+    Box::new(std::io::sink()),
+    options,
+)
+.expect("the program runs");
+```
+
 ## Tests and Make Targets
 
 ```sh
@@ -181,7 +208,9 @@ cargo clippy --all-targets
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty 100-200-line benchmark programs
 against fixed output files, the 157 documentation examples, every example and
-portfolio-feature program, the standalone-build integration tests, and the
+portfolio-feature program, the standalone-build integration tests, the
+differential test that runs every one of those programs on both engines and
+checks that the results match, and the
 browser runtime under Node. The documentation suite checks Tiger examples against
 the output shown in Markdown, and the benchmark suite checks the programs against
 their `.txt` files; neither is a performance threshold test. The standalone

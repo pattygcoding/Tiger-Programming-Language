@@ -198,6 +198,46 @@ impl Bindings {
         }
     }
 
+    /// The number of bindings in the scope.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether the scope is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The binding at `slot`, which is simply its position in the scope.
+    ///
+    /// A scope's names are declared in source order, so the compiled engine can
+    /// address a binding by the position the compiler gave it and skip the name
+    /// lookup entirely.
+    #[inline]
+    pub fn binding_at(&self, slot: usize) -> Option<&Binding> {
+        self.entries.get(slot).map(|(_, binding)| binding)
+    }
+
+    /// The name declared at `slot`, which a slot-based access checks against.
+    #[inline]
+    pub fn name_at(&self, slot: usize) -> Option<&str> {
+        self.entries.get(slot).map(|(key, _)| &**key)
+    }
+
+    /// Reassigns the binding at `slot`, with the same constant check [`assign`]
+    /// makes and without looking the name up.
+    #[inline]
+    pub fn set_at(&mut self, slot: usize, value: Value) -> Result<(), String> {
+        let entry = &mut self.entries[slot];
+        if entry.1.constant {
+            return Err(format!("cannot reassign const {:?}", &*entry.0));
+        }
+        entry.1.value = value;
+        Ok(())
+    }
+
     fn insert(&mut self, name: &str, binding: Binding) {
         self.insert_shared(Rc::from(name), binding);
     }
@@ -308,6 +348,23 @@ pub fn define_shared(env: &Env, name: &Rc<str>, value: Value, constant: bool) ->
         return Err(format!("{:?} is already declared in this scope", name));
     }
     scope.bindings.insert_shared(name.clone(), Binding { value, constant });
+    Ok(())
+}
+
+/// Defines a binding whose slot the compiler already knows, so a slot-based store
+/// can follow without looking the name up.
+///
+/// The slot must be the next free position in the scope: a scope's names are
+/// declared in source order, so a declaration's slot is its index. A debug build
+/// checks that, which turns any drift between the compiler's scope model and the
+/// runtime's into a loud failure in the test suite rather than a silent mistake.
+pub fn define_at(env: &Env, name: &str, slot: usize, value: Value, constant: bool) -> Result<(), String> {
+    let mut scope = env.borrow_mut();
+    if scope.bindings.contains(name) {
+        return Err(format!("{:?} is already declared in this scope", name));
+    }
+    debug_assert_eq!(slot, scope.bindings.len(), "declaration slot for {:?}", name);
+    scope.bindings.insert(name, Binding { value, constant });
     Ok(())
 }
 

@@ -33,6 +33,17 @@ fn finally_blocks() {
             "var log = []; for index in [1, 2, 3] { try { if index == 2 { continue; } log = log + [index]; } finally { log = log + [\"f\"]; } } print(log);",
             "[1, \"f\", \"f\", 3, \"f\"]\n",
         ),
+        // A `finally` that fails replaces the error in flight, after running.
+        (
+            "var log = []; function run() { try { throw \"first\"; } finally { log = log + [\"f\"]; throw \"second\"; } } try { run(); } catch (error) { print(error, log); }",
+            "second [\"f\"]\n",
+        ),
+        // A clause that throws leaves through the `finally` and reaches the next
+        // handler out.
+        (
+            "var log = []; try { try { throw \"a\"; } catch (error) { log = log + [\"c\"]; throw \"b\"; } finally { log = log + [\"f\"]; } } catch (error) { print(error, log); }",
+            "b [\"c\", \"f\"]\n",
+        ),
     ]);
 }
 

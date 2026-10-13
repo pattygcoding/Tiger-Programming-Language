@@ -8,10 +8,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use tiger_ast::{Base, Block, Expr, FunctionDecl, LiteralValue, Stmt};
-use tiger_object::bytecode::{Chunk, ClassProto, FunctionProto, Instr, Op};
+use tiger_object::bytecode::{CatchProto, Chunk, ClassProto, FunctionProto, Instr, Op, TryProto};
 use tiger_object::Value;
 
 use crate::declares_in;
+
+/// The names a method body's frame scope starts with: the engine binds both
+/// before any parameter, so its parameters begin at slot 2.
+const METHOD_PREFIX: [&str; 2] = ["this", "super"];
 
 /// The fast-path code for a binary operator, or `Op::Other` for the fallback.
 fn operator_code(text: &str) -> Op {
@@ -40,13 +44,26 @@ type Compiled = Result<(), Unsupported>;
 
 /// Compiles a whole program, or reports that it uses an unsupported construct.
 pub(crate) fn compile(statements: &Block, source: &str) -> Result<Rc<Chunk>, Unsupported> {
-    chunk_of(statements, Rc::from(source))
+    chunk_of(statements, Rc::from(source), &[], None, false)
 }
 
 /// Compiles a block into a chunk that ends by returning the block's value.
-fn chunk_of(statements: &[Stmt], source: Rc<str>) -> Result<Rc<Chunk>, Unsupported> {
+///
+/// `prefix` and `declaration` describe the bindings the engine makes before the
+/// body runs — a method's `this` and `super`, then the parameters, the variadic
+/// list, and the `**kwargs` dictionary — so the compiler can seed the frame scope
+/// with exactly those names and give every declaration in the body the slot the
+/// engine will give it. `escape_return` marks a chunk the engine runs as an
+/// isolated block rather than as a function body.
+fn chunk_of(
+    statements: &[Stmt],
+    source: Rc<str>,
+    prefix: &[&str],
+    declaration: Option<&FunctionDecl>,
+    escape_return: bool,
+) -> Result<Rc<Chunk>, Unsupported> {
     let base = statements.first().map(Stmt::base).cloned().unwrap_or(Base { line: 1, column: 1, source: source.clone() });
-    let mut compiler = Compiler::new(source);
+    let mut compiler = Compiler::new(source, prefix, declaration, escape_return);
     compiler.block(statements)?;
     compiler.emit(Instr::Null, &base);
     compiler.emit(Instr::Return, &base);
@@ -67,6 +84,16 @@ struct LoopTarget {
     for_in: bool,
 }
 
+/// The names one lexical scope of a chunk declares, in declaration order.
+///
+/// A name's slot is its index here, and the runtime binds a scope's names in the
+/// same order, so the two agree with no bookkeeping at run time: the compiler
+/// just has to count every declaration, in source order.
+#[derive(Default)]
+struct ScopeFrame {
+    names: Vec<Rc<str>>,
+}
+
 struct Compiler {
     code: Vec<Instr>,
     constants: Vec<Value>,
@@ -77,12 +104,34 @@ struct Compiler {
     positions: Vec<(u32, u32)>,
     source: Rc<str>,
     scope_depth: usize,
+    /// The lexical scopes of this chunk, outermost first. `hops` counts up from
+    /// the innermost, so the frame's own scope is at index 0 and is the bottom of
+    /// the running engine's scope stack.
+    scopes: Vec<ScopeFrame>,
     iter_depth: usize,
     loops: Vec<LoopTarget>,
+    tries: Vec<Rc<TryProto>>,
+    escape_return: bool,
 }
 
 impl Compiler {
-    fn new(source: Rc<str>) -> Compiler {
+    fn new(source: Rc<str>, prefix: &[&str], declaration: Option<&FunctionDecl>, escape_return: bool) -> Compiler {
+        // The engine binds a method's `this` and `super`, a catch clause's caught
+        // value, then the parameters in declaration order, the variadic list, and
+        // the `**kwargs` dictionary, all before the body runs. Seeding the frame
+        // scope with exactly those names gives every declaration in the body the
+        // slot the engine will give it, which is what a slot-based access relies on.
+        let mut frame = ScopeFrame::default();
+        frame.names.extend(prefix.iter().map(|name| Rc::from(*name)));
+        if let Some(declaration) = declaration {
+            frame.names.extend(declaration.parameters.iter().cloned());
+            if !declaration.variadic.is_empty() {
+                frame.names.push(Rc::from(declaration.variadic.as_str()));
+            }
+            if !declaration.keyword.is_empty() {
+                frame.names.push(Rc::from(declaration.keyword.as_str()));
+            }
+        }
         Compiler {
             code: Vec::new(),
             constants: Vec::new(),
@@ -93,9 +142,45 @@ impl Compiler {
             positions: Vec::new(),
             source,
             scope_depth: 0,
+            scopes: vec![frame],
             iter_depth: 0,
             loops: Vec::new(),
+            tries: Vec::new(),
+            escape_return,
         }
+    }
+
+    /// Enters a child scope, for the `PushScope` this compiler emits.
+    fn enter_scope(&mut self) {
+        self.scopes.push(ScopeFrame::default());
+        self.scope_depth += 1;
+    }
+
+    /// Leaves the current scope, for its matching `PopScope`.
+    fn leave_scope(&mut self) {
+        self.scopes.pop();
+        self.scope_depth -= 1;
+    }
+
+    /// Resolves a name to `(hops, slot)` within this chunk, or `None` when the
+    /// name is not a local of this chunk and must be looked up the chain instead.
+    fn resolve(&self, name: &str) -> Option<(u32, u32)> {
+        let depth = self.scopes.len();
+        for (index, scope) in self.scopes.iter().enumerate().rev() {
+            if let Some(slot) = scope.names.iter().position(|declared| &**declared == name) {
+                return Some(((depth - 1 - index) as u32, slot as u32));
+            }
+        }
+        None
+    }
+
+    /// Records a declaration in the current scope and returns its `(hops, slot)`.
+    /// A declaration always lands in the scope being compiled, so `hops` is 0.
+    fn declare(&mut self, name: &str) -> (u32, u32) {
+        let scope = self.scopes.last_mut().expect("a scope is always open");
+        let slot = scope.names.len() as u32;
+        scope.names.push(Rc::from(name));
+        (0, slot)
     }
 
     fn emit(&mut self, instr: Instr, base: &Base) {
@@ -141,6 +226,7 @@ impl Compiler {
             names: self.names,
             functions: self.functions,
             classes: self.classes,
+            tries: self.tries,
             positions: self.positions,
             source: self.source,
         })
@@ -160,7 +246,10 @@ impl Compiler {
             }
             Expr::Identifier { base, name } => {
                 let index = self.name(name);
-                self.emit(Instr::LoadName(index), base);
+                match self.resolve(name) {
+                    Some((hops, slot)) => self.emit(Instr::LoadLocal { name: index, hops, slot }, base),
+                    None => self.emit(Instr::LoadName(index), base),
+                }
             }
             Expr::Super { base } => {
                 self.emit(Instr::LoadSuper, base);
@@ -263,7 +352,11 @@ impl Compiler {
             Expr::Update { base, target, operator, prefix } => {
                 let Expr::Identifier { name, .. } = &**target else { return Err(Unsupported) };
                 let index = self.name(name);
-                self.emit(Instr::UpdateName { name: index, decrement: operator == "--", prefix: *prefix }, base);
+                let decrement = operator == "--";
+                match self.resolve(name) {
+                    Some((hops, slot)) => self.emit(Instr::UpdateLocal { name: index, hops, slot, decrement, prefix: *prefix }, base),
+                    None => self.emit(Instr::UpdateName { name: index, decrement, prefix: *prefix }, base),
+                }
             }
             Expr::FormattedString { base, parts } => {
                 if parts.is_empty() {
@@ -294,7 +387,7 @@ impl Compiler {
     }
 
     fn function_proto(&mut self, declaration: &Rc<FunctionDecl>) -> Result<u32, Unsupported> {
-        let code = chunk_of(&declaration.body, self.source.clone())?;
+        let code = chunk_of(&declaration.body, self.source.clone(), &[], Some(declaration), false)?;
         let index = self.functions.len() as u32;
         self.functions.push(Rc::new(FunctionProto { declaration: declaration.clone(), code }));
         Ok(index)
@@ -313,12 +406,12 @@ impl Compiler {
         let declares = declares_in(body);
         if declares {
             self.emit(Instr::PushScope, base);
-            self.scope_depth += 1;
+            self.enter_scope();
         }
         self.block(body)?;
         if declares {
             self.emit(Instr::PopScope, base);
-            self.scope_depth -= 1;
+            self.leave_scope();
         }
         Ok(())
     }
@@ -336,24 +429,37 @@ impl Compiler {
                 let proto = self.function_proto(declaration)?;
                 self.emit(Instr::MakeFunction(proto), &declaration.base);
                 let index = self.name(&declaration.name);
-                self.emit(Instr::DefineName { name: index, constant: false }, &declaration.base);
+                let (_, slot) = self.declare(&declaration.name);
+                self.emit(Instr::DefineLocal { name: index, slot, constant: false }, &declaration.base);
             }
             Stmt::Class(declaration) => {
                 let index = self.class_proto(declaration)?;
                 self.emit(Instr::Class(index), &declaration.base);
+                // The `Class` instruction binds the name itself; record it here so
+                // the declarations that follow in this scope get the right slots.
+                self.declare(&declaration.name);
             }
             Stmt::Return { base, value } => {
                 match value {
                     Some(value) => self.expression(value)?,
                     None => self.emit(Instr::Null, base),
                 }
-                self.emit(Instr::Return, base);
+                // A `return` in an isolated block belongs to the enclosing
+                // function, so it leaves the block instead of ending it.
+                if self.escape_return {
+                    self.emit(Instr::ReturnEscape, base);
+                } else {
+                    self.emit(Instr::Return, base);
+                }
             }
             Stmt::Throw { base, value } => {
                 self.expression(value)?;
                 self.emit(Instr::Throw, base);
             }
             Stmt::Import { base, path, name } => {
+                // The `Import` instruction binds the name itself; record it here so
+                // the declarations that follow in this scope get the right slots.
+                self.declare(name);
                 let path = self.name(path);
                 let name = self.name(name);
                 self.emit(Instr::Import { path, name }, base);
@@ -428,9 +534,10 @@ impl Compiler {
                 let start = self.here();
                 self.emit(Instr::IterNext(0), base);
                 self.emit(Instr::PushScope, base);
-                self.scope_depth += 1;
+                self.enter_scope();
                 let var = self.name(name);
-                self.emit(Instr::DefineName { name: var, constant: false }, base);
+                let (_, slot) = self.declare(name);
+                self.emit(Instr::DefineLocal { name: var, slot, constant: false }, base);
                 self.loops.push(LoopTarget {
                     label: label.clone(),
                     breaks: Vec::new(),
@@ -442,7 +549,7 @@ impl Compiler {
                 });
                 self.block(body)?;
                 self.emit(Instr::PopScope, base);
-                self.scope_depth -= 1;
+                self.leave_scope();
                 self.emit(Instr::Jump(start as u32), base);
                 let else_start = self.here();
                 self.patch(start, else_start);
@@ -460,7 +567,7 @@ impl Compiler {
             Stmt::CFor { base, label, initializer, condition, update, body, else_block } => {
                 let outer_depth = self.scope_depth;
                 self.emit(Instr::PushScope, base);
-                self.scope_depth += 1;
+                self.enter_scope();
                 if let Some(initializer) = initializer {
                     self.statement(initializer)?;
                 }
@@ -495,7 +602,7 @@ impl Compiler {
                 let target = self.loops.pop().expect("loop target");
                 self.branch_body(else_block, base)?;
                 self.emit(Instr::PopScope, base);
-                self.scope_depth -= 1;
+                self.leave_scope();
                 let end = self.here();
                 for position in target.breaks {
                     self.patch(position, end);
@@ -530,6 +637,25 @@ impl Compiler {
                 for position in target.continues {
                     self.patch(position, condition_start);
                 }
+            }
+            Stmt::Try { base, body, catches, finally } => {
+                // Every part of a `try` runs as its own chunk. That is what lets
+                // the engine catch an error the body raises, and what lets a
+                // `return` inside any of the three parts unwind through the
+                // `finally` on its way out of the enclosing function. A `break` or
+                // `continue` that would leave the try is refused by the sub-chunk's
+                // own loop check, so a `try` containing one still falls back to the
+                // interpreter rather than being lowered wrongly.
+                let body = chunk_of(body, self.source.clone(), &[], None, true)?;
+                let mut clauses = Vec::with_capacity(catches.len());
+                for clause in catches {
+                    let code = chunk_of(&clause.body, self.source.clone(), &[clause.name.as_str()], None, true)?;
+                    clauses.push(CatchProto { name: Rc::from(clause.name.as_str()), condition: clause.condition.clone(), body: code });
+                }
+                let finally = if finally.is_empty() { None } else { Some(chunk_of(finally, self.source.clone(), &[], None, true)?) };
+                let index = self.tries.len() as u32;
+                self.tries.push(Rc::new(TryProto { body, clauses, finally }));
+                self.emit(Instr::Try(index), base);
             }
             _ => return self.statement_tail_control(statement),
         }
@@ -578,38 +704,51 @@ impl Compiler {
             let Expr::Identifier { name, .. } = target else { return Err(Unsupported) };
             self.expression(value)?;
             let index = self.name(name);
-            self.emit(Instr::DefineName { name: index, constant }, base);
+            let (_, slot) = self.declare(name);
+            self.emit(Instr::DefineLocal { name: index, slot, constant }, base);
             return Ok(());
         }
         if operator != "=" {
             let Expr::Identifier { name, .. } = target else { return Err(Unsupported) };
             let index = self.name(name);
-            self.emit(Instr::LoadName(index), base);
+            match self.resolve(name) {
+                Some((hops, slot)) => self.emit(Instr::LoadLocal { name: index, hops, slot }, base),
+                None => self.emit(Instr::LoadName(index), base),
+            }
             self.expression(value)?;
             let trimmed = operator.trim_end_matches('=');
             let index_of_op = self.name(trimmed);
             let op = operator_code(trimmed);
             self.emit(Instr::Binary { op, name: index_of_op }, base);
-            self.emit(Instr::StoreName(index), base);
+            match self.resolve(name) {
+                Some((hops, slot)) => self.emit(Instr::StoreLocal { name: index, hops, slot }, base),
+                None => self.emit(Instr::StoreName(index), base),
+            }
             return Ok(());
         }
         match target {
             Expr::Identifier { name, .. } => {
                 self.expression(value)?;
                 let index = self.name(name);
-                self.emit(Instr::StoreName(index), base);
+                match self.resolve(name) {
+                    Some((hops, slot)) => self.emit(Instr::StoreLocal { name: index, hops, slot }, base),
+                    None => self.emit(Instr::StoreName(index), base),
+                }
             }
-            Expr::Property { receiver, name, .. } => {
+            // A property or index target reports its errors at the target's own
+            // position (the member name, or the `[`), as the interpreter does,
+            // rather than at the whole assignment statement.
+            Expr::Property { base: target, receiver, name } => {
                 self.expression(value)?;
                 self.expression(receiver)?;
                 let index = self.name(name);
-                self.emit(Instr::SetProperty(index), base);
+                self.emit(Instr::SetProperty(index), target);
             }
-            Expr::Index { collection, key, .. } => {
+            Expr::Index { base: target, collection, key } => {
                 self.expression(value)?;
                 self.expression(collection)?;
                 self.expression(key)?;
-                self.emit(Instr::SetIndex, base);
+                self.emit(Instr::SetIndex, target);
             }
             _ => return Err(Unsupported),
         }
@@ -618,12 +757,12 @@ impl Compiler {
 
     fn class_proto(&mut self, declaration: &Rc<tiger_ast::ClassDecl>) -> Result<u32, Unsupported> {
         let constructor = match &declaration.constructor {
-            Some(constructor) => Some(chunk_of(&constructor.body, self.source.clone())?),
+            Some(constructor) => Some(chunk_of(&constructor.body, self.source.clone(), &METHOD_PREFIX, Some(constructor), false)?),
             None => None,
         };
         let mut methods = Vec::with_capacity(declaration.methods.len());
         for method in &declaration.methods {
-            methods.push(chunk_of(&method.body, self.source.clone())?);
+            methods.push(chunk_of(&method.body, self.source.clone(), &METHOD_PREFIX, Some(method), false)?);
         }
         let index = self.classes.len() as u32;
         self.classes.push(Rc::new(ClassProto { declaration: declaration.clone(), constructor, methods }));

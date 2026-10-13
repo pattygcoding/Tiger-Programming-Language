@@ -30,6 +30,31 @@ fn default_parameters() {
 }
 
 #[test]
+fn keyword_arguments_in_any_order() {
+    // A keyword argument fills its own parameter's slot regardless of the order
+    // the call writes the keywords in, so a later positional argument never
+    // shadows an earlier keyword one.
+    expect_outputs(&[
+        (
+            "function ratio(a, b) { return a / b; } print(ratio(1, 2), ratio(b=2, a=1), ratio(a=1, b=2));",
+            "0.5 0.5 0.5\n",
+        ),
+        (
+            "function label(name, title = \"Dr\", suffix = \"\") { return title + \" \" + name + suffix; } print(label(\"Ada\", suffix=\".\", title=\"Prof\"), label(name=\"Grace\"));",
+            "Prof Ada. Dr Grace\n",
+        ),
+        (
+            "function f(a, b, c) { return a * 100 + b * 10 + c; } print(f(1, 2, 3), f(c=3, b=2, a=1), f(1, c=3, b=2));",
+            "123 123 123\n",
+        ),
+        (
+            "function rest(a, *more, **extra) { return a + len(more) + len(extra); } print(rest(1, 2, 3, x=4));",
+            "4\n",
+        ),
+    ]);
+}
+
+#[test]
 fn anonymous_functions() {
     expect_outputs(&[
         ("const double = function(value) { return value * 2; }; print(double(4));", "8\n"),
@@ -79,5 +104,6 @@ fn function_ergonomics_errors() {
         ("var [a] = 5;", "expected a list"),
         ("var {a} = [1];", "expected a dictionary"),
         ("var {a} = {\"b\": 1};", "missing key"),
+        ("function f(a) { return a; } f(1, a=2);", "got multiple values for argument \"a\""),
     ]);
 }
