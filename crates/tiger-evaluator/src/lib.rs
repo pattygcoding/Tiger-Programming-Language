@@ -139,6 +139,39 @@ fn branch_scope(body: &[Stmt], env: &Env) -> Env {
     }
 }
 
+/// Which execution engine runs a program.
+///
+/// `Auto` runs the compiled (linear) engine when a program lowers and falls back
+/// to the tree-walking interpreter otherwise, so every program still runs.
+/// `Tree` always walks the AST; the differential tests use it as the reference
+/// the compiled engine must agree with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Engine {
+    #[default]
+    Auto,
+    Tree,
+}
+
+/// The step limit [`Evaluator::new`] starts with; `0` means unlimited.
+pub const DEFAULT_MAX_STEPS: u64 = 1_000_000;
+
+/// Which engine a run uses and how many steps it may take.
+///
+/// The two engines count steps differently — the compiled engine counts
+/// instructions, the tree-walker counts statements — so the differential tests
+/// run both with `max_steps` set to `0` and compare only the result.
+#[derive(Clone, Copy)]
+pub struct RunOptions {
+    pub engine: Engine,
+    pub max_steps: u64,
+}
+
+impl Default for RunOptions {
+    fn default() -> RunOptions {
+        RunOptions { engine: Engine::Auto, max_steps: DEFAULT_MAX_STEPS }
+    }
+}
+
 /// The interpreter: host services, execution state, and module cache.
 pub struct Evaluator {
     pub output: Box<dyn Write>,
@@ -146,6 +179,8 @@ pub struct Evaluator {
     pub max_steps: u64,
     pub loader: Option<Rc<dyn ModuleLoader>>,
     pub source_path: String,
+    /// Which engine a program runs on; `Auto` unless a caller forces one.
+    pub engine: Engine,
     /// `None` means the operating system's filesystem, as in Go.
     pub filesystem: Option<Box<dyn FileSystem>>,
     modules: HashMap<String, Rc<Module>>,
@@ -169,9 +204,10 @@ impl Evaluator {
         Evaluator {
             output,
             input: None,
-            max_steps: 1_000_000,
+            max_steps: DEFAULT_MAX_STEPS,
             loader: None,
             source_path: String::new(),
+            engine: Engine::Auto,
             filesystem: None,
             modules: HashMap::new(),
             loading: Vec::new(),
@@ -225,10 +261,15 @@ impl Evaluator {
         let env = object::Environment::new(Some(builtins));
         env.borrow_mut().source_path = self.source_path.clone();
         // Run the linear engine when the program lowers, and fall back to the
-        // tree-walking interpreter otherwise, so any program still runs.
-        let outcome: Result<(), Signal> = match compiler::compile(&program.statements, &self.source_path) {
-            Ok(chunk) => self.run_chunk(&chunk, &env).map(|_| ()),
-            Err(compiler::Unsupported) => self.block(&program.statements, &env).map(|_| ()),
+        // tree-walking interpreter otherwise, so any program still runs. A caller
+        // can force the tree-walker, which the differential tests use as the
+        // reference for the compiled engine.
+        let outcome: Result<(), Signal> = match self.engine {
+            Engine::Tree => self.block(&program.statements, &env).map(|_| ()),
+            Engine::Auto => match compiler::compile(&program.statements, &self.source_path) {
+                Ok(chunk) => self.run_chunk(&chunk, &env).map(|_| ()),
+                Err(compiler::Unsupported) => self.block(&program.statements, &env).map(|_| ()),
+            },
         };
         match outcome {
             Ok(()) => Ok(()),
@@ -259,12 +300,33 @@ pub fn run_with_input(
     input: Option<Box<dyn BufRead>>,
     output: Box<dyn Write>,
 ) -> Result<(), String> {
+    run_with_options(source, filename, loader, filesystem, input, output, RunOptions::default())
+}
+
+/// Parses and executes a program with the host services and options a caller
+/// provides.
+///
+/// The counterpart of [`run_with_input`] that also pins the engine and the step
+/// limit, which the differential tests use to run every fixture under
+/// [`Engine::Tree`] with no step limit and compare it against the compiled
+/// engine's result.
+pub fn run_with_options(
+    source: &str,
+    filename: &str,
+    loader: Option<Rc<dyn ModuleLoader>>,
+    filesystem: Option<Box<dyn FileSystem>>,
+    input: Option<Box<dyn BufRead>>,
+    output: Box<dyn Write>,
+    options: RunOptions,
+) -> Result<(), String> {
     let program = tiger_parser::parse_source(source, filename)?;
     let mut evaluator = Evaluator::new(output);
     evaluator.source_path = filename.to_string();
     evaluator.loader = loader;
     evaluator.filesystem = filesystem;
     evaluator.input = input;
+    evaluator.engine = options.engine;
+    evaluator.max_steps = options.max_steps;
     evaluator.execute(&program)
 }
 
@@ -1118,7 +1180,12 @@ impl Evaluator {
             None => self.run_call(base, function, arguments, keywords, bound, &scope),
         };
         self.release_scope(scope);
-        result
+        // A `return` inside a `try` leaves its sub-chunk as a `Signal::Return` and
+        // unwinds to here, which is the function boundary: it becomes the result.
+        match result {
+            Err(Signal::Return(value)) => Ok(value),
+            other => other,
+        }
     }
 
     /// Binds a call's arguments and runs the body with the linear engine.
@@ -1144,6 +1211,10 @@ impl Evaluator {
 
     /// Binds the call's `this`/`super`, parameters, keywords, and defaults in
     /// `scope`, so either engine can then run the body.
+    ///
+    /// The bindings land in a fixed order — `this`, `super`, the parameters in
+    /// declaration order, the variadic list, then the `**kwargs` dictionary — so a
+    /// parameter's position in the scope is known when the body is compiled.
     fn bind_call(
         &mut self,
         base: &Base,
@@ -1174,54 +1245,80 @@ impl Evaluator {
             )
             .map_err(|message| runtime(base, message))?;
         }
-        let bound_positionally = arguments.len().min(fixed);
-        for (index, parameter) in parameters.iter().take(bound_positionally).enumerate() {
-            object::define_shared(&scope, parameter, arguments[index].clone(), false).map_err(|message| runtime(base, message))?;
+        // Resolve each parameter's value in declaration order and bind them in
+        // that same order: a positional argument, then keyword, then default. A
+        // fixed order is what lets the compiled engine address a parameter by
+        // slot, since a parameter's slot is its binding's position in the scope.
+        // Positional arguments fill their slots first, so a keyword argument never
+        // moves an earlier parameter.
+        //
+        // Keyword arguments, and the `**kwargs` dictionary, are only materialized
+        // when the call actually passes keywords, so the common call is a straight
+        // pass over the parameters and allocates nothing.
+        let mut collected: Option<Rc<std::cell::RefCell<object::Dict>>> = None;
+        if keywords.is_empty() {
+            // Positional arguments fill their slots first, then the remaining
+            // parameters take their defaults, in declaration order.
+            let bound = arguments.len().min(fixed);
+            for (index, parameter) in parameters.iter().take(bound).enumerate() {
+                object::define_shared(&scope, parameter, arguments[index].clone(), false).map_err(|message| runtime(base, message))?;
+            }
+            for (index, parameter) in parameters.iter().enumerate().skip(bound) {
+                object::define_shared(&scope, parameter, self.default_argument(base, function, index)?, false)
+                    .map_err(|message| runtime(base, message))?;
+            }
+        } else {
+            // Resolve every parameter's value first — positional, then keyword,
+            // then default — so the bindings land in declaration order however the
+            // call orders its keywords.
+            let mut values: Vec<Option<Value>> = (0..fixed).map(|index| arguments.get(index).cloned()).collect();
+            for entry in keywords {
+                if let Some(position) = parameters.iter().position(|parameter| &**parameter == entry.name.as_str()) {
+                    if values[position].is_some() {
+                        return Err(runtime(base, format!("{} got multiple values for argument {:?}", label, entry.name)));
+                    }
+                    values[position] = Some(entry.value.clone());
+                    continue;
+                }
+                if declaration.keyword.is_empty() {
+                    return Err(runtime(base, format!("{} got an unexpected keyword argument {:?}", label, entry.name)));
+                }
+                let dict = collected.get_or_insert_with(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
+                let existing = dict.borrow().get(&Value::string(&entry.name)).map_err(|message| runtime(base, message))?;
+                if existing.is_some() {
+                    return Err(runtime(base, format!("{} got multiple values for keyword argument {:?}", label, entry.name)));
+                }
+                dict.borrow_mut().set(Value::string(&entry.name), entry.value.clone()).map_err(|message| runtime(base, message))?;
+            }
+            for (index, parameter) in parameters.iter().enumerate() {
+                let value = match values[index].take() {
+                    Some(value) => value,
+                    None => self.default_argument(base, function, index)?,
+                };
+                object::define_shared(&scope, parameter, value, false).map_err(|message| runtime(base, message))?;
+            }
         }
         if !declaration.variadic.is_empty() {
             let extra: Vec<Value> = if arguments.len() > fixed { arguments[fixed..].to_vec() } else { Vec::new() };
             object::define(&scope, &declaration.variadic, Value::list(extra), false).map_err(|message| runtime(base, message))?;
-        }
-        // Names bound by keyword, and the `**kwargs` dictionary, are only
-        // materialized when the call actually passes keywords.
-        let mut keyword_bound: Vec<&str> = Vec::new();
-        let mut collected: Option<Rc<std::cell::RefCell<object::Dict>>> = None;
-        for entry in keywords {
-            if let Some(position) = parameters.iter().position(|parameter| &**parameter == entry.name.as_str()) {
-                if position < bound_positionally || keyword_bound.contains(&entry.name.as_str()) {
-                    return Err(runtime(base, format!("{} got multiple values for argument {:?}", label, entry.name)));
-                }
-                object::define(&scope, &entry.name, entry.value.clone(), false).map_err(|message| runtime(base, message))?;
-                keyword_bound.push(entry.name.as_str());
-                continue;
-            }
-            if declaration.keyword.is_empty() {
-                return Err(runtime(base, format!("{} got an unexpected keyword argument {:?}", label, entry.name)));
-            }
-            let dict = collected.get_or_insert_with(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
-            let existing = dict.borrow().get(&Value::string(&entry.name)).map_err(|message| runtime(base, message))?;
-            if existing.is_some() {
-                return Err(runtime(base, format!("{} got multiple values for keyword argument {:?}", label, entry.name)));
-            }
-            dict.borrow_mut().set(Value::string(&entry.name), entry.value.clone()).map_err(|message| runtime(base, message))?;
-        }
-        for (index, parameter) in parameters.iter().enumerate() {
-            if index < bound_positionally || keyword_bound.contains(&&**parameter) {
-                continue;
-            }
-            if index < declaration.defaults.len() && declaration.defaults[index].is_some() {
-                let default = declaration.defaults[index].as_ref().unwrap();
-                let value = self.expression(default, &function.env)?;
-                object::define_shared(&scope, parameter, value, false).map_err(|message| runtime(base, message))?;
-                continue;
-            }
-            return Err(runtime(base, format!("{} missing required argument {:?}", label, parameter)));
         }
         if !declaration.keyword.is_empty() {
             let dict = collected.unwrap_or_else(|| Rc::new(std::cell::RefCell::new(object::Dict::default())));
             object::define(&scope, &declaration.keyword, Value::Dict(dict), false).map_err(|message| runtime(base, message))?;
         }
         Ok(())
+    }
+
+    /// The value bound for parameter `index` when a call leaves it out: the
+    /// parameter's default, evaluated in the function's own environment, or the
+    /// "missing required argument" error.
+    fn default_argument(&mut self, base: &Base, function: &Rc<object::FunctionValue>, index: usize) -> Result<Value, Signal> {
+        let declaration = &function.declaration;
+        if index < declaration.defaults.len() && declaration.defaults[index].is_some() {
+            let default = declaration.defaults[index].as_ref().unwrap();
+            return self.expression(default, &function.env);
+        }
+        Err(runtime(base, format!("{} missing required argument {:?}", function_label(declaration), declaration.parameters[index])))
     }
 
     /// Binds a call's arguments and runs the body with the tree-walking engine.

@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use tiger_object as object;
-use tiger_object::bytecode::{Chunk, Instr, Op};
+use tiger_object::bytecode::{Chunk, Instr, Op, TryProto};
 use tiger_object::{Env, FunctionValue, Keyword, Value};
 
 use crate::{runtime, Evaluator, Signal};
@@ -19,6 +19,19 @@ struct IterState {
 }
 
 type Vm = Result<Value, Signal>;
+
+/// The scope `hops` levels up the runtime chain: offset 0 is the current scope,
+/// and the frame's own scope is the bottom of `scopes`.
+///
+/// `None` means the compiler named a scope this activation does not have, which
+/// falls back to a name lookup rather than a panic.
+fn scope_at<'a>(env: &'a Env, scopes: &'a [Env], hops: u32) -> Option<&'a Env> {
+    if hops == 0 {
+        Some(env)
+    } else {
+        scopes.len().checked_sub(hops as usize).map(|index| &scopes[index])
+    }
+}
 
 impl Evaluator {
     /// Runs a compiled chunk to completion, returning its value.
@@ -44,26 +57,77 @@ impl Evaluator {
                 return Err(crate::fatal(&chunk.base(pc), "execution step limit exceeded".to_string()));
             }
             let instr = chunk.code[pc];
-            let position = chunk.base(pc);
+            let position = chunk.position(pc);
             pc += 1;
             match instr {
                 Instr::Constant(index) => stack.push(chunk.constants[index as usize].clone()),
                 Instr::Null => stack.push(Value::Null),
                 Instr::LoadName(index) => {
-                    let value = object::get(&env, &chunk.names[index as usize]).map_err(|message| runtime(&position, message))?;
+                    let value =
+                        object::get(&env, &chunk.names[index as usize]).map_err(|message| runtime(&chunk.base_at(position), message))?;
                     stack.push(value);
+                }
+                Instr::LoadLocal { name, hops, slot } => {
+                    let name = &chunk.names[name as usize];
+                    let slot = slot as usize;
+                    let value = match scope_at(&env, &scopes, hops) {
+                        Some(scope) => {
+                            let borrowed = scope.borrow();
+                            match borrowed.bindings.binding_at(slot) {
+                                Some(binding) => {
+                                    debug_assert_eq!(borrowed.bindings.name_at(slot), Some(&**name), "local slot");
+                                    Some(binding.value.clone())
+                                }
+                                None => None,
+                            }
+                        }
+                        None => None,
+                    };
+                    match value {
+                        Some(value) => stack.push(value),
+                        None => stack.push(object::get(&env, name).map_err(|message| runtime(&chunk.base_at(position), message))?),
+                    }
                 }
                 Instr::LoadSuper => match object::get(&env, "super") {
                     Ok(value) => stack.push(value),
-                    Err(_) => return Err(runtime(&position, "super is only available inside methods".to_string())),
+                    Err(_) => return Err(runtime(&chunk.base_at(position), "super is only available inside methods".to_string())),
                 },
                 Instr::StoreName(index) => {
                     let value = stack.pop().expect("stack");
-                    object::assign(&env, &chunk.names[index as usize], value).map_err(|message| runtime(&position, message))?;
+                    object::assign(&env, &chunk.names[index as usize], value)
+                        .map_err(|message| runtime(&chunk.base_at(position), message))?;
+                }
+                Instr::StoreLocal { name, hops, slot } => {
+                    let value = stack.pop().expect("stack");
+                    let name = &chunk.names[name as usize];
+                    let slot = slot as usize;
+                    let stored = match scope_at(&env, &scopes, hops) {
+                        Some(scope) => {
+                            let mut borrowed = scope.borrow_mut();
+                            if borrowed.bindings.binding_at(slot).is_some() {
+                                debug_assert_eq!(borrowed.bindings.name_at(slot), Some(&**name), "local slot");
+                                let stored =
+                                    borrowed.bindings.set_at(slot, value).map_err(|message| runtime(&chunk.base_at(position), message));
+                                drop(borrowed);
+                                stored
+                            } else {
+                                drop(borrowed);
+                                object::assign(scope, name, value).map_err(|message| runtime(&chunk.base_at(position), message))
+                            }
+                        }
+                        None => object::assign(&env, name, value).map_err(|message| runtime(&chunk.base_at(position), message)),
+                    };
+                    stored?;
                 }
                 Instr::DefineName { name, constant } => {
                     let value = stack.pop().expect("stack");
-                    object::define(&env, &chunk.names[name as usize], value, constant).map_err(|message| runtime(&position, message))?;
+                    object::define(&env, &chunk.names[name as usize], value, constant)
+                        .map_err(|message| runtime(&chunk.base_at(position), message))?;
+                }
+                Instr::DefineLocal { name, slot, constant } => {
+                    let value = stack.pop().expect("stack");
+                    object::define_at(&env, &chunk.names[name as usize], slot as usize, value, constant)
+                        .map_err(|message| runtime(&chunk.base_at(position), message))?;
                 }
                 Instr::Pop => {
                     stack.pop();
@@ -121,18 +185,18 @@ impl Evaluator {
                         };
                         if let Some(value) = computed {
                             if value.is_infinite() || value.is_nan() {
-                                return Err(runtime(&position, "non-finite numeric result".to_string()));
+                                return Err(runtime(&chunk.base_at(position), "non-finite numeric result".to_string()));
                             }
                             stack.push(Value::Number(value));
                             continue;
                         }
                     }
-                    let value = self.binary(&position, &chunk.names[name as usize], left, right)?;
+                    let value = self.binary(&chunk.base_at(position), &chunk.names[name as usize], left, right)?;
                     stack.push(value);
                 }
                 Instr::Unary(index) => {
                     let value = stack.pop().expect("stack");
-                    let value = self.unary(&position, &chunk.names[index as usize], value)?;
+                    let value = self.unary(&chunk.base_at(position), &chunk.names[index as usize], value)?;
                     stack.push(value);
                 }
                 Instr::Jump(target) => pc = target as usize,
@@ -165,7 +229,7 @@ impl Evaluator {
                     let entries = stack.split_off(at);
                     let mut dict = object::Dict::default();
                     for pair in entries.chunks(2) {
-                        dict.set(pair[0].clone(), pair[1].clone()).map_err(|message| runtime(&position, message))?;
+                        dict.set(pair[0].clone(), pair[1].clone()).map_err(|message| runtime(&chunk.base_at(position), message))?;
                     }
                     stack.push(Value::Dict(Rc::new(std::cell::RefCell::new(dict))));
                 }
@@ -190,38 +254,73 @@ impl Evaluator {
                         named.push(Keyword { name: name.to_string(), value: pair[1].clone() });
                     }
                     stack.truncate(at - 1);
-                    let value = self.call(&position, callee, &positional_arguments, &named, &env)?;
+                    let value = self.call(&chunk.base_at(position), callee, &positional_arguments, &named, &env)?;
                     stack.push(value);
                 }
                 Instr::GetIndex => {
                     let key = stack.pop().expect("stack");
                     let collection = stack.pop().expect("stack");
-                    let value = self.index_value(&position, collection, key)?;
+                    let value = self.index_value(&chunk.base_at(position), collection, key)?;
                     stack.push(value);
                 }
                 Instr::GetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
-                    let value = self.property(&position, &receiver, &chunk.names[index as usize], &env)?;
+                    let value = self.property(&chunk.base_at(position), &receiver, &chunk.names[index as usize], &env)?;
                     stack.push(value);
                 }
                 Instr::SetIndex => {
                     let key = stack.pop().expect("stack");
                     let collection = stack.pop().expect("stack");
                     let value = stack.pop().expect("stack");
-                    self.set_index(&position, collection, key, value)?;
+                    self.set_index(&chunk.base_at(position), collection, key, value)?;
                 }
                 Instr::SetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
                     let value = stack.pop().expect("stack");
-                    self.set_property(&position, receiver, &chunk.names[index as usize], value, &env)?;
+                    self.set_property(&chunk.base_at(position), receiver, &chunk.names[index as usize], value, &env)?;
                 }
                 Instr::UpdateName { name, decrement, prefix } => {
-                    let value = self.update_name(&position, &env, &chunk.names[name as usize], decrement, prefix)?;
+                    let value = self.update_name(&chunk.base_at(position), &env, &chunk.names[name as usize], decrement, prefix)?;
+                    stack.push(value);
+                }
+                Instr::UpdateLocal { name, hops, slot, decrement, prefix } => {
+                    let name = &chunk.names[name as usize];
+                    let slot = slot as usize;
+                    let Some(scope) = scope_at(&env, &scopes, hops) else {
+                        let value = self.update_name(&chunk.base_at(position), &env, name, decrement, prefix)?;
+                        stack.push(value);
+                        continue;
+                    };
+                    let previous = {
+                        let borrowed = scope.borrow();
+                        match borrowed.bindings.binding_at(slot) {
+                            Some(binding) => {
+                                debug_assert_eq!(borrowed.bindings.name_at(slot), Some(&**name), "local slot");
+                                match &binding.value {
+                                    Value::Number(number) => Some(*number),
+                                    _ => None,
+                                }
+                            }
+                            None => None,
+                        }
+                    };
+                    let value = match previous {
+                        Some(previous) => {
+                            let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
+                            if updated.is_infinite() || updated.is_nan() {
+                                return Err(runtime(&chunk.base_at(position), "non-finite numeric result".to_string()));
+                            }
+                            let stored = scope.borrow_mut().bindings.set_at(slot, Value::Number(updated));
+                            stored.map_err(|message| runtime(&chunk.base_at(position), message))?;
+                            Value::Number(if prefix { updated } else { previous })
+                        }
+                        None => self.update_name(&chunk.base_at(position), &env, name, decrement, prefix)?,
+                    };
                     stack.push(value);
                 }
                 Instr::ApplyFormat(index) => {
                     let value = stack.pop().expect("stack");
-                    let text = self.apply_format(&position, &chunk.names[index as usize], &value)?;
+                    let text = self.apply_format(&chunk.base_at(position), &chunk.names[index as usize], &value)?;
                     stack.push(Value::string(&text));
                 }
                 Instr::Format => {
@@ -238,7 +337,7 @@ impl Evaluator {
                 }
                 Instr::IterInit => {
                     let iterable = stack.pop().expect("stack");
-                    let values = self.iterable_values(&position, &iterable)?;
+                    let values = self.iterable_values(&chunk.base_at(position), &iterable)?;
                     iters.push(IterState { values, index: 0 });
                 }
                 Instr::IterDrop => {
@@ -256,22 +355,101 @@ impl Evaluator {
                     }
                 }
                 Instr::Import { path, name } => {
-                    let module = self.import_module(&position, &chunk.names[path as usize], &env)?;
+                    let module = self.import_module(&chunk.base_at(position), &chunk.names[path as usize], &env)?;
                     object::define(&env, &chunk.names[name as usize], Value::Module(module), true)
-                        .map_err(|message| runtime(&position, message))?;
+                        .map_err(|message| runtime(&chunk.base_at(position), message))?;
                 }
                 Instr::Throw => {
                     let value = stack.pop().expect("stack");
                     self.release_scopes(&root, &mut env, &mut scopes);
-                    return Err(Signal::Throw { value, origin: position.location() });
+                    return Err(Signal::Throw { value, origin: chunk.base_at(position).location() });
                 }
                 Instr::Return => {
                     let value = stack.pop().unwrap_or(Value::Null);
                     self.release_scopes(&root, &mut env, &mut scopes);
                     return Ok(value);
                 }
+                Instr::ReturnEscape => {
+                    // A `return` in a try body, a catch body, or a `finally`
+                    // belongs to the enclosing function, so it leaves this chunk:
+                    // the try the chunk belongs to runs its `finally` as the value
+                    // unwinds, and the enclosing function turns it back into its own
+                    // result.
+                    let value = stack.pop().unwrap_or(Value::Null);
+                    self.release_scopes(&root, &mut env, &mut scopes);
+                    return Err(Signal::Return(value));
+                }
+                Instr::Try(index) => {
+                    let proto = chunk.tries[index as usize].clone();
+                    self.run_try(&chunk.base_at(position), &proto, &env)?;
+                }
             }
         }
+    }
+
+    /// Runs one compiled `try`: its body, then the first catch clause that takes
+    /// the error, then its `finally`. This mirrors the interpreter's
+    /// `try_statement` and `try_handlers` step for step.
+    fn run_try(&mut self, base: &tiger_ast::Base, proto: &Rc<TryProto>, env: &Env) -> Vm {
+        let outcome = self.run_try_clauses(base, proto, env);
+        // A resource-limit failure bypasses `finally` entirely, as it does in the
+        // interpreter.
+        if let Err(Signal::Runtime { fatal: true, .. }) = &outcome {
+            return outcome;
+        }
+        let Some(finally) = &proto.finally else { return outcome };
+        let scope = self.acquire_scope(env.clone());
+        let result = self.run_chunk(finally, &scope);
+        self.release_scope(scope);
+        // A `finally` that completed leaves whatever was in flight standing; an
+        // error or a `return` it raised replaces it.
+        match result {
+            Ok(_) => outcome,
+            Err(failure) => Err(failure),
+        }
+    }
+
+    /// Runs a try's body and then its catch clauses in order. The first clause
+    /// that takes the error wins, and an unmatched error propagates unchanged.
+    fn run_try_clauses(&mut self, base: &tiger_ast::Base, proto: &Rc<TryProto>, env: &Env) -> Vm {
+        let scope = self.acquire_scope(env.clone());
+        let outcome = self.run_chunk(&proto.body, &scope);
+        self.release_scope(scope);
+        let failure = match outcome {
+            // The body completed, or left with a `return` or a `break`: no clause
+            // takes those, and the outcome stands for the `finally` to see.
+            Ok(_) => return Ok(Value::Null),
+            Err(signal @ (Signal::Return(_) | Signal::Break(_) | Signal::Continue(_))) => return Err(signal),
+            Err(signal @ Signal::Runtime { fatal: true, .. }) => return Err(signal),
+            Err(signal) => signal,
+        };
+        let caught = match &failure {
+            Signal::Runtime { error, .. } => Value::Error(error.clone()),
+            Signal::Throw { value, .. } => value.clone(),
+            _ => return Err(failure),
+        };
+        for clause in &proto.clauses {
+            // The clause binds the caught value before its condition is tested, so
+            // the condition can name it, and its body runs in the same scope.
+            let scope = self.acquire_scope(env.clone());
+            let outcome = match object::define(&scope, &clause.name, caught.clone(), false).map_err(|message| runtime(base, message)) {
+                Err(signal) => Err(signal),
+                Ok(()) => match &clause.condition {
+                    None => self.run_chunk(&clause.body, &scope),
+                    Some(condition) => match self.expression(condition, &scope) {
+                        Ok(value) if object::truthy(&value) => self.run_chunk(&clause.body, &scope),
+                        Ok(_) => {
+                            self.release_scope(scope);
+                            continue;
+                        }
+                        Err(signal) => Err(signal),
+                    },
+                },
+            };
+            self.release_scope(scope);
+            return outcome;
+        }
+        Err(failure)
     }
 
     /// Unwinds pushed scopes, returning them to the pool, without touching the

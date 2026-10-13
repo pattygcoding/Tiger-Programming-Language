@@ -38,12 +38,22 @@ pub enum Instr {
     Constant(u32),
     /// Push the value of variable `chunk.names[i]`, walking the scope chain.
     LoadName(u32),
+    /// Push the value in slot `slot`, `hops` scopes up the chain.
+    ///
+    /// The compiler resolved the name to a slot in its own scope model, so this
+    /// indexes straight into the scope instead of scanning it. `name` is kept for
+    /// diagnostics and as the fallback when the slot is not there.
+    LoadLocal { name: u32, hops: u32, slot: u32 },
     /// Push the `super` binding, with its dedicated error when unavailable.
     LoadSuper,
     /// Pop a value and reassign the existing variable `chunk.names[i]`.
     StoreName(u32),
+    /// Pop a value into slot `slot`, `hops` scopes up the chain.
+    StoreLocal { name: u32, hops: u32, slot: u32 },
     /// Pop a value and declare it as `chunk.names[i]` in the current scope.
     DefineName { name: u32, constant: bool },
+    /// Pop a value and declare it at `slot` in the current scope.
+    DefineLocal { name: u32, slot: u32, constant: bool },
     /// Discard the top of the stack.
     Pop,
     /// Duplicate the top of the stack.
@@ -81,12 +91,17 @@ pub enum Instr {
     SetProperty(u32),
     /// Increment or decrement the named variable, pushing it per `prefix`.
     UpdateName { name: u32, decrement: bool, prefix: bool },
+    /// Increment or decrement the variable in slot `slot`, `hops` scopes up.
+    UpdateLocal { name: u32, hops: u32, slot: u32, decrement: bool, prefix: bool },
     /// Pop a value and push its f-string field rendered with `chunk.names[i]`.
     ApplyFormat(u32),
     /// Pop a value and push `format(value)`.
     Format,
     /// Return the top of the stack from the current function.
     Return,
+    /// Leave an isolated block — a try body, a catch body, or a `finally` — with
+    /// the top of the stack, as a `return` from the function the block belongs to.
+    ReturnEscape,
     /// Push `null`.
     Null,
     /// Enter a child scope.
@@ -103,6 +118,8 @@ pub enum Instr {
     Throw,
     /// Import `chunk.names[i]` and bind it as `chunk.names[j]`.
     Import { path: u32, name: u32 },
+    /// Runs `chunk.tries[i]`: the body, then its catch clauses, then its `finally`.
+    Try(u32),
 }
 
 /// A compiled function prototype: a declaration and its compiled body.
@@ -119,6 +136,25 @@ pub struct ClassProto {
     pub methods: Vec<Rc<Chunk>>,
 }
 
+/// One catch clause of a `try`: the name the caught value binds to, an optional
+/// condition that must be truthy for the clause to take the error, and the body.
+pub struct CatchProto {
+    pub name: Rc<str>,
+    pub condition: Option<tiger_ast::Expr>,
+    pub body: Rc<Chunk>,
+}
+
+/// A compiled `try`/`catch`/`finally`: the body, the catch clauses in order, and
+/// the `finally` block when there is one.
+///
+/// Each part is its own chunk, so a `return` inside one has to leave that chunk;
+/// see [`Chunk::escape_return`].
+pub struct TryProto {
+    pub body: Rc<Chunk>,
+    pub clauses: Vec<CatchProto>,
+    pub finally: Option<Rc<Chunk>>,
+}
+
 /// A compiled script or function body.
 pub struct Chunk {
     pub code: Vec<Instr>,
@@ -126,6 +162,7 @@ pub struct Chunk {
     pub names: Vec<Rc<str>>,
     pub functions: Vec<Rc<FunctionProto>>,
     pub classes: Vec<Rc<ClassProto>>,
+    pub tries: Vec<Rc<TryProto>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
     /// The source name every position in this chunk belongs to.
@@ -135,7 +172,20 @@ pub struct Chunk {
 impl Chunk {
     /// The source position of instruction `pc`, for diagnostics.
     pub fn base(&self, pc: usize) -> tiger_ast::Base {
-        let (line, column) = self.positions.get(pc).copied().unwrap_or((0, 0));
-        tiger_ast::Base { line, column, source: self.source.clone() }
+        self.base_at(self.position(pc))
+    }
+
+    /// The `(line, column)` of instruction `pc`.
+    ///
+    /// A plain copy, so the engine loop can carry an instruction's position for
+    /// free and only build a [`Base`](tiger_ast::Base) — which clones the shared
+    /// source name — where a diagnostic actually needs one.
+    pub fn position(&self, pc: usize) -> (u32, u32) {
+        self.positions.get(pc).copied().unwrap_or((0, 0))
+    }
+
+    /// Turns a [`position`](Chunk::position) into a positioned diagnostic base.
+    pub fn base_at(&self, position: (u32, u32)) -> tiger_ast::Base {
+        tiger_ast::Base { line: position.0, column: position.1, source: self.source.clone() }
     }
 }
