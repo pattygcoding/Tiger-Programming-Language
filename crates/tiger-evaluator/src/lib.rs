@@ -1660,7 +1660,7 @@ impl Evaluator {
         match receiver {
             Value::String(text) => {
                 if name == "size" || name == "length" {
-                    return Ok(self.length_method(name, (if text.is_ascii() { text.len() } else { text.chars().count() }) as f64));
+                    return Ok(self.length_method(name, receiver.clone()));
                 }
                 if let Some(method) = methods::string_method(name, text.clone()) {
                     return Ok(method);
@@ -1672,7 +1672,7 @@ impl Evaluator {
             }
             Value::List(elements) => {
                 if name == "size" || name == "length" {
-                    return Ok(self.length_method(name, elements.borrow().len() as f64));
+                    return Ok(self.length_method(name, receiver.clone()));
                 }
                 if name == "sort" {
                     return Ok(Value::Builtin(object::Builtin::higher_order("list.sort", Some(receiver.clone()))));
@@ -1686,6 +1686,9 @@ impl Evaluator {
                 Err(runtime(base, format!("list has no property {:?}", name)))
             }
             Value::Dict(dict) => {
+                if name == "size" || name == "length" {
+                    return Ok(self.length_method(name, receiver.clone()));
+                }
                 if let Some(method) = methods::dict_method(name, dict.clone()) {
                     return Ok(method);
                 }
@@ -1728,6 +1731,12 @@ impl Evaluator {
                 Err(runtime(base, format!("parent class {} has no method {:?}", parent.name, name)))
             }
             other => {
+                // A value with no member namespace of its own still rejects the
+                // length spellings the way `len` does, so all three agree on
+                // every value rather than only on the collections.
+                if name == "size" || name == "length" {
+                    return Err(runtime(base, builtins::length_error(name, receiver)));
+                }
                 if let Some(method) = methods::conversion_method(name, receiver) {
                     return Ok(method);
                 }
@@ -1736,7 +1745,13 @@ impl Evaluator {
         }
     }
 
-    fn length_method(&self, name: &str, length: f64) -> Value {
+    /// Builds `size`/`length` for a receiver.
+    ///
+    /// The method captures the receiver and reads it when it is called, exactly as
+    /// `len` does, so `const read = items.size; items.pop();` still reports the
+    /// current length. The three spellings share [`builtins::length_of`], so one
+    /// rule decides what they accept and what they return.
+    fn length_method(&self, name: &str, receiver: Value) -> Value {
         let label = name.to_string();
         Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
             if !keywords.is_empty() {
@@ -1745,7 +1760,10 @@ impl Evaluator {
             if !arguments.is_empty() {
                 return Err(format!("{} expects 0 arguments, got {}", label, arguments.len()));
             }
-            Ok(Value::Number(length))
+            match builtins::length_of(&receiver) {
+                Some(length) => Ok(Value::Number(length)),
+                None => Err(builtins::length_error(&label, &receiver)),
+            }
         }))
     }
 

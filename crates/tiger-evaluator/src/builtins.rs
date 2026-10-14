@@ -111,6 +111,36 @@ fn print_builtin() -> Rc<object::Builtin> {
     })
 }
 
+/// The length `len(value)`, `value.size()`, and `value.length()` all share: a
+/// string's Unicode code points, a list's elements, or a dictionary's entries.
+///
+/// `None` for every other value, because the three spellings are one operation
+/// with one domain. A caller reports the rejection with [`length_error`], so no
+/// spelling can drift from the others.
+pub(crate) fn length_of(value: &Value) -> Option<f64> {
+    match value {
+        Value::String(text) => Some(code_points(text) as f64),
+        Value::List(elements) => Some(elements.borrow().len() as f64),
+        Value::Dict(dict) => Some(dict.borrow().entries.len() as f64),
+        _ => None,
+    }
+}
+
+/// Counts Unicode code points, reading the byte length for ASCII text.
+pub(crate) fn code_points(text: &str) -> usize {
+    if text.is_ascii() {
+        text.len()
+    } else {
+        text.chars().count()
+    }
+}
+
+/// The message a value outside [`length_of`]'s domain produces, labelled with the
+/// spelling the program used: `len`, `size`, or `length`.
+pub(crate) fn length_error(name: &str, value: &Value) -> String {
+    format!("{} does not accept {}", name, value.type_name())
+}
+
 fn len_builtin() -> Rc<object::Builtin> {
     object::Builtin::new("len", |_host, arguments, keywords| {
         if !keywords.is_empty() {
@@ -119,11 +149,9 @@ fn len_builtin() -> Rc<object::Builtin> {
         if arguments.len() != 1 {
             return Err(format!("len expects 1 argument, got {}", arguments.len()));
         }
-        match &arguments[0] {
-            Value::String(text) => Ok(Value::Number((if text.is_ascii() { text.len() } else { text.chars().count() }) as f64)),
-            Value::List(elements) => Ok(Value::Number(elements.borrow().len() as f64)),
-            Value::Dict(dict) => Ok(Value::Number(dict.borrow().entries.len() as f64)),
-            other => Err(format!("len does not accept {}", other.type_name())),
+        match length_of(&arguments[0]) {
+            Some(length) => Ok(Value::Number(length)),
+            None => Err(length_error("len", &arguments[0])),
         }
     })
 }

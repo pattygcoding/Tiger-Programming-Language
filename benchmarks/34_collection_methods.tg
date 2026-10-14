@@ -3,8 +3,9 @@
 // Exercises list pop/remove/insert/index/extend/reverse/clear/join and
 // dictionary keys/values/items/get/pop/delete/clear, structural equality in
 // remove, insertion-order preservation across deletion, fresh result lists, a
-// stack and a queue built from the methods, key-driven aggregation, and every
-// argument and lookup error path handled with try/catch.
+// stack and a queue built from the methods, key-driven aggregation, the length
+// spellings `len`/`size()`/`length()` across strings, lists, and dictionaries,
+// and every argument and lookup error path handled with try/catch.
 
 print("== stack and queue ==");
 var stack = [];
@@ -132,5 +133,49 @@ print("empty list" in fails(empty_pop), "index out of range" in fails(range_pop)
 print("must be an integer" in fails(bad_index), "index must be an integer" in fails(bad_insert));
 print("value not in list" in fails(missing_remove), "expects a list" in fails(bad_extend));
 print("key not found" in fails(missing_key), "cannot be a dictionary key" in fails(bad_key));
+
+print("== length spellings ==");
+function lengths(label, value) {
+    return f"{label}: {len(value)} {value.size()} {value.length()}";
+}
+print(lengths("string", "Tiger"));
+print(lengths("unicode", "T🐯é"));
+print(lengths("empty string", ""));
+print(lengths("list", [1, 2, 3]));
+print(lengths("empty list", []));
+print(lengths("dict", {"a": 1, "b": 2}));
+print(lengths("empty dict", {}));
+
+print("== lengths follow mutation ==");
+var growing = [1, 2, 3];
+const read_items = growing.size;
+const count_items = growing.length;
+growing.pop();
+print(read_items(), count_items(), len(growing));
+var table = {"a": 1};
+const read_rows = table.size;
+table["b"] = 2;
+table.delete("a");
+print(read_rows(), table.length(), len(table));
+
+print("== length rejections ==");
+function length_of_number() {
+    return len(9);
+}
+function size_of_number() {
+    return 9.size();
+}
+function length_method_of_number() {
+    return 9.length();
+}
+function length_of_bool() {
+    return len(true);
+}
+function length_of_null() {
+    return null.length();
+}
+print("len does not accept number" in fails(length_of_number), "size does not accept number" in fails(size_of_number));
+print("length does not accept number" in fails(length_method_of_number), "len does not accept bool" in fails(length_of_bool));
+print("length does not accept null" in fails(length_of_null));
 
 print("done");

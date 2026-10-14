@@ -9,6 +9,19 @@ import { parentPort, workerData } from "node:worker_threads";
 
 import { createRuntime } from "../../../web/tiger.js";
 
+// Browsers refuse to decode a view over a `SharedArrayBuffer` ("The provided
+// ArrayBufferView value must not be shared"), because `TextDecoder.decode` is not
+// declared `[AllowShared]`. Node decodes one happily, so the harness enforces the
+// browser rule itself; without it the shared input path could regress and still
+// pass here while the playground broke.
+const nativeDecode = TextDecoder.prototype.decode;
+TextDecoder.prototype.decode = function (input, ...rest) {
+  if (input instanceof SharedArrayBuffer || input?.buffer instanceof SharedArrayBuffer) {
+    throw new TypeError("The provided ArrayBufferView value must not be shared.");
+  }
+  return nativeDecode.call(this, input, ...rest);
+};
+
 const runtime = await createRuntime({
   url: workerData.wasmUrl,
   output: (text) => parentPort.postMessage({ type: "output", text }),

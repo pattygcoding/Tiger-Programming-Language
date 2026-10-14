@@ -177,6 +177,31 @@ fn semantics() -> Vec<Fixture> {
         .collect()
 }
 
+/// `len(value)`, `value.size()`, and `value.length()` are one operation under
+/// three spellings, so both engines are checked on each of them: the collections
+/// they accept, the moment they read the receiver, and the values they reject.
+fn length_spellings() -> Vec<Fixture> {
+    const SOURCES: [&str; 5] = [
+        r#"print(len("Tiger"), "Tiger".size(), "Tiger".length(), len("T🐯"), "T🐯".size(), "T🐯".length(), len(""), "".size(), "".length());"#,
+        r#"print(len([1, 2, 3]), [1, 2, 3].size(), [1, 2, 3].length(), len([]), [].size(), [].length());"#,
+        r#"print(len({"a": 1, "b": 2}), {"a": 1, "b": 2}.size(), {"a": 1, "b": 2}.length(), len({}), {}.size(), {}.length());"#,
+        r#"var items = [1, 2, 3]; const read = items.size; const count = items.length; items.pop(); var table = {"a": 1}; const rows = table.size; table["b"] = 2; print(read(), count(), len(items), rows(), table.length(), len(table));"#,
+        r#"try { len(9); } catch (error) { print(error); } try { 9.size(); } catch (error) { print(error); } try { 9.length(); } catch (error) { print(error); } try { "x".length(1); } catch (error) { print(error); }"#,
+    ];
+    SOURCES
+        .iter()
+        .enumerate()
+        .map(|(index, source)| Fixture {
+            name: format!("lengths[{}]", index),
+            filename: "lengths.tg".to_string(),
+            source: (*source).to_string(),
+            files: Files::Memory,
+            loader: false,
+            input: None,
+        })
+        .collect()
+}
+
 #[test]
 fn engines_agree_on_every_fixture() {
     let mut fixtures = benchmarks();
@@ -184,6 +209,7 @@ fn engines_agree_on_every_fixture() {
     fixtures.extend(programs("examples"));
     fixtures.extend(programs("portfolio-features"));
     fixtures.extend(semantics());
+    fixtures.extend(length_spellings());
     assert!(fixtures.len() >= 200, "expected the whole corpus, found {} fixtures", fixtures.len());
     let mut failures: Vec<String> = Vec::new();
     for fixture in &fixtures {
