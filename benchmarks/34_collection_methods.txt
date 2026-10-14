@@ -39,4 +39,19 @@ true true
 true true
 true true
 true true
+== length spellings ==
+string: 5 5 5
+unicode: 3 3 3
+empty string: 0 0 0
+list: 3 3 3
+empty list: 0 0 0
+dict: 2 2 2
+empty dict: 0 0 0
+== lengths follow mutation ==
+2 2 2
+1 1 1
+== length rejections ==
+true true
+true true
+true
 done

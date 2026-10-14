@@ -72,7 +72,9 @@ The worker accepts `tigerRun(source, filename)`; the optional filename controls 
 Programs that call `input()` block the worker, and a blocked worker cannot
 receive messages, so the page answers through a `SharedArrayBuffer` instead:
 the worker posts `input`, waits on the buffer, and the page's inline field
-writes the line into it. `SharedArrayBuffer` needs a cross-origin-isolated page,
+writes the line into it. The worker copies the line out of the shared buffer
+before decoding it, because a browser refuses to decode a view backed by a
+`SharedArrayBuffer`. `SharedArrayBuffer` needs a cross-origin-isolated page,
 so the server sends `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp`. Without isolation the playground
 still runs every other program, and `input()` reports that no input stream is
@@ -112,7 +114,7 @@ cargo run -p tiger-web -- -build-only
 
 This builds `crates/tiger-wasm` for `wasm32-unknown-unknown` and writes
 `web/tiger.wasm`, which [tiger.js](tiger.js) instantiates directly — there is no
-`wasm_exec.js` and no bindgen step. The stripped runtime is about 764 KB (about
+`wasm_exec.js` and no bindgen step. The stripped runtime is about 765 KB (about
 242 KB with gzip). If Binaryen's `wasm-opt` is on `PATH`, the build also runs
 `wasm-opt -Oz --converge`. Deploy the web assets, including `highlight.mjs` and
 `tiger.js`, and serve the repository's examples under `/examples/`. Alternatively,

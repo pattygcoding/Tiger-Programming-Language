@@ -50,8 +50,12 @@ fn programs() {
             "loading... done\nnext\n",
         ),
         (
-            "const items = [1, 2, 3]; const text = \"T🐯\"; print(items.size(), items.length(), text.size(), text.length(), len(text));",
-            "3 3 2 2 2\n",
+            "const items = [1, 2, 3]; const text = \"T🐯\"; const scores = {\"ada\": 36, \"grace\": 45}; print(items.size(), items.length(), len(items), text.size(), text.length(), len(text), scores.size(), scores.length(), len(scores));",
+            "3 3 3 2 2 2 2 2 2\n",
+        ),
+        (
+            "var items = [1, 2, 3]; const read = items.size; const count = items.length; items.pop(); print(read(), count(), len(items));",
+            "2 2 2\n",
         ),
         (
             "const nums = [3, 1, 2]; print(nums.sort(), nums); nums.sort(reverse=true); print(nums); const words = [\"bb\", \"a\", \"cc\", \"d\"]; function size(word) { return len(word); } words.sort(key=size); print(words); words.sort(key=size, reverse=true); print(words); const empty = []; empty.sort(key=null); print(empty);",
@@ -91,6 +95,10 @@ fn runtime_errors() {
         ("function add(a, b) { return a + b; } add(1);", "expects 2 arguments"),
         ("str(1, 2);", "str expects at most 1 argument, got 2"),
         ("len(1);", "does not accept number"),
+        ("9.size();", "size does not accept number"),
+        ("9.length();", "length does not accept number"),
+        ("null.size();", "size does not accept null"),
+        ("true.length();", "length does not accept bool"),
         ("print(\"x\", end=1);", "end must be a string"),
         ("print(\"x\", unknown=\"\");", "does not accept keyword argument"),
         ("\"text\".size(1);", "expects 0 arguments"),

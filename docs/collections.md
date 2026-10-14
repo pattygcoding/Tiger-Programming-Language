@@ -130,7 +130,7 @@ true false
 
 Keys may be strings, numbers, or booleans. These are distinct types: `1`, `"1"`, and `true` are different keys. Lists, dictionaries, instances, and `null` cannot be keys. Numeric `0` and `-0` address the same key.
 
-Dictionaries retain insertion order. Repeated keys replace the value without moving the key; indexed assignment adds a missing key. Reading a missing key raises an error, so use `in` first when absence is possible. Dictionaries use bracket access, not instance-style dot access.
+Dictionaries retain insertion order. Repeated keys replace the value without moving the key; indexed assignment adds a missing key. Reading a missing key raises an error, so use `in` first when absence is possible. Dictionaries use bracket access, not instance-style dot access. `len(config)`, `config.size()`, and `config.length()` all report the entry count, the same three spellings lists and strings accept.
 
 ### Dictionary Methods
 
@@ -142,6 +142,7 @@ print(scores.items());
 print(scores.get("ada"), scores.get("nobody"), scores.get("nobody", 0));
 print(scores.delete("alan"), scores.delete("nobody"), scores);
 print(scores.pop("ada"), scores);
+print(scores.size(), scores.length(), len(scores));
 scores.clear();
 print(scores, len(scores));
 ```
@@ -152,6 +153,7 @@ print(scores, len(scores));
 36 null 0
 true false {"ada": 36, "grace": 45, "edsger": 72}
 36 {"grace": 45, "edsger": 72}
+2 2 2
 {} 0
 ```
 
@@ -164,6 +166,7 @@ true false {"ada": 36, "grace": 45, "edsger": 72}
 | `d.pop(key)`, `d.pop(key, default)` | Removes and returns the value; without a default, a missing key is an error |
 | `d.delete(key)` | Removes the key and returns whether it was present |
 | `d.clear()` | Removes every entry |
+| `d.size()`, `d.length()` | The entry count, the same as `len(d)` |
 
 `keys`, `values`, and `items` return fresh lists, so adding to them does not change the dictionary. Deleting a key preserves the insertion order of the remaining entries, and a later assignment to a deleted key appends it at the end.
 

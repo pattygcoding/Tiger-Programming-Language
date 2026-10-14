@@ -96,6 +96,15 @@ fn reads_input_through_the_shared_buffer() {
     assert_eq!(code, 0, "{}", text);
     assert_eq!(text, "name: hi Ada!\n");
 
+    // Multi-byte characters must survive the copy out of the shared buffer.
+    let echo = directory.join("echo.tg");
+    let unicode = directory.join("unicode.txt");
+    std::fs::write(&echo, "print(input(), input());\n").expect("write program");
+    std::fs::write(&unicode, "héllo\nwörld 🐯\n").expect("write input");
+    let (text, code) = run(&module, &echo, Some(&unicode));
+    assert_eq!(code, 0, "{}", text);
+    assert_eq!(text, "héllo wörld 🐯\n");
+
     // End of input surfaces as the same error the native runtime reports.
     let (text, code) = run(&module, &program, None);
     assert_eq!(code, 1, "{}", text);

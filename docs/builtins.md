@@ -172,7 +172,7 @@ A class may define its own method with one of these names; the user method takes
 
 ## len(value)
 
-Requires exactly one string, list, or dictionary. Returns a number: Unicode code points for strings, element count for lists, or entry count for dictionaries.
+`len(value)`, `value.size()`, and `value.length()` are one operation with three spellings. Each requires exactly one string, list, or dictionary and returns a number: Unicode code points for strings, element count for lists, or entry count for dictionaries. The three accept and return exactly the same things, and every other value is rejected by all three, so a program can use whichever spelling reads best.
 
 ```tg
 print(len("Tiger"), len([1, 2, 3]), len({"a": 1, "b": 2}));
@@ -186,17 +186,22 @@ Output:
 0 0 0
 ```
 
-Instances do not acquire a custom length, even if they define a method named `len`.
+Instances do not acquire a custom length, even if they define a method named `len`. Their own `size` and `length` members are ordinary members: `len(instance)` is always an error, while `instance.size()` calls what the class declares, exactly as `instance.len()` would.
 
-Lists and strings also provide equivalent zero-argument `size()` and `length()` methods:
+`size()` and `length()` are zero-argument methods that read the value when they are called, exactly as `len` does, so a stored method stays current:
 
 ```tg
 const items = [1, 2, 3];
-print(items.size(), items.length(), "Tiger".size(), "Tiger".length());
+const scores = {"ada": 36, "grace": 45};
+print(items.size(), items.length(), "Tiger".size(), "Tiger".length(), scores.size(), scores.length());
+const read = items.size;
+items.pop();
+print(read(), len(items));
 ```
 
 ```text
-3 3 5 5
+3 3 5 5 2 2
+2 2
 ```
 
 Lists also have in-place methods such as `sort`, `join`, `pop`, `remove`, `insert`, `index`, `extend`, `reverse`, and `clear`; dictionaries have `keys`, `values`, `items`, `get`, `pop`, `delete`, and `clear`. See [Lists and Dictionaries](collections.md). Strings provide text methods such as `split`, `upper`, `replace`, and `padStart`; see [String Methods](strings.md#string-methods).
@@ -209,6 +214,16 @@ len(7);
 
 ```error
 len does not accept number
+```
+
+The property spellings report the same rejection under their own name:
+
+```tg
+7.size();
+```
+
+```error
+size does not accept number
 ```
 
 ## type(value), isinstance(value, name)

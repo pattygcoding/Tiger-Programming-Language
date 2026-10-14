@@ -14,6 +14,10 @@
 //   worker: postMessage({ type: "input" })  ->  Atomics.wait(...)
 //   page:   show the field, write the line into the buffer, Atomics.notify(...)
 //
+// The worker copies the delivered bytes out of the shared buffer before decoding
+// them: `TextDecoder.decode` is not declared `[AllowShared]`, so a browser fails
+// the call with "The provided ArrayBufferView value must not be shared".
+//
 // `SharedArrayBuffer` needs a cross-origin-isolated page, so the playground
 // server sends COOP and COEP. Without it `input()` reports that no input stream
 // is connected, exactly as the native runtime does.
@@ -76,7 +80,9 @@ export async function createRuntime({ url = "tiger.wasm", output = null, request
         requestInput();
         Atomics.wait(control, STATE, 0);
         if (Atomics.load(control, STATE) < 0) return -1;
-        const line = decoder.decode(sharedText.subarray(0, Atomics.load(control, LENGTH)));
+        // `slice` copies out of the shared buffer rather than aliasing it, because
+        // a browser rejects a `TextDecoder` input backed by a `SharedArrayBuffer`.
+        const line = decoder.decode(sharedText.slice(0, Atomics.load(control, LENGTH)));
         const written = write(linePointer, lineCapacity, line);
         linePointer = written.pointer;
         lineCapacity = written.capacity;

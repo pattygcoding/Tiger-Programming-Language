@@ -27,7 +27,7 @@ stripped (~250 KB gzip). Keep it there.
 
 Run `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` before
 finishing. `cargo test` runs the unit tests, the language suites, the 40
-benchmark programs, the 157 documentation examples, the example and portfolio
+benchmark programs, the 158 documentation examples, the example and portfolio
 programs, the standalone-build integration tests, the differential test that runs
 every one of those programs on both engines and checks that they agree, and the
 browser runtime under Node. The browser tests skip with a message until `cargo
