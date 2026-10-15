@@ -1,9 +1,21 @@
-const PI = 3.14159;
+// A module shares only the names marked with `export`; everything else stays
+// private to the file, including names its own functions use.
+export const PI = 3.14159;
 
-function square(value) {
+export function square(value) {
     return value * value;
 }
 
-function circle_area(radius) {
+export function circle_area(radius) {
     return PI * square(radius);
+}
+
+// Private: the exported functions may call it, importing files cannot reach it.
+function rounded(value, digits) {
+    const factor = math.pow(10, digits);
+    return math.round(value * factor) / factor;
+}
+
+export function circle_area_rounded(radius, digits) {
+    return rounded(circle_area(radius), digits);
 }

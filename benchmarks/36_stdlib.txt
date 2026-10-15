@@ -32,9 +32,16 @@ a#b#c
 == list_dir ==
 ["lib.tg", "main.tg"]
 ["README.md"]
+== sys ==
+list dict []
+false unset
+local
 == errors ==
 true true
 true true
 true true
 true true
+true
 done
+== exit ==
+cleanup

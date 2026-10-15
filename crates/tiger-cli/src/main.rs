@@ -14,9 +14,13 @@ fn main() {
     let code = match tiger_cli::find_payload(&own_bytes()) {
         Some(payload) => {
             let payload = payload.to_vec();
+            // A built executable is its own program, so the process's arguments are
+            // the program's, with the executable's path first as in Python.
+            let arguments: Vec<String> = std::env::args().collect();
             spawn(move || {
                 tiger_cli::run_embedded(
                     &payload,
+                    &arguments,
                     Some(Box::new(std::io::stdin().lock())),
                     Box::new(std::io::stdout()),
                     Box::new(std::io::stderr()),

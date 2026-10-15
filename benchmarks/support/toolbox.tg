@@ -1,0 +1,55 @@
+// support/toolbox.tg - the module `42_module_exports.tg` imports.
+//
+// `export` marks what other files may reach: a constant, a variable, functions, a
+// class, a destructured pair, and a re-exported module. The helpers those marks
+// use, and the running total one of them keeps, stay private, which is what the
+// benchmark's error cases check.
+
+export const VERSION = "toolbox 1.2";
+
+export var uses = 0;
+
+function ladder(value) {
+    return (value - 5) / 5;
+}
+
+function normalize(value) {
+    return value / (value + 1);
+}
+
+export function grade(value) {
+    uses += 1;
+    const level = ladder(value);
+    if level >= 2 { return "high"; }
+    if level >= 1 { return "medium"; }
+    return "low";
+}
+
+export function ratio(value) {
+    uses += 1;
+    return normalize(value);
+}
+
+export function reset() {
+    uses = 0;
+    return uses;
+}
+
+export class Counter {
+    var total;
+    Counter(start) {
+        this.total = start;
+    }
+    function add(amount) {
+        this.total += amount;
+        return this;
+    }
+}
+
+export const [MIN, MAX] = [1, 100];
+
+export import "inner.tg" as inner;
+
+function private_helper() {
+    return "never shared";
+}

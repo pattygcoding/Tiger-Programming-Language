@@ -75,5 +75,5 @@ pub fn regex_module() -> Rc<Module> {
     for (name, function) in definitions {
         let _ = object::define(&env, name, Value::Builtin(function), true);
     }
-    Rc::new(Module { name: "regex".to_string(), env })
+    Module::new("regex".to_string(), env)
 }

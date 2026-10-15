@@ -12,7 +12,10 @@ fn define(env: &Env, name: &str, value: Value) {
 }
 
 /// Installs every built-in and module into the top-level scope.
-pub(crate) fn install(env: &Env) {
+///
+/// `arguments` is the running program's `sys.argv`: its own path first, then each
+/// argument, which is what the host passes in.
+pub(crate) fn install(env: &Env, arguments: &[String]) {
     define(env, "range", Value::Builtin(range_builtin()));
     define(env, "print", Value::Builtin(print_builtin()));
     define(env, "len", Value::Builtin(len_builtin()));
@@ -44,6 +47,7 @@ pub(crate) fn install(env: &Env) {
     define(env, "json", Value::Module(modules::json_module()));
     define(env, "time", Value::Module(modules::time_module()));
     define(env, "regex", Value::Module(modules::regex_module()));
+    define(env, "sys", Value::Module(modules::sys_module(arguments)));
 }
 
 /// Implements `range(start?, stop, step?)`.

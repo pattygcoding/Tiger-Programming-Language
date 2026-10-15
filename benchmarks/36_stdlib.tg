@@ -3,8 +3,11 @@
 // Covers the random PRNG (seed, int, uniform, random, choice, shuffle), the
 // non-reproducible secrets module (random, int, uniform, choice, shuffle), JSON
 // parse and stringify (objects, arrays, scalars, escapes, unicode), the native
-// time module (iso, parts), the RE2 regex helpers, and list_dir over the
-// in-memory filesystem, with every error path handled by try/catch.
+// time module (iso, parts), the RE2 regex helpers, the sys module (argv, env, and
+// exit), and list_dir over the in-memory filesystem, with every error path handled
+// by try/catch. The sys section reports only what every host agrees on: a host that
+// passes no arguments leaves sys.argv empty, and the environment it reports is a
+// snapshot, so the program prints shapes and a deliberately absent variable.
 
 print("== random ==");
 random.seed(2024);
@@ -89,6 +92,16 @@ write_file("README.md", "docs");
 print(list_dir("app"));
 print(list_dir("."));
 
+print("== sys ==");
+// `sys.argv` holds the program's path first, so everything after it is the
+// argument list; with no arguments given it is empty whatever the host does.
+print(type(sys.argv), type(sys.env), sys.argv[1:]);
+print("TIGER_ABSENT_VARIABLE" in sys.env, sys.env.get("TIGER_ABSENT_VARIABLE", "unset"));
+// `sys.env` is an ordinary dictionary, so a program can read and change it; the
+// host's own environment is a separate copy that a later run reads again.
+sys.env["TIGER_ABSENT_VARIABLE"] = "local";
+print(sys.env.get("TIGER_ABSENT_VARIABLE"));
+
 print("== errors ==");
 function fails(action) {
     try {
@@ -122,9 +135,26 @@ function bad_secrets_choice() {
 function missing_dir() {
     return list_dir("nope");
 }
+function bad_exit() {
+    return sys.exit(1, "extra");
+}
 print("low <= high" in fails(bad_int), "empty list" in fails(bad_choice));
 print("json.parse" in fails(bad_json), "requires string keys" in fails(bad_stringify));
 print("invalid pattern" in fails(bad_regex), "file does not exist" in fails(missing_dir));
 print("low <= high" in fails(bad_secrets_int), "empty list" in fails(bad_secrets_choice));
+print("at most 1 argument" in fails(bad_exit));
 
 print("done");
+
+print("== exit ==");
+// `sys.exit(0)` stops the program at the call: `finally` still runs, and nothing
+// after it does, so the status a caller sees is the one the program chose.
+function stop(status) {
+    try {
+        sys.exit(status);
+    } finally {
+        print("cleanup");
+    }
+}
+stop(0);
+print("not reached");

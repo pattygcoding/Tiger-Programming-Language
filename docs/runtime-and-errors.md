@@ -16,6 +16,10 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | `generator expressions are not supported` | A `(x for x in items)` form was written | Use a list comprehension, or a function that returns a list |
 | `set comprehensions are not supported` | A `{x for x in items}` form was written | Write `set([x for x in items])` |
 | `is not iterable` | A `for` loop or comprehension walked a value that has no elements | Iterate a list, tuple, set, string, or dictionary |
+| `sys.exit expects at most 1 argument` | `sys.exit` was given more than one argument | Pass one status, or none |
+| `module "x" has no export "y"` | The member is private to the module, or misspelled | Mark it with `export` in the module, or read an exported name |
+| `export is only allowed at the top level of a file` | An `export` marker was written inside a block or function | Move the declaration and its marker to the top level |
+| A program stops early, with a status but no error | It called `sys.exit(status)`, which no `catch` takes | Look for the call; remove it, or branch on the status in the caller |
 | `expected "{"` | Missing block braces or a colon-style header | Use `{ ... }` without a header colon |
 | `undefined name` | No binding is visible | Define it before use; check block scope and spelling |
 | `cannot reassign const` | Assignment targets an immutable binding | Keep the binding or use a mutable variable |

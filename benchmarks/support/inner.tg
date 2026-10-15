@@ -1,0 +1,11 @@
+// support/inner.tg - re-exported by toolbox.tg as `inner`.
+
+export function doubled(value) {
+    return value * 2;
+}
+
+export const label = "inner";
+
+function hidden() {
+    return "inner only";
+}

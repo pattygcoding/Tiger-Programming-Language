@@ -1,12 +1,17 @@
+// Three ways to reach a module's exported names.
 import "modules/math.tg" as math;
-import "modules/math.tg" as same_math;
+import * as same_math from "modules/math.tg";
+import { square, circle_area as area, PI } from "modules/math.tg";
 
 print(f"Square of 9: {math.square(9)}");
-print(f"Circle area: {math.circle_area(2)}");
+print(f"Circle area: {area(2)}");
+print(f"Named import: {square(5)} {PI}");
+print(f"Rounded area: {math.circle_area_rounded(2, 3)}");
 print(f"Same module: {math == same_math}");
 
+// Only marked names are shared, so the module's own helper stays out of reach.
 try {
-    print(math.missing);
+    print(math.rounded);
 } catch (error) {
     print("Missing export caught:", "has no export" in error);
 }

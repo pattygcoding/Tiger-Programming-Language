@@ -19,12 +19,23 @@ pub fn parse(source: &str) -> Result<Program, String> {
 /// Parses `source`, tagging diagnostics with `filename`.
 pub fn parse_source(source: &str, filename: &str) -> Result<Program, String> {
     let tokens = lexer::scan_named(source, filename)?;
-    let mut parser =
-        Parser { tokens, pos: 0, function_depth: 0, loop_depth: 0, switch_depth: 0, labels: Vec::new(), depth: 0, clause_header: false };
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        function_depth: 0,
+        loop_depth: 0,
+        switch_depth: 0,
+        block_depth: 0,
+        labels: Vec::new(),
+        depth: 0,
+        clause_header: false,
+        exports: Vec::new(),
+    };
     let mut program = Program::default();
     while !parser.at(lexer::EOF) {
         program.statements.push(parser.statement()?);
     }
+    program.exports = parser.exports;
     Ok(program)
 }
 
@@ -34,12 +45,17 @@ struct Parser {
     function_depth: usize,
     loop_depth: usize,
     switch_depth: usize,
+    /// How many statement blocks enclose the current statement. Only the top level
+    /// of a file may hold an `export` marker.
+    block_depth: usize,
     labels: Vec<String>,
     depth: usize,
     /// Whether the expression being parsed is the iterable or a filter of a
     /// comprehension clause, where `if` starts the next filter instead of a
     /// conditional expression. Brackets turn it off again.
     clause_header: bool,
+    /// The names `export` has marked, which the parsed program carries.
+    exports: Vec<ExportName>,
 }
 
 /// The three clauses of a `for` header: initializer, condition, and update.
@@ -129,17 +145,138 @@ impl Parser {
         Some(self.current().errorf(&format!("{} is no longer a keyword; {}", self.current().text, hint)))
     }
 
+    /// Reports whether the current token is exactly that identifier.
+    fn at_word(&self, word: &str) -> bool {
+        self.at(lexer::IDENT) && self.current().text == word
+    }
+
+    /// Consumes `word` when the current token is exactly that identifier.
+    ///
+    /// `export` and `from` are statement words rather than reserved keywords, so
+    /// `transfer(from, to, amount)` keeps working as a parameter list.
+    fn take_word(&mut self, word: &str) -> bool {
+        if !self.at_word(word) {
+            return false;
+        }
+        self.take();
+        true
+    }
+
+    /// Parses `export` in front of a declaration, sharing that declaration's names
+    /// with the files that import this one.
+    ///
+    /// Only the top level of a file may mark exports, and only a declaration can
+    /// carry the marker.
+    fn export_statement(&mut self, base: Base) -> Result<Stmt, String> {
+        if self.block_depth > 0 || self.function_depth > 0 {
+            return Err(base.errorf("export is only allowed at the top level of a file"));
+        }
+        if self.at_word("export") {
+            return Err(self.current().errorf("a declaration can carry only one export marker"));
+        }
+        let statement = self.statement()?;
+        for exported in self.exported_names(&statement)? {
+            self.exports.push(exported);
+        }
+        Ok(statement)
+    }
+
+    /// The names a declaration shares, which is what an `export` marker in front of
+    /// it exports. A module import shares its alias, and a named import shares each
+    /// name it binds.
+    fn exported_names(&self, statement: &Stmt) -> Result<Vec<ExportName>, String> {
+        let names = match statement {
+            Stmt::Function(declaration) => vec![ExportName { name: declaration.name.clone(), base: declaration.base.clone() }],
+            Stmt::Class(declaration) => vec![ExportName { name: declaration.name.clone(), base: declaration.base.clone() }],
+            Stmt::Import { name, base, names, .. } => {
+                if name.is_empty() {
+                    names.iter().map(|imported| ExportName { name: imported.alias.clone(), base: imported.base.clone() }).collect()
+                } else {
+                    vec![ExportName { name: name.clone(), base: base.clone() }]
+                }
+            }
+            Stmt::Destructure { base, names, .. } => {
+                names.iter().map(|name| ExportName { name: name.clone(), base: base.clone() }).collect()
+            }
+            Stmt::Assign { declaration: true, target, .. } => match target {
+                Expr::Identifier { name, base } => vec![ExportName { name: name.clone(), base: base.clone() }],
+                _ => Vec::new(),
+            },
+            _ => return Err(statement.base().errorf("only a declaration can be exported")),
+        };
+        if names.is_empty() {
+            return Err(statement.base().errorf("only a declaration can be exported"));
+        }
+        Ok(names)
+    }
+
+    /// Parses the three import forms: `import "path.tg" as name;`,
+    /// `import * as name from "path.tg";`, and
+    /// `import { member, member as alias } from "path.tg";`.
+    fn import_statement(&mut self, base: Base) -> Result<Stmt, String> {
+        if self.take_if("*") {
+            self.expect("as")?;
+            let name = self.expect(lexer::IDENT)?;
+            self.expect_word("from")?;
+            let path = self.expect(lexer::STRING)?;
+            self.expect(";")?;
+            return Ok(Stmt::Import { base, path: path.text, name: name.text, names: Vec::new() });
+        }
+        if self.at("{") {
+            return self.named_import(base);
+        }
+        let path = self.expect(lexer::STRING)?;
+        self.expect("as")?;
+        let name = self.expect(lexer::IDENT)?;
+        self.expect(";")?;
+        Ok(Stmt::Import { base, path: path.text, name: name.text, names: Vec::new() })
+    }
+
+    /// Parses the `{ member, member as alias }` half of a named import.
+    fn named_import(&mut self, base: Base) -> Result<Stmt, String> {
+        self.expect("{")?;
+        let mut names = Vec::new();
+        while !self.at("}") {
+            let member = self.expect(lexer::IDENT)?;
+            let mut alias = member.text.clone();
+            let mut alias_base = Base::from_token(&member);
+            if self.take_if("as") {
+                let renamed = self.expect(lexer::IDENT)?;
+                alias = renamed.text.clone();
+                alias_base = Base::from_token(&renamed);
+            }
+            names.push(ImportName { name: member.text, alias, base: alias_base });
+            if !self.take_if(",") {
+                break;
+            }
+        }
+        self.expect("}")?;
+        if names.is_empty() {
+            return Err(base.errorf("a named import needs at least one name"));
+        }
+        self.expect_word("from")?;
+        let path = self.expect(lexer::STRING)?;
+        self.expect(";")?;
+        Ok(Stmt::Import { base, path: path.text, name: String::new(), names })
+    }
+
+    fn expect_word(&mut self, word: &str) -> Result<Token, String> {
+        if !self.take_word(word) {
+            return Err(self.current().errorf(&format!("expected {:?}", word)));
+        }
+        Ok(self.tokens[self.pos - 1].clone())
+    }
+
     fn statement(&mut self) -> Result<Stmt, String> {
         if let Some(error) = self.removed_keyword() {
             return Err(error);
         }
         let base = Base::from_token(self.current());
+        if self.take_word("export") {
+            return self.export_statement(base);
+        }
         if self.take_if("import") {
-            let path = self.expect(lexer::STRING)?;
-            self.expect("as")?;
-            let name = self.expect(lexer::IDENT)?;
-            self.expect(";")?;
-            return Ok(Stmt::Import { base, path: path.text, name: name.text });
+            return self.import_statement(base);
         }
         if self.take_if("throw") {
             let value = self.expression(0)?;
@@ -650,10 +787,12 @@ impl Parser {
     fn block_body(&mut self, terminator: bool) -> Result<Block, String> {
         self.enter()?;
         self.expect("{")?;
+        self.block_depth += 1;
         let mut statements = Vec::new();
         while !self.at("}") && !self.at(lexer::EOF) {
             statements.push(self.statement()?);
         }
+        self.block_depth -= 1;
         self.expect("}")?;
         if terminator {
             self.take_if(";");
@@ -733,11 +872,13 @@ impl Parser {
                         function_depth: 0,
                         loop_depth: 0,
                         switch_depth: 0,
+                        block_depth: 0,
                         labels: Vec::new(),
                         depth: self.depth,
                         // An f-string field is bracketed text of its own, so the
                         // clause-header rule does not reach into it.
                         clause_header: false,
+                        exports: Vec::new(),
                     };
                     let value = nested.expression(0)?;
                     nested.expect(lexer::EOF)?;

@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use tiger_evaluator::{algo_module, json_module, math_module, random_module, regex_module, secrets_module, time_module};
+use tiger_evaluator::{algo_module, json_module, math_module, random_module, regex_module, secrets_module, sys_module, time_module};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
@@ -59,6 +59,7 @@ fn editors_list_module_members() {
         ("json", json_module()),
         ("time", time_module()),
         ("regex", regex_module()),
+        ("sys", sys_module(&[])),
     ] {
         let expected = members(&module);
         assert_eq!(highlighted(&playground, name), expected, "highlight.mjs {} members", name);

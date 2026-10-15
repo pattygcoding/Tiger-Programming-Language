@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all forty-one programs and compare their output with the corresponding checked-in `.txt` files:
+Run all forty-two programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 cargo test -p tiger-conformance --test benchmarks -- --nocapture
@@ -57,6 +57,7 @@ TIGER_BENCH_FILTER=08_graphs cargo test -p tiger-conformance --test benchmarks -
 | `39_text_precision.tg` | f-string format specs (precision, width, alignment, zero padding, a column report), `\x`/`\u`/`\U` escapes, raw strings for regex patterns, and `graphemes` for combining marks, emoji modifiers, flags, and ZWJ sequences |
 | `40_syntax_gaps.tg` | conditional expressions (including chains), list and string slicing (bounds, negatives, steps, clamping), labeled `break`/`continue` across nested loops, and `do...while` with `continue` re-checking its condition |
 | `41_sets_and_tuples.tg` | set literals, de-duplication, `in` membership, `add`/`remove`/`has`/`clear`, union/intersection/difference, `set()`/`list()`/`tuple()` conversion, iteration order, tuple literals (`(1, 2)`, `(1,)`, `()`), indexing, slicing, concatenation, destructuring, structural equality, sequence built-ins over tuples, JSON/formatting, and every rejection path |
+| `42_module_exports.tg` | Selective exports, the alias/wildcard/named import forms, re-exporting, module caching and identity, read-only members, and privacy errors |
 
 Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 
@@ -64,7 +65,7 @@ Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 TIGER_BENCH_FILTER=_oop_ cargo test -p tiger-conformance --test benchmarks -- --nocapture
 ```
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty-one source files and forty-one matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream.
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty-two source files and forty-two matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream. A program that imports resolves its paths inside this directory, so a helper module belongs under `support/`, which the corpus counts do not treat as a program: `support/toolbox.tg` is the module `42_module_exports.tg` imports.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 

@@ -53,7 +53,10 @@ pub enum Stmt {
     Import {
         base: Base,
         path: String,
+        /// The alias a whole-module import binds, empty for a named import.
         name: String,
+        /// The members a named import binds, empty for a whole-module import.
+        names: Vec<ImportName>,
     },
     Throw {
         base: Base,
@@ -386,22 +389,50 @@ impl Expr {
     }
 }
 
-/// A parsed program: a flat list of top-level statements.
+/// A parsed program: its top-level statements and the names it shares.
 #[derive(Clone, Debug, Default)]
 pub struct Program {
     pub statements: Block,
+    /// The names `export` marks, in source order. A file that marks nothing shares
+    /// nothing with the files that import it.
+    pub exports: Vec<ExportName>,
 }
 
-/// An `import` statement: its path, its alias, and where it appears.
+/// One member a named import binds: the name the module must export and the name
+/// this file binds it to.
+#[derive(Clone, Debug)]
+pub struct ImportName {
+    /// The name the imported module must export.
+    pub name: String,
+    /// The name bound in this file, which is the same unless `as` renamed it.
+    pub alias: String,
+    pub base: Base,
+}
+
+/// One name an `export` marker shares with the files that import this one.
+#[derive(Clone, Debug)]
+pub struct ExportName {
+    pub name: String,
+    pub base: Base,
+}
+
+/// An `import` statement: its path, the alias a whole-module import binds, and the
+/// members a named import selects.
 #[derive(Clone, Debug)]
 pub struct ImportDecl {
     pub path: String,
+    /// The alias for the whole module, empty for a named import.
     pub name: String,
+    /// The members a named import binds, empty for a whole-module import.
+    pub names: Vec<ImportName>,
     pub base: Base,
 }
 
 /// Collects every literal `import` statement, including those nested inside
 /// functions, classes, conditionals, loops, switch cases, and try blocks.
+///
+/// A named import has no alias of its own, so its name is empty here; the path is
+/// what a bundler needs.
 pub fn imports(program: &Program) -> Vec<(String, String)> {
     import_decls(program).into_iter().map(|declaration| (declaration.path, declaration.name)).collect()
 }
@@ -417,7 +448,9 @@ pub fn import_decls(program: &Program) -> Vec<ImportDecl> {
 fn visit_block(statements: &[Stmt], found: &mut Vec<ImportDecl>) {
     for statement in statements {
         match statement {
-            Stmt::Import { base, path, name } => found.push(ImportDecl { path: path.clone(), name: name.clone(), base: base.clone() }),
+            Stmt::Import { base, path, name, names } => {
+                found.push(ImportDecl { path: path.clone(), name: name.clone(), names: names.clone(), base: base.clone() })
+            }
             Stmt::Function(declaration) => visit_block(&declaration.body, found),
             Stmt::Class(declaration) => {
                 if let Some(constructor) = &declaration.constructor {

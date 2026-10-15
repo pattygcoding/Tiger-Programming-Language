@@ -626,6 +626,44 @@ pub struct Super {
 pub struct Module {
     pub name: String,
     pub env: Env,
+    /// The names other files may reach, in source order. `None` exposes everything
+    /// the environment holds, which is how the built-in modules are built.
+    pub exports: Option<Vec<String>>,
+}
+
+impl Module {
+    /// A module that exposes everything its environment holds.
+    ///
+    /// The built-in modules are built this way: every name they install is public.
+    pub fn new(name: String, env: Env) -> Rc<Module> {
+        Rc::new(Module { name, env, exports: None })
+    }
+
+    /// A module that exposes only `exports`, in source order.
+    ///
+    /// A file that marks nothing with `export` shares nothing, so this is called
+    /// with an empty list for a module that keeps everything private. The parser
+    /// records an export only for the declaration it marks, so every name here is
+    /// one the module declares.
+    pub fn with_exports(name: String, env: Env, exports: Vec<String>) -> Rc<Module> {
+        Rc::new(Module { name, env, exports: Some(exports) })
+    }
+
+    /// Reads a member this module exposes, or `None` for a name it does not share.
+    ///
+    /// A file that was imported keeps its own private names in the same environment,
+    /// because its functions close over that environment; this is the gate that
+    /// keeps those names out of reach from other files.
+    pub fn member(&self, name: &str) -> Option<Value> {
+        if let Some(exports) = &self.exports {
+            // A module's export list is short, so a scan is cheaper than a set and
+            // keeps the source order for diagnostics.
+            if !exports.iter().any(|exported| exported == name) {
+                return None;
+            }
+        }
+        get_own(&self.env, name)
+    }
 }
 
 /// A structured runtime failure, classified by kind and positioned by origin.

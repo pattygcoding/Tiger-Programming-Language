@@ -30,14 +30,18 @@ fn build(directory: &Path, source: &str, name: &str) -> PathBuf {
 }
 
 fn execute(output: &Path, directory: &Path, input: &str) -> (String, i32) {
-    let mut child = Command::new(output)
-        .current_dir(directory)
-        .env("PATH", "")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn the standalone executable");
+    execute_with(output, directory, input, &[], &[])
+}
+
+/// Runs a built executable with arguments and extra environment variables,
+/// returning its combined output and its exit status.
+fn execute_with(output: &Path, directory: &Path, input: &str, arguments: &[&str], environment: &[(&str, &str)]) -> (String, i32) {
+    let mut command = Command::new(output);
+    command.current_dir(directory).env("PATH", "").args(arguments).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let mut child = command.spawn().expect("spawn the standalone executable");
     child.stdin.as_mut().expect("stdin").write_all(input.as_bytes()).expect("write stdin");
     let finished = child.wait_with_output().expect("wait for the standalone executable");
     let mut text = String::from_utf8_lossy(&finished.stdout).to_string();
@@ -66,18 +70,38 @@ print(input(\"name? \") + \"!\");";
 }
 
 #[test]
+fn built_executables_read_arguments_environment_and_status() {
+    let directory = temporary("command-line");
+    // A built executable is its own program, so `sys.argv[0]` is its path and the
+    // rest are the arguments the caller passed; `sys.env` is the environment the
+    // process inherited, and `sys.exit` is the status the caller sees.
+    let source = "print(len(sys.argv), sys.argv[1:]);\n\
+                  print(sys.env.get(\"TIGER_STANDALONE_PROBE\", \"unset\"));\n\
+                  try {\n    sys.exit(5);\n} finally {\n    print(\"cleanup\");\n}\n\
+                  print(\"not reached\");";
+    let output = build(&directory, source, "command_line.tg");
+    let (text, code) = execute_with(&output, &directory, "", &["one", "two"], &[("TIGER_STANDALONE_PROBE", "probe")]);
+    assert_eq!((text.as_str(), code), ("3 [\"one\", \"two\"]\nprobe\ncleanup\n", 5));
+
+    // Without arguments the list holds only the executable's own path.
+    let (text, code) = execute_with(&output, &directory, "", &[], &[]);
+    assert_eq!((text.as_str(), code), ("1 []\nunset\ncleanup\n", 5));
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
 fn builds_a_program_with_imports() {
     let directory = temporary("imports");
     let sources = directory.join("sources");
     std::fs::create_dir_all(sources.join("lib")).expect("library directory");
     std::fs::write(
         sources.join("lib").join("math.tg"),
-        "function calculate(value) { import \"factor.tg\" as factor; return value * factor.amount; }",
+        "export function calculate(value) { import \"factor.tg\" as factor; return value * factor.amount; }",
     )
     .expect("write library");
-    std::fs::write(sources.join("lib").join("factor.tg"), "const amount = 3;").expect("write factor");
+    std::fs::write(sources.join("lib").join("factor.tg"), "export const amount = 3;").expect("write factor");
     let entry = sources.join("main.tg");
-    std::fs::write(&entry, "import \"lib/math.tg\" as math; print(math.calculate(9));").expect("write entry");
+    std::fs::write(&entry, "import { calculate } from \"lib/math.tg\"; print(calculate(9));").expect("write entry");
     let output = directory.join(if cfg!(windows) { "standalone.exe" } else { "standalone" });
     let result = Command::new(tiger()).arg("build").arg(&entry).arg("-o").arg(&output).output().expect("run tiger build");
     assert!(result.status.success(), "build failed: {}", String::from_utf8_lossy(&result.stderr));

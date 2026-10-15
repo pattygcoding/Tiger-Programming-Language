@@ -1,6 +1,6 @@
 //! The differential engine test: both engines must agree on every fixture.
 //!
-//! Every program the other suites cover — the 41 benchmarks, the `tg` fences in
+//! Every program the other suites cover — the 42 benchmarks, the `tg` fences in
 //! `README.md` and `docs/*.md`, and the `examples/` and `portfolio-features/`
 //! programs — is run twice: once on the tree-walking interpreter and once on the
 //! compiled (linear) engine. The two must produce exactly the same output and
@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use tiger_conformance::{fences, markdown_paths, normalize, run_engine, Engine, Files};
+use tiger_conformance::{fences, markdown_paths, normalize, run_engine, run_in_directory, Engine, Files, RunOptions};
 
 /// One program to run on both engines.
 struct Fixture {
@@ -28,6 +28,9 @@ struct Fixture {
     files: Files,
     loader: bool,
     input: Option<String>,
+    /// When set, the program's imports resolve inside this directory, which is
+    /// how the benchmarks reach `benchmarks/support/`.
+    directory: Option<PathBuf>,
 }
 
 /// The `benchmarks/*.tg` programs, each with its optional `.in` input file.
@@ -50,6 +53,7 @@ fn benchmarks() -> Vec<Fixture> {
                 files: Files::Memory,
                 loader: false,
                 input: std::fs::read_to_string(path.with_extension("in")).ok().map(|text| normalize(&text)),
+                directory: Some(directory.clone()),
             }
         })
         .collect()
@@ -85,6 +89,7 @@ fn documentation() -> Vec<Fixture> {
                     files: Files::Memory,
                     loader: true,
                     input,
+                    directory: None,
                 });
             }
             index += 1;
@@ -115,6 +120,7 @@ fn programs(directory: &str) -> Vec<Fixture> {
             files: Files::Memory,
             loader: true,
             input: Some(String::new()),
+            directory: None,
         })
         .collect()
 }
@@ -173,6 +179,7 @@ fn semantics() -> Vec<Fixture> {
             files: Files::Memory,
             loader: false,
             input: None,
+            directory: None,
         })
         .collect()
 }
@@ -198,6 +205,7 @@ fn length_spellings() -> Vec<Fixture> {
             files: Files::Memory,
             loader: false,
             input: None,
+            directory: None,
         })
         .collect()
 }
@@ -224,6 +232,7 @@ fn sets_and_tuples() -> Vec<Fixture> {
             files: Files::Memory,
             loader: false,
             input: None,
+            directory: None,
         })
         .collect()
 }
@@ -248,6 +257,7 @@ fn comprehensions() -> Vec<Fixture> {
             files: Files::Memory,
             loader: false,
             input: None,
+            directory: None,
         })
         .collect()
 }
@@ -265,8 +275,21 @@ fn engines_agree_on_every_fixture() {
     assert!(fixtures.len() >= 200, "expected the whole corpus, found {} fixtures", fixtures.len());
     let mut failures: Vec<String> = Vec::new();
     for fixture in &fixtures {
-        let tree = run_engine(&fixture.source, &fixture.filename, fixture.files, fixture.loader, fixture.input.as_deref(), Engine::Tree);
-        let linear = run_engine(&fixture.source, &fixture.filename, fixture.files, fixture.loader, fixture.input.as_deref(), Engine::Auto);
+        // A benchmark resolves its imports inside `benchmarks/`, where its own
+        // name stays bare; everything else uses the host filesystem's loader.
+        let run_once = |engine: Engine| match &fixture.directory {
+            Some(directory) => run_in_directory(
+                &fixture.source,
+                &fixture.filename,
+                directory.clone(),
+                fixture.files,
+                fixture.input.as_deref(),
+                RunOptions { engine, max_steps: 0, arguments: Vec::new() },
+            ),
+            None => run_engine(&fixture.source, &fixture.filename, fixture.files, fixture.loader, fixture.input.as_deref(), engine),
+        };
+        let tree = run_once(Engine::Tree);
+        let linear = run_once(Engine::Auto);
         if tree.output == linear.output && tree.error == linear.error {
             continue;
         }

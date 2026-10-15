@@ -190,6 +190,14 @@
             "2": { "name": "punctuation.accessor.tiger" },
             "3": { "name": "support.function.regex.tiger" }
           }
+        },
+        {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(sys)\\s*(\\.)\\s*(argv|env|exit)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.sys.tiger" }
+          }
         }
       ]
     },
@@ -209,7 +217,7 @@
     },
     "builtins": {
       "patterns": [
-        { "name": "support.module.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:math|algo|random|secrets|json|time|regex)(?![\\p{L}\\p{Nd}_])" },
+        { "name": "support.module.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:math|algo|random|secrets|json|time|regex|sys)(?![\\p{L}\\p{Nd}_])" },
         { "name": "support.function.builtin.tiger", "match": "(?<![\\p{L}\\p{Nd}_.])(?:print|input|str|int|float|bool|len|range|type|isinstance|graphemes|sum|min|max|any|all|zip|enumerate|map|filter|sorted|list|tuple|set|open|read_file|write_file|append_file|file_exists|remove_file|list_dir)(?![\\p{L}\\p{Nd}_])" }
       ]
     },

@@ -706,13 +706,31 @@ impl Compiler {
                 self.expression(value)?;
                 self.emit(Instr::Throw, base);
             }
-            Stmt::Import { base, path, name } => {
+            Stmt::Import { base, path, name, names } => {
                 // The `Import` instruction binds the name itself; record it here so
                 // the declarations that follow in this scope get the right slots.
-                self.record(name);
-                let path = self.name(path);
-                let name = self.name(name);
-                self.emit(Instr::Import { path, name }, base);
+                if names.is_empty() {
+                    self.record(name);
+                    let path = self.name(path);
+                    let name = self.name(name);
+                    self.emit(Instr::Import { path, name }, base);
+                } else {
+                    // A named import lands the module in a name no source can spell,
+                    // reads each member from it, and declares the name it asked for.
+                    let hidden_name = format!("\u{0}import {} at {}", path, self.here());
+                    self.record(&hidden_name);
+                    let hidden = self.name(&hidden_name);
+                    let path = self.name(path);
+                    self.emit(Instr::Import { path, name: hidden }, base);
+                    for imported in names {
+                        // Each member read needs the module on the stack, so it is
+                        // loaded again for every name rather than held across them.
+                        self.emit_load(&hidden_name, base);
+                        let member = self.name(&imported.name);
+                        self.emit(Instr::GetProperty(member), &imported.base);
+                        self.define(&imported.alias, true, &imported.base);
+                    }
+                }
             }
             _ => return self.statement_tail(statement),
         }

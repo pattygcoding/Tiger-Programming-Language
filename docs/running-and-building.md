@@ -34,11 +34,11 @@ On Windows PowerShell the binary is `.\target\release\tiger.exe`.
 
 | Command | Purpose |
 | --- | --- |
-| `tiger run <file.tg>` | Parse and execute a source file |
+| `tiger run <file.tg> [arguments...]` | Parse and execute a source file, passing the arguments to the program |
 | `tiger build <file.tg> [-o <executable>]` | Produce a standalone executable |
 | `tiger help`, `tiger -h`, `tiger --help` | Display usage |
 
-Input paths must end in `.tg`. Build accepts `-o` before or after the source path. There is no interactive REPL or standard-input source mode; standard input is passed to the program, where `input()` reads it (for example, `tiger run app.tg < answers.txt`). Standalone executables and the WASI build also read standard input; the browser playground asks for each line in the output pane. CLI exit codes are `0` for success, `1` for file/language/build errors, and `2` for invalid arguments.
+Input paths must end in `.tg`. Build accepts `-o` before or after the source path. Everything after the source path belongs to the program: `tiger run greet.tg Ada Grace` makes `sys.argv` the list `["greet.tg", "Ada", "Grace"]`, and a built executable does the same with its own path first. There is no interactive REPL or standard-input source mode; standard input is passed to the program, where `input()` reads it (for example, `tiger run app.tg < answers.txt`). Standalone executables and the WASI build also read standard input; the browser playground asks for each line in the output pane. CLI exit codes are `0` for success, `1` for file/language/build errors, `2` for invalid arguments, and otherwise the status the program chose with `sys.exit`, whose message (when the argument is not an integer) is printed on standard error first. See [`sys`](standard-library.md#sys).
 
 ## Standalone Executables
 
@@ -111,7 +111,7 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 811 KB, about 253 KB with gzip, and smaller still
+The stripped binary is about 828 KB, about 258 KB with gzip, and smaller still
 with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable
 gzip or Brotli for the `application/wasm` content type. The local `cargo run -p
 tiger-web` server does not compress.
@@ -215,8 +215,8 @@ share of a workload is measured without a profiler, and `TIGER_SHOW_OUTPUT=1`
 keeps the program's own output for a program that times itself.
 
 `cargo test` checks the unit tests, the language suites in
-`crates/tiger-evaluator/tests/`, the forty-one 100-200-line benchmark programs
-against fixed output files, the 168 documentation examples, every example and
+`crates/tiger-evaluator/tests/`, the forty-two 100-200-line benchmark programs
+against fixed output files, the 174 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, the
 differential test that runs every one of those programs on both engines and
 checks that the results match, and the
