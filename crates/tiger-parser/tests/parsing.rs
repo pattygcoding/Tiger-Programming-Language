@@ -2,7 +2,7 @@
 //!
 //! A port of `pkg/parser/parser_test.go` and `pkg/parser/class_test.go`.
 
-use tiger_ast::{Expr, Program, Stmt};
+use tiger_ast::{ComprehensionBody, Expr, Program, Stmt};
 
 fn parse(source: &str) -> Program {
     tiger_parser::parse(source).unwrap_or_else(|error| panic!("parse({:?}): {}", source, error))
@@ -462,4 +462,77 @@ fn invalid_class_syntax() {
 fn parenthesized_inheritance_hint() {
     let error = reject("class Dog(Animal) {}");
     assert!(error.contains("use 'class Dog extends Parent'"), "{}", error);
+}
+
+#[test]
+fn set_and_tuple_literals() {
+    // `{}` stays an empty dictionary; a brace literal holding values is a set.
+    let Expr::Dict { pairs, .. } = assigned("const value = {};") else { panic!("empty dict") };
+    assert!(pairs.is_empty());
+    let Expr::Dict { pairs, .. } = assigned("const value = {\"a\": 1, \"b\": 2};") else { panic!("dict") };
+    assert_eq!(pairs.len(), 2);
+    let Expr::Set { elements, .. } = assigned("const value = {1, 2};") else { panic!("set") };
+    assert_eq!(elements.len(), 2);
+    let Expr::Set { elements, .. } = assigned("const value = {1,};") else { panic!("set") };
+    assert_eq!(elements.len(), 1);
+
+    // Parentheses group, and a comma makes a tuple: `(1,)` is the one-element form.
+    assert!(matches!(assigned("const value = (1);"), Expr::Literal { .. }));
+    let Expr::Tuple { elements, .. } = assigned("const value = ();") else { panic!("tuple") };
+    assert!(elements.is_empty());
+    let Expr::Tuple { elements, .. } = assigned("const value = (1,);") else { panic!("tuple") };
+    assert_eq!(elements.len(), 1);
+    let Expr::Tuple { elements, .. } = assigned("const value = (1, 2, 3,);") else { panic!("tuple") };
+    assert_eq!(elements.len(), 3);
+
+    // The shapes nest, and a tuple can still be indexed.
+    let Expr::Tuple { elements, .. } = assigned("const value = (1, {2, 3});") else { panic!("tuple") };
+    assert!(matches!(elements[1], Expr::Set { .. }));
+    assert!(matches!(assigned("const value = (1, 2)[0];"), Expr::Index { .. }));
+
+    // A single brace literal cannot mix the two shapes.
+    assert!(reject("const value = {1: 2, 3};").contains("dictionary entries are key: value pairs"));
+    assert!(reject("const value = {1, 2: 3};").contains("a set lists values separated by commas"));
+    assert!(reject("const value = (1,,);").contains("expected expression"));
+}
+
+#[test]
+fn comprehension_literals() {
+    // A `for` after the first value makes a comprehension rather than a literal.
+    let Expr::Comprehension { body, clauses, .. } = assigned("const value = [x * 2 for x in items];") else { panic!("list comprehension") };
+    assert!(matches!(body, ComprehensionBody::List(_)));
+    assert_eq!(clauses.len(), 1);
+    assert_eq!(clauses[0].name, "x");
+    assert!(clauses[0].filters.is_empty());
+
+    // Filters belong to the clause they follow, and clauses may nest.
+    let Expr::Comprehension { clauses, .. } = assigned("const value = [x for x in items if x if y for z in more];") else {
+        panic!("comprehension")
+    };
+    assert_eq!(clauses.len(), 2);
+    assert_eq!(clauses[0].filters.len(), 2);
+    assert_eq!(clauses[1].name, "z");
+    assert!(clauses[1].filters.is_empty());
+
+    let Expr::Comprehension { body, .. } = assigned("const value = {k: v for k in keys};") else { panic!("dict comprehension") };
+    assert!(matches!(body, ComprehensionBody::Dict(_)));
+
+    // Inside brackets a conditional expression is available again, because `if`
+    // there no longer starts a filter.
+    let Expr::Comprehension { clauses, .. } = assigned("const value = [x for x in (a if b else c)];") else { panic!("comprehension") };
+    assert!(matches!(clauses[0].iterable, Expr::Conditional { .. }));
+
+    // Outside a clause header `for` and `if` keep their usual meaning.
+    assert!(matches!(assigned("const value = 1 if true else 2;"), Expr::Conditional { .. }));
+    assert!(matches!(assigned("const value = [1, 2];"), Expr::List { .. }));
+    assert!(matches!(assigned("const value = {\"a\": 1};"), Expr::Dict { .. }));
+    assert!(matches!(assigned("const value = {1, 2};"), Expr::Set { .. }));
+
+    // The two forms the eager runtime does not have are reported as themselves.
+    assert!(reject("const value = {x for x in items};").contains("set comprehensions are not supported"));
+    assert!(reject("const value = (x for x in items);").contains("generator expressions are not supported"));
+    assert!(reject("const value = [x for x in];").contains("expected expression"));
+    assert!(reject("const value = [x for x in items if];").contains("expected expression"));
+    assert!(reject("const value = [x for 1 in items];").contains("expected \"identifier\""));
+    assert!(reject("const value = {x: y for x in items if};").contains("expected expression"));
 }

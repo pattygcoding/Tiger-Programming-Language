@@ -23,6 +23,11 @@ pub(crate) fn install(env: &Env) {
     for name in ["int", "float", "str", "bool"] {
         define(env, name, Value::Builtin(conversion_builtin(name)));
     }
+    // The collection constructors. `set()` is the only way to spell an empty set,
+    // because `{}` stays an empty dictionary.
+    for name in ["list", "tuple", "set"] {
+        define(env, name, Value::Builtin(collection_builtin(name)));
+    }
     for (name, builtin) in aggregate_builtins() {
         define(env, name, Value::Builtin(builtin));
     }
@@ -121,6 +126,8 @@ pub(crate) fn length_of(value: &Value) -> Option<f64> {
     match value {
         Value::String(text) => Some(code_points(text) as f64),
         Value::List(elements) => Some(elements.borrow().len() as f64),
+        Value::Tuple(elements) => Some(elements.len() as f64),
+        Value::Set(set) => Some(set.borrow().entries.len() as f64),
         Value::Dict(dict) => Some(dict.borrow().entries.len() as f64),
         _ => None,
     }
@@ -174,6 +181,8 @@ const TYPE_NAMES: &[&str] = &[
     "bool",
     "null",
     "list",
+    "tuple",
+    "set",
     "dict",
     "function",
     "builtin",
@@ -252,6 +261,32 @@ fn conversion_builtin(name: &'static str) -> Rc<object::Builtin> {
             }),
             1 => crate::methods::convert(name, &arguments[0]),
             count => Err(format!("{} expects at most 1 argument, got {}", name, count)),
+        }
+    })
+}
+
+/// Implements `list(iterable?)`, `tuple(iterable?)`, and `set(iterable?)`.
+///
+/// Each constructor copies the values any `for` loop could walk: a list, a tuple,
+/// a set, a dictionary's keys, or a string's characters. `set()` with no argument
+/// is how an empty set is written, because `{}` stays an empty dictionary, and an
+/// unhashable element is rejected the way a dictionary key would be.
+fn collection_builtin(name: &'static str) -> Rc<object::Builtin> {
+    object::Builtin::new(name, move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err(format!("{} does not accept keyword arguments", name));
+        }
+        if arguments.len() > 1 {
+            return Err(format!("{} expects at most 1 argument, got {}", name, arguments.len()));
+        }
+        let elements = match arguments.first() {
+            Some(value) => crate::iterable_elements(value).map_err(|kind| format!("{} expects an iterable, got {}", name, kind))?,
+            None => Vec::new(),
+        };
+        match name {
+            "list" => Ok(Value::list(elements)),
+            "tuple" => Ok(Value::tuple(elements)),
+            _ => Value::set(elements),
         }
     })
 }
@@ -354,9 +389,9 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
         (
             "sum",
             object::Builtin::new("sum", |_host, arguments, keywords| {
-                let list = list_argument("sum", arguments, keywords)?;
+                let elements = sequence_argument("sum", arguments, keywords)?;
                 let mut total = 0.0;
-                for (index, element) in list.borrow().iter().enumerate() {
+                for (index, element) in elements.iter().enumerate() {
                     let Value::Number(number) = element else {
                         return Err(format!("sum expects numbers, got {} at index {}", element.type_name(), index));
                     };
@@ -373,24 +408,23 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
         (
             "any",
             object::Builtin::new("any", |_host, arguments, keywords| {
-                let list = list_argument("any", arguments, keywords)?;
-                let found = list.borrow().iter().any(object::truthy);
+                let elements = sequence_argument("any", arguments, keywords)?;
+                let found = elements.iter().any(object::truthy);
                 Ok(Value::Bool(found))
             }),
         ),
         (
             "all",
             object::Builtin::new("all", |_host, arguments, keywords| {
-                let list = list_argument("all", arguments, keywords)?;
-                let every = list.borrow().iter().all(object::truthy);
+                let elements = sequence_argument("all", arguments, keywords)?;
+                let every = elements.iter().all(object::truthy);
                 Ok(Value::Bool(every))
             }),
         ),
         (
             "enumerate",
             object::Builtin::new("enumerate", |_host, arguments, keywords| {
-                let list = list_argument("enumerate", arguments, keywords)?;
-                let elements = list.borrow();
+                let elements = sequence_argument("enumerate", arguments, keywords)?;
                 Ok(Value::list(
                     elements
                         .iter()
@@ -409,18 +443,18 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
                 if arguments.is_empty() {
                     return Err("zip expects at least 1 argument".to_string());
                 }
-                let mut lists = Vec::new();
+                let mut lists: Vec<Vec<Value>> = Vec::new();
                 let mut shortest = usize::MAX;
                 for (index, argument) in arguments.iter().enumerate() {
-                    let Value::List(list) = argument else {
-                        return Err(format!("zip expects lists, got {} at position {}", argument.type_name(), index + 1));
+                    let Some(elements) = argument.sequence() else {
+                        return Err(format!("zip expects lists or tuples, got {} at position {}", argument.type_name(), index + 1));
                     };
-                    shortest = shortest.min(list.borrow().len());
-                    lists.push(list.clone());
+                    shortest = shortest.min(elements.len());
+                    lists.push(elements);
                 }
                 let mut rows = Vec::new();
                 for position in 0..shortest {
-                    let row: Vec<Value> = lists.iter().map(|list| list.borrow()[position].clone()).collect();
+                    let row: Vec<Value> = lists.iter().map(|list| list[position].clone()).collect();
                     rows.push(Value::list(row));
                 }
                 Ok(Value::list(rows))
@@ -429,20 +463,16 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
     ]
 }
 
-fn list_argument(
-    name: &str,
-    arguments: &[Value],
-    keywords: &[tiger_object::Keyword],
-) -> Result<Rc<std::cell::RefCell<Vec<Value>>>, String> {
+fn sequence_argument(name: &str, arguments: &[Value], keywords: &[tiger_object::Keyword]) -> Result<Vec<Value>, String> {
     if !keywords.is_empty() {
         return Err(format!("{} does not accept keyword arguments", name));
     }
     if arguments.len() != 1 {
         return Err(format!("{} expects 1 argument, got {}", name, arguments.len()));
     }
-    match &arguments[0] {
-        Value::List(list) => Ok(list.clone()),
-        other => Err(format!("{} expects a list, got {}", name, other.type_name())),
+    match arguments[0].sequence() {
+        Some(elements) => Ok(elements),
+        None => Err(format!("{} expects a list or tuple, got {}", name, arguments[0].type_name())),
     }
 }
 
@@ -471,8 +501,8 @@ fn sequence_arguments(name: &str, arguments: &[Value], keywords: &[tiger_object:
         return Err(format!("{} expects at least 1 argument", name));
     }
     if arguments.len() == 1 {
-        if let Value::List(list) = &arguments[0] {
-            return Ok(list.borrow().clone());
+        if let Some(elements) = arguments[0].sequence() {
+            return Ok(elements);
         }
     }
     Ok(arguments.to_vec())

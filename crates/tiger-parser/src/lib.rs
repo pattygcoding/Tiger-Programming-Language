@@ -19,7 +19,8 @@ pub fn parse(source: &str) -> Result<Program, String> {
 /// Parses `source`, tagging diagnostics with `filename`.
 pub fn parse_source(source: &str, filename: &str) -> Result<Program, String> {
     let tokens = lexer::scan_named(source, filename)?;
-    let mut parser = Parser { tokens, pos: 0, function_depth: 0, loop_depth: 0, switch_depth: 0, labels: Vec::new(), depth: 0 };
+    let mut parser =
+        Parser { tokens, pos: 0, function_depth: 0, loop_depth: 0, switch_depth: 0, labels: Vec::new(), depth: 0, clause_header: false };
     let mut program = Program::default();
     while !parser.at(lexer::EOF) {
         program.statements.push(parser.statement()?);
@@ -35,6 +36,10 @@ struct Parser {
     switch_depth: usize,
     labels: Vec<String>,
     depth: usize,
+    /// Whether the expression being parsed is the iterable or a filter of a
+    /// comprehension clause, where `if` starts the next filter instead of a
+    /// conditional expression. Brackets turn it off again.
+    clause_header: bool,
 }
 
 /// The three clauses of a `for` header: initializer, condition, and update.
@@ -208,6 +213,16 @@ impl Parser {
     }
 
     fn signature(&mut self, base: Base, terminator: bool) -> Result<FunctionDecl, String> {
+        // A function body is its own context: the clause-header rule of an
+        // enclosing comprehension does not reach inside it. A parse error there
+        // ends the whole parse, so the flag needs no restoring on that path.
+        let clause_header = std::mem::replace(&mut self.clause_header, false);
+        let declaration = self.signature_body(base, terminator);
+        self.clause_header = clause_header;
+        declaration
+    }
+
+    fn signature_body(&mut self, base: Base, terminator: bool) -> Result<FunctionDecl, String> {
         self.expect("(")?;
         let mut parameters = Vec::new();
         let mut defaults: Vec<Option<Expr>> = Vec::new();
@@ -654,6 +669,44 @@ impl Parser {
         result
     }
 
+    /// Parses an expression inside brackets, a call's arguments, or a function
+    /// body, where the clause-header rule does not apply: `(a if b else c)` is a
+    /// conditional expression even inside a comprehension clause.
+    fn nested<T>(&mut self, body: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<T, String> {
+        let previous = std::mem::replace(&mut self.clause_header, false);
+        let result = body(self);
+        self.clause_header = previous;
+        result
+    }
+
+    /// Parses the iterable or a filter of a comprehension clause.
+    fn clause_expression(&mut self) -> Result<Expr, String> {
+        let previous = std::mem::replace(&mut self.clause_header, true);
+        let result = self.expression(0);
+        self.clause_header = previous;
+        result
+    }
+
+    /// Parses the `for name in iterable [if condition]*` clauses of a
+    /// comprehension, which is what follows its element.
+    fn comprehension_clauses(&mut self) -> Result<Vec<ComprehensionClause>, String> {
+        let mut clauses = Vec::new();
+        loop {
+            self.expect("for")?;
+            let name = self.expect(lexer::IDENT)?;
+            self.expect("in")?;
+            let iterable = self.clause_expression()?;
+            let mut filters = Vec::new();
+            while self.take_if("if") {
+                filters.push(self.clause_expression()?);
+            }
+            clauses.push(ComprehensionClause { name: name.text, iterable, filters });
+            if !self.at("for") {
+                return Ok(clauses);
+            }
+        }
+    }
+
     fn expression_body(&mut self, minimum: i32) -> Result<Expr, String> {
         let token = self.take();
         let mut base = Base::from_token(&token);
@@ -682,6 +735,9 @@ impl Parser {
                         switch_depth: 0,
                         labels: Vec::new(),
                         depth: self.depth,
+                        // An f-string field is bracketed text of its own, so the
+                        // clause-header rule does not reach into it.
+                        clause_header: false,
                     };
                     let value = nested.expression(0)?;
                     nested.expect(lexer::EOF)?;
@@ -728,34 +784,127 @@ impl Parser {
                 left = Expr::Update { base: base.clone(), target: Box::new(target), operator: token.text.clone(), prefix: true };
             }
             "(" => {
-                left = self.expression(0)?;
-                self.expect(")")?;
-            }
-            "[" => {
-                let elements = self.expressions("]")?;
-                left = Expr::List { base: base.clone(), elements };
-            }
-            "{" => {
-                let mut pairs = Vec::new();
-                if !self.at("}") {
-                    loop {
-                        let key = self.expression(0)?;
-                        self.expect(":")?;
-                        let value = self.expression(0)?;
-                        pairs.push(Pair { key, value });
-                        if !self.take_if(",") || self.at("}") {
-                            break;
+                // `()` is the empty tuple, `(value)` is a parenthesized
+                // expression, and a comma makes a tuple: `(1,)` is the one-element
+                // form, and a trailing comma is allowed after every element.
+                if self.at(")") {
+                    self.expect(")")?;
+                    left = Expr::Tuple { base: base.clone(), elements: Vec::new() };
+                } else {
+                    let first = self.nested(|parser| parser.expression(0))?;
+                    if self.at("for") {
+                        // `(x for x in items)` would build values one at a time; the
+                        // runtime is eager, so this form stays unimplemented.
+                        return Err(self
+                            .current()
+                            .errorf("generator expressions are not supported; use a list comprehension like [x for x in items]"));
+                    }
+                    if self.at(",") {
+                        let mut elements = vec![first];
+                        while self.take_if(",") {
+                            if self.at(")") {
+                                break;
+                            }
+                            elements.push(self.nested(|parser| parser.expression(0))?);
                         }
+                        self.expect(")")?;
+                        left = Expr::Tuple { base: base.clone(), elements };
+                    } else {
+                        self.expect(")")?;
+                        left = first;
                     }
                 }
-                self.expect("}")?;
-                left = Expr::Dict { base: base.clone(), pairs };
+            }
+            "[" => {
+                // A `for` after the first value makes this a list comprehension:
+                // `[x * 2 for x in items if x > 0]`.
+                if self.at("]") {
+                    self.expect("]")?;
+                    left = Expr::List { base: base.clone(), elements: Vec::new() };
+                } else {
+                    let first = self.nested(|parser| parser.expression(0))?;
+                    if self.at("for") {
+                        let clauses = self.comprehension_clauses()?;
+                        self.expect("]")?;
+                        left = Expr::Comprehension { base: base.clone(), body: ComprehensionBody::List(Box::new(first)), clauses };
+                    } else {
+                        let mut elements = vec![first];
+                        while self.take_if(",") {
+                            if self.at("]") {
+                                break;
+                            }
+                            elements.push(self.nested(|parser| parser.expression(0))?);
+                        }
+                        self.expect("]")?;
+                        left = Expr::List { base: base.clone(), elements };
+                    }
+                }
+            }
+            "{" => {
+                // A brace literal is a dictionary when its first entry is a
+                // `key: value` pair and a set otherwise, so `{}` stays an empty
+                // dictionary and a set is written as a list of values. A `for`
+                // after the first entry makes it a comprehension, which needs a
+                // key and a value.
+                if self.at("}") {
+                    self.expect("}")?;
+                    left = Expr::Dict { base: base.clone(), pairs: Vec::new() };
+                } else {
+                    let first = self.nested(|parser| parser.expression(0))?;
+                    if self.take_if(":") {
+                        let first_value = self.nested(|parser| parser.expression(0))?;
+                        if self.at("for") {
+                            let clauses = self.comprehension_clauses()?;
+                            self.expect("}")?;
+                            left = Expr::Comprehension {
+                                base: base.clone(),
+                                body: ComprehensionBody::Dict(Box::new(Pair { key: first, value: first_value })),
+                                clauses,
+                            };
+                        } else {
+                            let mut pairs = vec![Pair { key: first, value: first_value }];
+                            while self.take_if(",") {
+                                if self.at("}") {
+                                    break;
+                                }
+                                let key = self.nested(|parser| parser.expression(0))?;
+                                if !self.at(":") {
+                                    return Err(key.base().errorf("dictionary entries are key: value pairs; a set lists only values"));
+                                }
+                                self.take_if(":");
+                                let value = self.nested(|parser| parser.expression(0))?;
+                                pairs.push(Pair { key, value });
+                            }
+                            self.expect("}")?;
+                            left = Expr::Dict { base: base.clone(), pairs };
+                        }
+                    } else if self.at("for") {
+                        // `{x for x in items}` would build a set from an
+                        // expression; write `set([x for x in items])` instead.
+                        return Err(self.current().errorf("set comprehensions are not supported; use set([x for x in items])"));
+                    } else {
+                        let mut elements = vec![first];
+                        loop {
+                            if self.at(":") {
+                                return Err(base.errorf("a set lists values separated by commas; a dictionary entry is key: value"));
+                            }
+                            if !self.take_if(",") || self.at("}") {
+                                break;
+                            }
+                            elements.push(self.nested(|parser| parser.expression(0))?);
+                        }
+                        self.expect("}")?;
+                        left = Expr::Set { base: base.clone(), elements };
+                    }
+                }
             }
             _ => {
                 return Err(token.errorf(&format!("expected expression, found {:?}", token.kind)));
             }
         }
-        while precedence(self.current().kind) > minimum {
+        // In a comprehension clause `if` opens a filter rather than a conditional
+        // expression, so the loop stops there and the clause parser takes it.
+        while precedence(self.current().kind) > minimum && !(self.clause_header && self.at("if")) {
             let operator = self.take();
             base = Base::from_token(&operator);
             match operator.kind {
@@ -802,6 +951,15 @@ impl Parser {
     }
 
     fn call(&mut self, base: Base, function: Expr) -> Result<Expr, String> {
+        // The arguments sit inside parentheses, where a conditional expression is
+        // allowed even in a comprehension clause.
+        let clause_header = std::mem::replace(&mut self.clause_header, false);
+        let call = self.call_body(base, function);
+        self.clause_header = clause_header;
+        call
+    }
+
+    fn call_body(&mut self, base: Base, function: Expr) -> Result<Expr, String> {
         let mut arguments = Vec::new();
         let mut keywords = Vec::new();
         let mut seen_keyword = false;
@@ -847,6 +1005,15 @@ impl Parser {
     }
 
     fn index_or_slice(&mut self, base: Base, collection: Expr) -> Result<Expr, String> {
+        // The bounds sit inside brackets, where a conditional expression is allowed
+        // even in a comprehension clause.
+        let clause_header = std::mem::replace(&mut self.clause_header, false);
+        let index = self.index_or_slice_body(base, collection);
+        self.clause_header = clause_header;
+        index
+    }
+
+    fn index_or_slice_body(&mut self, base: Base, collection: Expr) -> Result<Expr, String> {
         let mut start = None;
         if !self.at(":") && !self.at("]") {
             start = Some(self.expression(0)?);
@@ -873,20 +1040,6 @@ impl Parser {
             stop: stop.map(Box::new),
             step: step.map(Box::new),
         })
-    }
-
-    fn expressions(&mut self, end: lexer::Kind) -> Result<Vec<Expr>, String> {
-        let mut values = Vec::new();
-        if !self.at(end) {
-            loop {
-                values.push(self.expression(0)?);
-                if !self.take_if(",") || self.at(end) {
-                    break;
-                }
-            }
-        }
-        self.expect(end)?;
-        Ok(values)
     }
 }
 

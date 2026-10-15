@@ -178,6 +178,8 @@ second
 
 Lists produce elements, strings produce Unicode code points, and dictionaries produce keys in insertion order. Numbers are not iterable. Each iteration binds its loop variable in a fresh scope; it does not overwrite an outer variable with the same name. See [iteration snapshots](collections.md) for mutation behavior. For the clause header `for (initializer; condition; update)`, see [Three-Clause For and Updates](#three-clause-for-and-updates).
 
+A loop that only builds a list or a dictionary from what it walks reads shorter as a [comprehension](collections.md#comprehensions): `[number * 2 for number in [2, 4, 6]]` replaces the loop above, and `{key: len(key) for key in keys}` builds a dictionary. Comprehensions accept tuples and sets too, since they iterate exactly what `for` iterates.
+
 ## Early Exit and Labels
 
 `break` exits the nearest loop or switch. `continue` skips to the next iteration of the nearest loop, including when written inside a switch. Neither can target a loop outside the current function. Use `return` to exit the entire function from nested loops.

@@ -376,6 +376,16 @@ impl Evaluator {
                     let elements = stack.split_off(at);
                     stack.push(Value::list(elements));
                 }
+                Instr::BuildTuple(count) => {
+                    let at = stack.len() - count as usize;
+                    let elements = stack.split_off(at);
+                    stack.push(Value::tuple(elements));
+                }
+                Instr::BuildSet(count) => {
+                    let at = stack.len() - count as usize;
+                    let elements = stack.split_off(at);
+                    stack.push(Value::set(elements).map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?);
+                }
                 Instr::BuildDict(count) => {
                     let at = stack.len() - 2 * count as usize;
                     let entries = stack.split_off(at);
@@ -546,6 +556,11 @@ impl Evaluator {
                 Instr::Try(index) => {
                     let proto = chunk.tries[index as usize].clone();
                     self.run_try(&chunk.base_at(chunk.position(pc - 1)), &proto, &env)?;
+                }
+                Instr::Comprehension(index) => {
+                    let proto = &chunk.comprehensions[index as usize];
+                    let value = self.comprehension(&chunk.base_at(chunk.position(pc - 1)), &proto.body, &proto.clauses, &env)?;
+                    stack.push(value);
                 }
                 Instr::Slice(index) => {
                     let collection = stack.pop().expect("stack");

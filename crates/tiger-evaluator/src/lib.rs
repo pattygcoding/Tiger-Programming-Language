@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::rc::Rc;
 
-use tiger_ast::{Base, Block, Expr, Stmt};
+use tiger_ast::{Base, Block, ComprehensionBody, ComprehensionClause, Expr, Stmt};
 use tiger_object as object;
 use tiger_object::bytecode::CallLayout;
 use tiger_object::{Env, Keyword, Module, RuntimeError, Value};
@@ -106,6 +106,23 @@ fn finite_number(base: &Base, value: f64) -> Eval {
         return Err(runtime(base, "non-finite numeric result".to_string()));
     }
     Ok(Value::Number(value))
+}
+
+/// The values `for name in value` walks, or the type name of a value that cannot
+/// be iterated.
+///
+/// A list, a tuple, a set, a string's characters, and a dictionary's keys all
+/// iterate, so the collection constructors and the set operations accept exactly
+/// what a `for` loop accepts.
+pub(crate) fn iterable_elements(value: &Value) -> Result<Vec<Value>, &'static str> {
+    match value {
+        Value::List(elements) => Ok(elements.borrow().clone()),
+        Value::Tuple(elements) => Ok(elements.to_vec()),
+        Value::Set(set) => Ok(set.borrow().entries.clone()),
+        Value::String(text) => Ok(text.chars().map(|ch| Value::string(&ch.to_string())).collect()),
+        Value::Dict(dict) => Ok(dict.borrow().entries.iter().map(|(key, _)| key.clone()).collect()),
+        other => Err(other.type_name()),
+    }
 }
 
 /// Reports whether a block's own statements introduce a binding in its scope.
@@ -386,6 +403,12 @@ impl object::Host for Evaluator {
     fn list_dir(&mut self, name: &str) -> Result<Vec<String>, String> {
         self.files().list(name)
     }
+}
+
+/// Where a comprehension collects what it builds while its clauses run.
+enum ComprehensionResult {
+    List(Vec<Value>),
+    Dict(object::Dict),
 }
 
 /// A resolved assignment target, so reads and writes can happen separately.
@@ -702,6 +725,23 @@ impl Evaluator {
                 }
                 Ok(Value::list(values))
             }
+            Expr::Set { base, elements } => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements {
+                    values.push(self.expression(element, env)?);
+                }
+                // Every element is hashed as it is added, so an unhashable one is
+                // rejected here with the literal's own position.
+                Value::set(values).map_err(|message| runtime(base, message))
+            }
+            Expr::Tuple { elements, .. } => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements {
+                    values.push(self.expression(element, env)?);
+                }
+                Ok(Value::tuple(values))
+            }
+            Expr::Comprehension { base, body, clauses } => self.comprehension(base, body, clauses, env),
             Expr::Dict { base, pairs } => {
                 let dict = Rc::new(std::cell::RefCell::new(object::Dict::default()));
                 for pair in pairs {
@@ -798,6 +838,10 @@ impl Evaluator {
                         let index = self.index_at(base, &key, elements.borrow().len())?;
                         Ok(elements.borrow()[index].clone())
                     }
+                    Value::Tuple(elements) => {
+                        let index = self.index_at(base, &key, elements.len())?;
+                        Ok(elements[index].clone())
+                    }
                     Value::String(text) => {
                         if text.is_ascii() {
                             let index = self.index_at(base, &key, text.len())?;
@@ -839,8 +883,9 @@ impl Evaluator {
                     }
                     match value {
                         Value::List(elements) => positional.extend(elements.borrow().iter().cloned()),
+                        Value::Tuple(elements) => positional.extend(elements.iter().cloned()),
                         other => {
-                            return Err(runtime(base, format!("cannot unpack {} in a call; expected a list", other.type_name())));
+                            return Err(runtime(base, format!("cannot unpack {} in a call; expected a list or tuple", other.type_name())));
                         }
                     }
                 }
@@ -964,12 +1009,83 @@ impl Evaluator {
     }
 
     fn iterable_values(&mut self, base: &Base, iterable: &Value) -> Result<Vec<Value>, Signal> {
-        match iterable {
-            Value::List(elements) => Ok(elements.borrow().clone()),
-            Value::String(text) => Ok(text.chars().map(|ch| Value::string(&ch.to_string())).collect()),
-            Value::Dict(dict) => Ok(dict.borrow().entries.iter().map(|(key, _)| key.clone()).collect()),
-            other => Err(runtime(base, format!("{} is not iterable", other.type_name()))),
+        iterable_elements(iterable).map_err(|kind| runtime(base, format!("{} is not iterable", kind)))
+    }
+
+    /// Evaluates a list or dictionary comprehension.
+    ///
+    /// The clauses nest left to right, so every iteration of one clause runs the
+    /// whole of the next, and a clause's filters are checked before the next clause
+    /// or the element. The clause variables live in the comprehension's own scope,
+    /// which is dropped when it finishes, so they never leak into the enclosing one.
+    /// Both engines come through here, so their results cannot drift apart.
+    fn comprehension(&mut self, base: &Base, body: &ComprehensionBody, clauses: &[ComprehensionClause], env: &Env) -> Eval {
+        let scope = self.acquire_scope(env.clone());
+        let mut result = match body {
+            ComprehensionBody::List(_) => ComprehensionResult::List(Vec::new()),
+            ComprehensionBody::Dict(_) => ComprehensionResult::Dict(object::Dict::default()),
+        };
+        let outcome = self.comprehension_clause(base, body, clauses, 0, &scope, &mut result);
+        self.release_scope(scope);
+        outcome?;
+        Ok(match result {
+            ComprehensionResult::List(values) => Value::list(values),
+            ComprehensionResult::Dict(dict) => Value::Dict(Rc::new(std::cell::RefCell::new(dict))),
+        })
+    }
+
+    /// Runs one clause of a comprehension: its iterable, its filters, then either
+    /// the next clause or the value that is collected.
+    fn comprehension_clause(
+        &mut self,
+        base: &Base,
+        body: &ComprehensionBody,
+        clauses: &[ComprehensionClause],
+        index: usize,
+        scope: &Env,
+        result: &mut ComprehensionResult,
+    ) -> Result<(), Signal> {
+        let clause = &clauses[index];
+        let iterable = self.expression(&clause.iterable, scope)?;
+        let values = self.iterable_values(clause.iterable.base(), &iterable)?;
+        for value in values {
+            self.tick(base)?;
+            // The clause variable is rebound in place on every iteration, so a
+            // later clause can still read the one before it.
+            if object::define(scope, &clause.name, value.clone(), false).is_err() {
+                object::assign(scope, &clause.name, value).map_err(|message| runtime(base, message))?;
+            }
+            let mut keep = true;
+            for filter in &clause.filters {
+                if !object::truthy(&self.expression(filter, scope)?) {
+                    keep = false;
+                    break;
+                }
+            }
+            if !keep {
+                continue;
+            }
+            if index + 1 < clauses.len() {
+                self.comprehension_clause(base, body, clauses, index + 1, scope, result)?;
+                continue;
+            }
+            match body {
+                ComprehensionBody::List(element) => {
+                    let computed = self.expression(element, scope)?;
+                    if let ComprehensionResult::List(values) = result {
+                        values.push(computed);
+                    }
+                }
+                ComprehensionBody::Dict(pair) => {
+                    let key = self.expression(&pair.key, scope)?;
+                    let value = self.expression(&pair.value, scope)?;
+                    if let ComprehensionResult::Dict(dict) = result {
+                        dict.set(key, value).map_err(|message| runtime(pair.key.base(), message))?;
+                    }
+                }
+            }
         }
+        Ok(())
     }
 
     fn index_at(&mut self, base: &Base, key: &Value, length: usize) -> Result<usize, Signal> {
@@ -1021,6 +1137,12 @@ impl Evaluator {
                     let value: String = indices.iter().map(|index| runes[*index as usize]).collect();
                     Ok(Value::string(&value))
                 }
+            }
+            Value::Tuple(elements) => {
+                let (start, stop, step) = self.slice_bounds(base, start, stop, step, elements.len(), env)?;
+                let indices = slice_indices(start, stop, step);
+                // Slicing a tuple gives another tuple, as in Python.
+                Ok(Value::tuple(indices.iter().map(|index| elements[*index as usize].clone()).collect()))
             }
             other => Err(runtime(base, format!("{} cannot be sliced", other.type_name()))),
         }
@@ -1685,6 +1807,28 @@ impl Evaluator {
                 }
                 Err(runtime(base, format!("list has no property {:?}", name)))
             }
+            Value::Tuple(_) => {
+                if name == "size" || name == "length" {
+                    return Ok(self.length_method(name, receiver.clone()));
+                }
+                if let Some(method) = methods::conversion_method(name, receiver) {
+                    return Ok(method);
+                }
+                // A tuple is immutable, so it has no in-place methods at all.
+                Err(runtime(base, format!("tuple has no property {:?}", name)))
+            }
+            Value::Set(set) => {
+                if name == "size" || name == "length" {
+                    return Ok(self.length_method(name, receiver.clone()));
+                }
+                if let Some(method) = methods::set_method(name, set.clone()) {
+                    return Ok(method);
+                }
+                if let Some(method) = methods::conversion_method(name, receiver) {
+                    return Ok(method);
+                }
+                Err(runtime(base, format!("set has no property {:?}", name)))
+            }
             Value::Dict(dict) => {
                 if name == "size" || name == "length" {
                     return Ok(self.length_method(name, receiver.clone()));
@@ -1789,8 +1933,7 @@ impl Evaluator {
     }
 
     fn map_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
-        let (list, function) = callable_list_arguments("map", arguments, keywords).map_err(|message| runtime(base, message))?;
-        let elements: Vec<Value> = list.borrow().clone();
+        let (elements, function) = callable_list_arguments("map", arguments, keywords).map_err(|message| runtime(base, message))?;
         let mut mapped = Vec::with_capacity(elements.len());
         for element in elements {
             mapped.push(self.call(base, function.clone(), &[element], &[], env)?);
@@ -1799,8 +1942,7 @@ impl Evaluator {
     }
 
     fn filter_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
-        let (list, function) = callable_list_arguments("filter", arguments, keywords).map_err(|message| runtime(base, message))?;
-        let elements: Vec<Value> = list.borrow().clone();
+        let (elements, function) = callable_list_arguments("filter", arguments, keywords).map_err(|message| runtime(base, message))?;
         let mut kept = Vec::new();
         for element in elements {
             if object::truthy(&self.call(base, function.clone(), &[element.clone()], &[], env)?) {
@@ -1814,11 +1956,10 @@ impl Evaluator {
         if arguments.len() != 1 {
             return Err(runtime(base, format!("sorted expects 1 argument, got {}", arguments.len())));
         }
-        let Value::List(list) = &arguments[0] else {
-            return Err(runtime(base, format!("sorted expects a list, got {}", arguments[0].type_name())));
+        let Some(items) = arguments[0].sequence() else {
+            return Err(runtime(base, format!("sorted expects a list or tuple, got {}", arguments[0].type_name())));
         };
         let (key, reverse) = sort_options("sorted", keywords).map_err(|message| runtime(base, message))?;
-        let items: Vec<Value> = list.borrow().clone();
         let keys = self.sort_keys(base, &items, &key, env)?;
         let sorted = self.apply_sort(base, &items, &keys, reverse, false)?;
         Ok(Value::list(sorted))
@@ -1878,20 +2019,16 @@ impl Evaluator {
     }
 }
 
-fn callable_list_arguments(
-    name: &str,
-    arguments: &[Value],
-    keywords: &[Keyword],
-) -> Result<(Rc<std::cell::RefCell<Vec<Value>>>, Value), String> {
+fn callable_list_arguments(name: &str, arguments: &[Value], keywords: &[Keyword]) -> Result<(Vec<Value>, Value), String> {
     if !keywords.is_empty() {
         return Err(format!("{} does not accept keyword arguments", name));
     }
     if arguments.len() != 2 {
         return Err(format!("{} expects 2 arguments, got {}", name, arguments.len()));
     }
-    match &arguments[0] {
-        Value::List(list) => Ok((list.clone(), arguments[1].clone())),
-        other => Err(format!("{} expects a list, got {}", name, other.type_name())),
+    match arguments[0].sequence() {
+        Some(elements) => Ok((elements, arguments[1].clone())),
+        None => Err(format!("{} expects a list or tuple, got {}", name, arguments[0].type_name())),
     }
 }
 
@@ -1979,6 +2116,14 @@ impl Evaluator {
                     Value::List(elements) => {
                         let found = elements.borrow().iter().any(|element| object::equal(&left, element));
                         return Ok(Value::Bool(found));
+                    }
+                    Value::Tuple(elements) => {
+                        let found = elements.iter().any(|element| object::equal(&left, element));
+                        return Ok(Value::Bool(found));
+                    }
+                    Value::Set(set) => {
+                        let exists = set.borrow().contains(&left).map_err(|message| runtime(base, message))?;
+                        return Ok(Value::Bool(exists));
                     }
                     Value::Dict(dict) => {
                         let exists = dict.borrow().get(&left).map_err(|message| runtime(base, message))?.is_some();
@@ -2080,6 +2225,11 @@ impl Evaluator {
                 items.extend(second.borrow().iter().cloned());
                 return Ok(Value::list(items));
             }
+            if let (Value::Tuple(first), Value::Tuple(second)) = (&left, &right) {
+                let mut items = first.to_vec();
+                items.extend(second.iter().cloned());
+                return Ok(Value::tuple(items));
+            }
         }
         Err(runtime(base, format!("operator {} is not supported for {} and {}", operator, left.type_name(), right.type_name())))
     }
@@ -2120,6 +2270,10 @@ impl Evaluator {
                     let index = self.index_at(base, &key, runes.len())?;
                     Ok(Value::string(&runes[index].to_string()))
                 }
+            }
+            Value::Tuple(elements) => {
+                let index = self.index_at(base, &key, elements.len())?;
+                Ok(elements[index].clone())
             }
             Value::Dict(dict) => match dict.borrow().get(&key) {
                 Ok(Some(value)) => Ok(value),
@@ -2345,10 +2499,13 @@ impl Evaluator {
             }
             return Ok(None);
         }
-        let Value::List(elements) = &value else {
-            return Err(runtime(base, format!("cannot destructure {} with [ ... ]; expected a list", value.type_name())));
+        let elements = match &value {
+            Value::List(elements) => elements.borrow().clone(),
+            Value::Tuple(elements) => elements.to_vec(),
+            other => {
+                return Err(runtime(base, format!("cannot destructure {} with [ ... ]; expected a list or tuple", other.type_name())));
+            }
         };
-        let elements = elements.borrow();
         if elements.len() != names.len() {
             return Err(runtime(base, format!("cannot unpack {} values into {} names", elements.len(), names.len())));
         }

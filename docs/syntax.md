@@ -26,7 +26,7 @@ Output:
 finished
 ```
 
-Indentation is for readability. Code can span multiple lines inside parentheses, list literals, dictionary literals, and blocks. Spaces and newlines outside strings do not terminate statements.
+Indentation is for readability. Code can span multiple lines inside parentheses, list, tuple, and set literals, dictionary literals, comprehensions, and blocks. Spaces and newlines outside strings do not terminate statements.
 
 | Construct | Terminator |
 | --- | --- |
@@ -58,7 +58,7 @@ Keywords are reserved, so none of them can name a variable, function, field, or 
 
 `import "helpers.tg" as helpers;` declares a module alias. Import statements require semicolons; see [Importing Tiger Files](modules.md).
 
-A function or method parameter list may end with one `*args` declaration and then one `**kwargs` declaration. In a call, `*value` unpacks a list into positional arguments and `**value` unpacks a dictionary into keyword arguments. `*` and `**` are not exponentiation; see [Functions and Closures](functions-and-closures.md).
+A function or method parameter list may end with one `*args` declaration and then one `**kwargs` declaration. In a call, `*value` unpacks a list or a tuple into positional arguments and `**value` unpacks a dictionary into keyword arguments. `*` and `**` are not exponentiation; see [Functions and Closures](functions-and-closures.md).
 
 ## Comments and Strings
 

@@ -27,8 +27,8 @@
 //! Imports (provided by the JavaScript glue):
 //!
 //! * `tiger_output(ptr, len)` — stream a program's output.
-//! * `tiger_input()` / `tiger_input_ptr()` — the next line, or `-1` at end of
-//!   input. The host owns the buffer and may reuse it.
+//! * `tiger_input()` / `tiger_input_ptr()` — the next line's UTF-8 bytes, or `-1`
+//!   at end of input. The host owns the buffer and may reuse it.
 //! * `tiger_resolve(importer, requested)` / `tiger_load(filename)` — module
 //!   loading; each returns `0` on success and `1` on failure, leaving the text
 //!   in `tiger_response_ptr`/`tiger_response_len`.

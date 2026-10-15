@@ -1,6 +1,6 @@
-//! The 40 benchmark programs, compared against their `.txt` expectations.
+//! The 41 benchmark programs, compared against their `.txt` expectations.
 //!
-//! A port of `benchmarks/benchmarks_test.go`: the same 40/40 counts, the same
+//! A port of `benchmarks/benchmarks_test.go`: the same 41/41 counts, the same
 //! 100-200 line budget, the same orphan check, and the same CRLF normalization.
 
 use std::path::PathBuf;
@@ -26,8 +26,8 @@ fn stem(path: &PathBuf) -> String {
 fn corpus_is_complete() {
     let sources = fixtures("tg");
     let outputs = fixtures("txt");
-    assert_eq!(sources.len(), 40, "want 40 Tiger programs, got {}", sources.len());
-    assert_eq!(outputs.len(), 40, "want 40 expected outputs, got {}", outputs.len());
+    assert_eq!(sources.len(), 41, "want 41 Tiger programs, got {}", sources.len());
+    assert_eq!(outputs.len(), 41, "want 41 expected outputs, got {}", outputs.len());
     for output in fixtures("txt").into_iter().chain(fixtures("in")) {
         let source = output.with_extension("tg");
         assert!(source.exists(), "orphan fixture {}", output.display());

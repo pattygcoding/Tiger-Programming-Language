@@ -11,6 +11,8 @@
 | Boolean | `true`, `false` |
 | Null | `null`; also a function's default return value |
 | List | `[1, "two", true]` |
+| Tuple | `(1, "two")`; `(1,)` for one element, `()` for none |
+| Set | `{1, 2, 3}`; `set()` for the empty set |
 | Dictionary | `{"port": 8080}` |
 | Function | A `function` declaration, including a closure |
 | Class | A `class` declaration |
@@ -92,9 +94,9 @@ false true true
 true true true
 ```
 
-Ordering operators `<`, `<=`, `>`, and `>=` work between two numbers or two strings. Strings use lexicographic comparison, not locale-aware collation. Equality does not coerce types. Lists and dictionaries compare structurally with cycle protection; dictionary insertion order does not affect equality. Classes, instances, and functions use identity. Bound methods compare by both receiver and method identity.
+Ordering operators `<`, `<=`, `>`, and `>=` work between two numbers or two strings. Strings use lexicographic comparison, not locale-aware collation. Equality does not coerce types. Lists and tuples compare element by element and dictionaries compare by key and value, all with cycle protection; dictionary insertion order does not affect equality, and neither does set order. A tuple never equals a list of the same elements. Classes, instances, and functions use identity. Bound methods compare by both receiver and method identity.
 
-`in` checks a list's elements, a dictionary's keys, or a substring. The left operand of string membership must be a string.
+`in` checks a list's or tuple's elements, a set's members, a dictionary's keys, or a substring. The left operand of string membership must be a string; the left operand of set membership must be a scalar the set could hold.
 
 ## Truthiness and Short-Circuiting
 
@@ -112,7 +114,7 @@ fallback 0 present
 false true
 ```
 
-Falsey values are `false`, `null`, zero, and empty strings, lists, and dictionaries. Everything else is truthy, including all instances. `bool(value)` and `value.ToBool()` return this truth value. `not` returns a boolean. `and` and `or` return one of their operands and only evaluate the right operand when needed.
+Falsey values are `false`, `null`, zero, and empty strings, lists, tuples, sets, and dictionaries. Everything else is truthy, including all instances. `bool(value)` and `value.ToBool()` return this truth value. `not` returns a boolean. `and` and `or` return one of their operands and only evaluate the right operand when needed.
 
 ## Precedence Reference
 

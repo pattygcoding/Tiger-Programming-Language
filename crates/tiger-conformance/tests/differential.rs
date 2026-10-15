@@ -1,6 +1,6 @@
 //! The differential engine test: both engines must agree on every fixture.
 //!
-//! Every program the other suites cover — the 40 benchmarks, the `tg` fences in
+//! Every program the other suites cover — the 41 benchmarks, the `tg` fences in
 //! `README.md` and `docs/*.md`, and the `examples/` and `portfolio-features/`
 //! programs — is run twice: once on the tree-walking interpreter and once on the
 //! compiled (linear) engine. The two must produce exactly the same output and
@@ -202,6 +202,56 @@ fn length_spellings() -> Vec<Fixture> {
         .collect()
 }
 
+/// The set and tuple types: their literals, their operations, the built-ins that
+/// accept them, and the values they reject. Both engines must agree on all of it,
+/// diagnostics included.
+fn sets_and_tuples() -> Vec<Fixture> {
+    const SOURCES: [&str; 6] = [
+        r#"print({1, 2, 3}, len({3, 1, 3, 2}), {1, 2} == {2, 1}, 2 in {1, 2}, type({1}), type({}), type(set()));"#,
+        r#"var s = {1, 2}; s.add(3); print(s.remove(1), s.remove(1), s, s.has(2), s.union((9, 1)), s.intersection("ab"), s.difference({3}));"#,
+        r#"print((1, 2), (1,), (), (1, 2, 3)[1:], (1, 2) + (3,), 2 in (1, 2), (1, 2) == [1, 2], type((1)), bool(()));"#,
+        r#"print(set([1, 2, 2]), set("ab"), list({3, 1}), tuple([1, 2]), json.stringify((1, (2, 3))), (1, {2, 3}));"#,
+        r#"print(sum((1, 2)), sorted((2, 1)), enumerate((7, 8)), zip((1, 2), ("a", "b")), map((1, 2), function(v) { return v + 1; }), min((3, 1)));"#,
+        r#"try { {[1]}; } catch (error) { print(error); } try { const items = (1, 2); items[0] = 9; } catch (error) { print(error); } try { {1}[0]; } catch (error) { print(error); } try { sum({1}); } catch (error) { print(error); }"#,
+    ];
+    SOURCES
+        .iter()
+        .enumerate()
+        .map(|(index, source)| Fixture {
+            name: format!("collections[{}]", index),
+            filename: "collections.tg".to_string(),
+            source: (*source).to_string(),
+            files: Files::Memory,
+            loader: false,
+            input: None,
+        })
+        .collect()
+}
+
+/// List and dictionary comprehensions: both engines must agree on the values, the
+/// evaluation order, the scope rules, and the diagnostics.
+fn comprehensions() -> Vec<Fixture> {
+    const SOURCES: [&str; 5] = [
+        r#"print([x * x for x in range(1, 5)], [x for x in [3, 1, 2] if x % 2 == 1], [x for x in [1, 2, 3] if x > 1 if x < 3]);"#,
+        r#"print([b for a in [1, 2] for b in [a, a * 10]], [[a, b] for a in [1, 2] for b in ["x"]], [y for y in [x * 2 for x in [1, 2]] if y > 2]);"#,
+        r#"print({w: len(w) for w in ["a", "bb"]}, {x: x for x in [1, 3] if x != 2}, {k: v for k in ["a"] for v in [1, 2]});"#,
+        r#"var shadowed = 5; const items = [1, 2]; print([shadowed for shadowed in items], shadowed, [v for v in {3, 1}], [c for c in "ab"], [x for x in [1, 2][0:1]]);"#,
+        r#"try { [x for x in 1]; } catch (error) { print(error); } try { {[x]: x for x in [1]}; } catch (error) { print(error); } try { print([x for x in [1]], z); } catch (error) { print(error); }"#,
+    ];
+    SOURCES
+        .iter()
+        .enumerate()
+        .map(|(index, source)| Fixture {
+            name: format!("comprehensions[{}]", index),
+            filename: "comprehensions.tg".to_string(),
+            source: (*source).to_string(),
+            files: Files::Memory,
+            loader: false,
+            input: None,
+        })
+        .collect()
+}
+
 #[test]
 fn engines_agree_on_every_fixture() {
     let mut fixtures = benchmarks();
@@ -210,6 +260,8 @@ fn engines_agree_on_every_fixture() {
     fixtures.extend(programs("portfolio-features"));
     fixtures.extend(semantics());
     fixtures.extend(length_spellings());
+    fixtures.extend(sets_and_tuples());
+    fixtures.extend(comprehensions());
     assert!(fixtures.len() >= 200, "expected the whole corpus, found {} fixtures", fixtures.len());
     let mut failures: Vec<String> = Vec::new();
     for fixture in &fixtures {

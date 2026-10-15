@@ -14,9 +14,10 @@
 //   worker: postMessage({ type: "input" })  ->  Atomics.wait(...)
 //   page:   show the field, write the line into the buffer, Atomics.notify(...)
 //
-// The worker copies the delivered bytes out of the shared buffer before decoding
-// them: `TextDecoder.decode` is not declared `[AllowShared]`, so a browser fails
-// the call with "The provided ArrayBufferView value must not be shared".
+// The worker copies the delivered bytes into WebAssembly memory and lets Rust
+// decode them there, so JavaScript never decodes the shared buffer: a browser
+// refuses that with "The provided ArrayBufferView value must not be shared",
+// because `TextDecoder.decode` is not declared `[AllowShared]`.
 //
 // `SharedArrayBuffer` needs a cross-origin-isolated page, so the playground
 // server sends COOP and COEP. Without it `input()` reports that no input stream
@@ -56,9 +57,8 @@ export async function createRuntime({ url = "tiger.wasm", output = null, request
   let linePointer = 0;
   let lineCapacity = 0;
 
-  /** Copies `value` into a reusable block of module memory. */
-  function write(pointer, capacity, value) {
-    const bytes = encoder.encode(value);
+  /** Copies `bytes` into a reusable block of module memory. */
+  function writeBytes(pointer, capacity, bytes) {
     if (bytes.length > capacity) {
       if (pointer) instance.exports.tiger_free(pointer, capacity);
       capacity = Math.max(bytes.length, 256);
@@ -66,6 +66,11 @@ export async function createRuntime({ url = "tiger.wasm", output = null, request
     }
     new Uint8Array(instance.exports.memory.buffer, pointer, bytes.length).set(bytes);
     return { pointer, capacity, length: bytes.length };
+  }
+
+  /** Copies `value`'s UTF-8 bytes into a reusable block of module memory. */
+  function write(pointer, capacity, value) {
+    return writeBytes(pointer, capacity, encoder.encode(value));
   }
 
   const imports = {
@@ -80,10 +85,11 @@ export async function createRuntime({ url = "tiger.wasm", output = null, request
         requestInput();
         Atomics.wait(control, STATE, 0);
         if (Atomics.load(control, STATE) < 0) return -1;
-        // `slice` copies out of the shared buffer rather than aliasing it, because
-        // a browser rejects a `TextDecoder` input backed by a `SharedArrayBuffer`.
-        const line = decoder.decode(sharedText.slice(0, Atomics.load(control, LENGTH)));
-        const written = write(linePointer, lineCapacity, line);
+        // The delivered bytes are copied straight into module memory and Rust decodes
+        // them there. JavaScript must not decode the shared buffer itself: a browser
+        // refuses that with "The provided ArrayBufferView value must not be shared",
+        // because `TextDecoder.decode` is not declared `[AllowShared]`.
+        const written = writeBytes(linePointer, lineCapacity, sharedText.subarray(0, Atomics.load(control, LENGTH)));
         linePointer = written.pointer;
         lineCapacity = written.capacity;
         return written.length;

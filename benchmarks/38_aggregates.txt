@@ -40,9 +40,26 @@ true
 3 1 13
 [[1, "a"], [2, "b"], [0, "c"]]
 7 2 2
+== comprehensions ==
+[8, 16, 30, 32, 46, 84]
+[4, 8, 16, 42]
+["CHARLIE"]
+[1, 4, 9, 16, 25] 6
+[[[1, 2], 3], [[3, 4], 7], [[5, 6], 11]]
+["alan"] [3, 4, 5, 6]
+[1, 10, 2, 20]
+{"delta": 5, "alpha": 5, "charlie": 7, "bravo": 5}
+{"grace": 5, "edsger": 6}
+{"a": 0, "b": 0} {1: 2, 2: 4, 3: 6}
+[1, 2] 7
+[3, 1, 2] [3, 1, 2] [1, 2, 3]
+22 7
+2
+["delta", "alpha", "charlie", "bravo"]
 == errors ==
 true
 true
 true
+true true
 true true
 done

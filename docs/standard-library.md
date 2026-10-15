@@ -78,7 +78,7 @@ reproduce a sequence; use `random` when reproducibility matters.
 
 ## json
 
-`json.parse(text)` converts JSON text into Tiger values: objects become dictionaries, arrays become lists, and scalars become strings, numbers, `true`/`false`, or `null`. `json.stringify(value)` produces compact JSON. Dictionaries must have string keys, and cyclic structures are rejected.
+`json.parse(text)` converts JSON text into Tiger values: objects become dictionaries, arrays become lists, and scalars become strings, numbers, `true`/`false`, or `null`. `json.stringify(value)` produces compact JSON. Dictionaries must have string keys, a tuple is written as an array, a set is rejected (it has no order to preserve), and cyclic structures are rejected.
 
 ```tg
 const config = json.parse("{\"port\": 8080, \"tags\": [\"a\", \"b\"], \"on\": true}");
