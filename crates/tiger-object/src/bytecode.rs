@@ -126,6 +126,12 @@ pub enum Instr {
     JumpIfTrueOrPop(u32),
     /// Pop `count` values and push a list containing them in order.
     BuildList(u32),
+    /// Pop `count` values and push a tuple containing them in order.
+    BuildTuple(u32),
+    /// Pop `count` values and push a set of them, rejecting an unhashable one.
+    BuildSet(u32),
+    /// Push the comprehension `chunk.comprehensions[i]` builds.
+    Comprehension(u32),
     /// Pop `count` key/value pairs and push a dictionary of them.
     BuildDict(u32),
     /// Push a closure over `chunk.functions[i]`, capturing the current scope.
@@ -199,6 +205,16 @@ pub struct SliceProto {
     pub step: Option<Box<tiger_ast::Expr>>,
 }
 
+/// A compiled comprehension: what it builds and the clauses that drive it.
+///
+/// Both parts stay as AST because the engine evaluates them through the same
+/// helpers the interpreter uses, which is what keeps the two engines' results and
+/// diagnostics identical.
+pub struct CompProto {
+    pub body: tiger_ast::ComprehensionBody,
+    pub clauses: Vec<tiger_ast::ComprehensionClause>,
+}
+
 /// One catch clause of a `try`: the name the caught value binds to, an optional
 /// condition that must be truthy for the clause to take the error, and the body.
 pub struct CatchProto {
@@ -268,6 +284,7 @@ pub struct Chunk {
     pub classes: Vec<Rc<ClassProto>>,
     pub tries: Vec<Rc<TryProto>>,
     pub slices: Vec<Rc<SliceProto>>,
+    pub comprehensions: Vec<Rc<CompProto>>,
     /// How many flat locals this frame needs: the number of its declarations that
     /// no nested function can reach.
     pub flat_count: usize,

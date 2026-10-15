@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use tiger_ast::{Base, Block, ClassDecl, Expr, FunctionDecl, LiteralValue, Stmt};
-use tiger_object::bytecode::{CallLayout, CatchProto, Chunk, ClassProto, FunctionProto, Instr, Op, SliceProto, TryProto};
+use tiger_ast::{Base, Block, ClassDecl, ComprehensionBody, Expr, FunctionDecl, LiteralValue, Stmt};
+use tiger_object::bytecode::{CallLayout, CatchProto, Chunk, ClassProto, CompProto, FunctionProto, Instr, Op, SliceProto, TryProto};
 use tiger_object::Value;
 
 use crate::declares_in;
@@ -140,6 +140,7 @@ struct Compiler {
     loops: Vec<LoopTarget>,
     tries: Vec<Rc<TryProto>>,
     slices: Vec<Rc<SliceProto>>,
+    comprehensions: Vec<Rc<CompProto>>,
     escape_return: bool,
     /// The names a nested function, class, `try`, or slice bound mentions, which
     /// therefore have to stay in the shared environment.
@@ -220,6 +221,7 @@ impl Compiler {
             loops: Vec::new(),
             tries: Vec::new(),
             slices: Vec::new(),
+            comprehensions: Vec::new(),
             escape_return,
             captured,
             flat_slots,
@@ -440,6 +442,7 @@ impl Compiler {
             classes: self.classes,
             tries: self.tries,
             slices: self.slices,
+            comprehensions: self.comprehensions,
             flat_count: self.flat_slots as usize,
             call_layout,
             frame_needed: !self.scopes[0].names.is_empty() || self.is_method,
@@ -519,6 +522,18 @@ impl Compiler {
                 }
                 self.emit(Instr::BuildList(elements.len() as u32), base);
             }
+            Expr::Tuple { base, elements } => {
+                for element in elements {
+                    self.expression(element)?;
+                }
+                self.emit(Instr::BuildTuple(elements.len() as u32), base);
+            }
+            Expr::Set { base, elements } => {
+                for element in elements {
+                    self.expression(element)?;
+                }
+                self.emit(Instr::BuildSet(elements.len() as u32), base);
+            }
             Expr::Dict { base, pairs } => {
                 for pair in pairs {
                     self.expression(&pair.key)?;
@@ -564,6 +579,13 @@ impl Compiler {
             }
             // The bounds stay as expressions: the engine evaluates them against
             // the collection's length, exactly as the interpreter does.
+            Expr::Comprehension { base, body, clauses } => {
+                // The clauses and the element stay as AST: the engine runs them
+                // through the interpreter's own comprehension helper.
+                let index = self.comprehensions.len() as u32;
+                self.comprehensions.push(Rc::new(CompProto { body: body.clone(), clauses: clauses.clone() }));
+                self.emit(Instr::Comprehension(index), base);
+            }
             Expr::Slice { base, collection, start, stop, step } => {
                 self.expression(collection)?;
                 let index = self.slices.len() as u32;
@@ -1273,6 +1295,26 @@ fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
         Expr::List { elements, .. } => {
             for element in elements {
                 scan_expr(element, inside, out);
+            }
+        }
+        Expr::Tuple { elements, .. } | Expr::Set { elements, .. } => {
+            for element in elements {
+                scan_expr(element, inside, out);
+            }
+        }
+        Expr::Comprehension { body, clauses, .. } => {
+            match body {
+                ComprehensionBody::List(element) => scan_expr(element, true, out),
+                ComprehensionBody::Dict(pair) => {
+                    scan_expr(&pair.key, true, out);
+                    scan_expr(&pair.value, true, out);
+                }
+            }
+            for clause in clauses {
+                scan_expr(&clause.iterable, true, out);
+                for filter in &clause.filters {
+                    scan_expr(filter, true, out);
+                }
             }
         }
         Expr::Dict { pairs, .. } => {

@@ -370,7 +370,8 @@ fn dict_values_method(receiver: Rc<RefCell<object::Dict>>) -> Value {
     }))
 }
 
-/// Returns `[key, value]` lists because there is no tuple type.
+/// Returns `[key, value]` lists, not tuples: `items()` keeps the shape it has
+/// always had, and a tuple can be made explicitly with `tuple(pair)`.
 fn dict_items_method(receiver: Rc<RefCell<object::Dict>>) -> Value {
     Value::Builtin(object::Builtin::new("items", move |_host, arguments, keywords| {
         no_arguments("items", arguments, keywords)?;
@@ -432,6 +433,114 @@ fn dict_clear_method(receiver: Rc<RefCell<object::Dict>>) -> Value {
         no_arguments("clear", arguments, keywords)?;
         receiver.borrow_mut().clear();
         Ok(Value::Null)
+    }))
+}
+
+/// Builds the set member method named `name`, or `None`.
+///
+/// `add`, `remove`, `has`, and `clear` mirror the dictionary's `delete`/`clear`
+/// shape, and the three algebra methods take any iterable the way `for` does.
+pub(crate) fn set_method(name: &str, receiver: Rc<RefCell<object::Set>>) -> Option<Value> {
+    match name {
+        "add" => Some(set_add_method(receiver)),
+        "remove" => Some(set_remove_method(receiver)),
+        "has" => Some(set_has_method(receiver)),
+        "clear" => Some(set_clear_method(receiver)),
+        "union" | "intersection" | "difference" => Some(set_algebra_method(name, receiver)),
+        _ => None,
+    }
+}
+
+fn set_add_method(receiver: Rc<RefCell<object::Set>>) -> Value {
+    Value::Builtin(object::Builtin::new("add", move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err("add does not accept keyword arguments".to_string());
+        }
+        if arguments.len() != 1 {
+            return Err(format!("add expects 1 argument, got {}", arguments.len()));
+        }
+        receiver.borrow_mut().add(arguments[0].clone())?;
+        Ok(Value::Null)
+    }))
+}
+
+/// Removes an element and reports whether it was present, like `delete` on a
+/// dictionary.
+fn set_remove_method(receiver: Rc<RefCell<object::Set>>) -> Value {
+    Value::Builtin(object::Builtin::new("remove", move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err("remove does not accept keyword arguments".to_string());
+        }
+        if arguments.len() != 1 {
+            return Err(format!("remove expects 1 argument, got {}", arguments.len()));
+        }
+        Ok(Value::Bool(receiver.borrow_mut().remove(&arguments[0])?))
+    }))
+}
+
+fn set_has_method(receiver: Rc<RefCell<object::Set>>) -> Value {
+    Value::Builtin(object::Builtin::new("has", move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err("has does not accept keyword arguments".to_string());
+        }
+        if arguments.len() != 1 {
+            return Err(format!("has expects 1 argument, got {}", arguments.len()));
+        }
+        Ok(Value::Bool(receiver.borrow().contains(&arguments[0])?))
+    }))
+}
+
+fn set_clear_method(receiver: Rc<RefCell<object::Set>>) -> Value {
+    Value::Builtin(object::Builtin::new("clear", move |_host, arguments, keywords| {
+        no_arguments("clear", arguments, keywords)?;
+        receiver.borrow_mut().clear();
+        Ok(Value::Null)
+    }))
+}
+
+/// `union`, `intersection`, or `difference` against another iterable, returning a
+/// new set: the receiver keeps its order, then `union` appends what is new.
+fn set_algebra_method(name: &str, receiver: Rc<RefCell<object::Set>>) -> Value {
+    let label = name.to_string();
+    Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
+        if !keywords.is_empty() {
+            return Err(format!("{} does not accept keyword arguments", label));
+        }
+        if arguments.len() != 1 {
+            return Err(format!("{} expects 1 argument, got {}", label, arguments.len()));
+        }
+        let other = crate::iterable_elements(&arguments[0]).map_err(|kind| format!("{} expects an iterable, got {}", label, kind))?;
+        // Building a set of the other side both speeds up the membership test and
+        // rejects an element the receiver could never hold.
+        let mut lookup = object::Set::default();
+        for element in other {
+            lookup.add(element)?;
+        }
+        let borrowed = receiver.borrow();
+        let mut result = object::Set::default();
+        match label.as_str() {
+            "union" => {
+                for element in borrowed.entries.iter().chain(lookup.entries.iter()).cloned() {
+                    result.add(element)?;
+                }
+            }
+            "intersection" => {
+                for element in borrowed.entries.iter() {
+                    if lookup.indices.contains_key(&object::element_key(element)?) {
+                        result.add(element.clone())?;
+                    }
+                }
+            }
+            _ => {
+                for element in borrowed.entries.iter() {
+                    if !lookup.indices.contains_key(&object::element_key(element)?) {
+                        result.add(element.clone())?;
+                    }
+                }
+            }
+        }
+        drop(borrowed);
+        Ok(Value::Set(Rc::new(RefCell::new(result))))
     }))
 }
 

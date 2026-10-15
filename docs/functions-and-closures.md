@@ -25,7 +25,7 @@ Output:
 
 Use `function`, a required parenthesized parameter list, and a braced body. Named parameters fill positionally, and the number of arguments must match exactly unless the declaration is variadic or the parameter has a default. Duplicate parameter names are syntax errors. Functions can also be written as anonymous expressions (lambdas); declare `*args` and `**kwargs` when a call needs to collect a variable number of arguments.
 
-Arguments are evaluated left to right. Parameters are local mutable bindings. Calls may pass positional arguments, `name=value` keyword arguments, `*list` to unpack a list positionally, and `**dict` to unpack a dictionary into keyword arguments. A keyword argument binds to a parameter with the same name; when no such parameter exists it goes to `**kwargs`, or the call fails when the declaration has no `**kwargs`. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
+Arguments are evaluated left to right. Parameters are local mutable bindings. Calls may pass positional arguments, `name=value` keyword arguments, `*list` or `*tuple` to unpack a sequence positionally, and `**dict` to unpack a dictionary into keyword arguments. A keyword argument binds to a parameter with the same name; when no such parameter exists it goes to `**kwargs`, or the call fails when the declaration has no `**kwargs`. Returning without a value, or reaching the end of the body, produces `null`. Functions are first-class values and compare by identity.
 
 ## Variadic and Keyword Parameters
 
@@ -98,7 +98,7 @@ Anonymous functions have no name, so diagnostics call them `anonymous function` 
 
 ## Multiple Returns and Destructuring
 
-`return a, b;` returns the list `[a, b]`, so one call can produce several values. `const [name, ...] = value;` and `var [name, ...] = value;` unpack a list into named bindings by position, and `const {key, ...} = value;` binds dictionary values by key name.
+`return a, b;` returns the list `[a, b]`, so one call can produce several values; write `tuple(...)` when a fixed-length group is wanted instead. `const [name, ...] = value;` and `var [name, ...] = value;` unpack a list or a tuple into named bindings by position, and `const {key, ...} = value;` binds dictionary values by key name.
 
 ```tg
 function min_max(values) {
@@ -124,11 +124,11 @@ Output:
 tiger 4
 ```
 
-A list must have exactly as many elements as there are names, and a missing dictionary key is an error. Unpacking only declares new bindings; to change existing variables, assign to each one separately.
+A list or tuple must have exactly as many elements as there are names, and a missing dictionary key is an error. Unpacking only declares new bindings; to change existing variables, assign to each one separately.
 
 ## Unpacking Calls
 
-An argument prefixed with `*` expands a list, and an argument prefixed with `**` expands a dictionary. Keywords bind to parameters by name before falling through to `**kwargs`.
+An argument prefixed with `*` expands a list or a tuple, and an argument prefixed with `**` expands a dictionary. Keywords bind to parameters by name before falling through to `**kwargs`.
 
 ```tg
 function total(first, *rest) {
@@ -154,7 +154,7 @@ Output:
 [1, 2] [8, 9] [3, 4] [4, 5]
 ```
 
-Unpacking composes with forwarding, so a wrapper can relay every argument it received. A `*` argument must expand to a list and a `**` argument must expand to a dictionary; any other value is a runtime error. A `**` dictionary must use string keys. Duplicate keyword names, whether written directly or produced by a `**` expansion, are errors.
+Unpacking composes with forwarding, so a wrapper can relay every argument it received. A `*` argument must expand to a list or a tuple and a `**` argument must expand to a dictionary; any other value is a runtime error. A `**` dictionary must use string keys. Duplicate keyword names, whether written directly or produced by a `**` expansion, are errors.
 
 ```tg
 function log(level, *messages, **fields) {

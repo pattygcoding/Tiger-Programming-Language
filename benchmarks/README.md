@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all forty programs and compare their output with the corresponding checked-in `.txt` files:
+Run all forty-one programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 cargo test -p tiger-conformance --test benchmarks -- --nocapture
@@ -53,9 +53,10 @@ TIGER_BENCH_FILTER=08_graphs cargo test -p tiger-conformance --test benchmarks -
 | `35_operators.tg` | `**` exponentiation and `div` floor division, bitwise `&`/`\|`/`^`/`~`/`<<`/`>>`, precedence against arithmetic and comparisons, operand truncation, 64-bit shifts, masking helpers, a powers table, and error paths |
 | `36_stdlib.tg` | the `random` PRNG (seed, reproducibility, `int`/`uniform`/`random` ranges, `choice`, `shuffle`), the non-reproducible `secrets` module (`random`/`int`/`uniform` ranges, `choice`, `shuffle`, per-run variation), `json.parse`/`json.stringify`, the native `time` module (`iso`, `parts`), the `regex` helpers, and `list_dir`, with error paths |
 | `37_function_ergonomics.tg` | default parameter values (positional, keyword, closure, method), anonymous function expressions as values/sort keys/immediates, multiple return values, list and dictionary destructuring, and error paths |
-| `38_aggregates.tg` | `sum`, `min`/`max`, `any`/`all`, `enumerate`, `zip`, `map`, `filter`, and non-mutating `sorted` (plain, reversed, keyed), nested pipelines, and error paths |
+| `38_aggregates.tg` | `sum`, `min`/`max`, `any`/`all`, `enumerate`, `zip`, `map`, `filter`, and non-mutating `sorted` (plain, reversed, keyed), the same work written as list and dictionary comprehensions, nested pipelines, and error paths |
 | `39_text_precision.tg` | f-string format specs (precision, width, alignment, zero padding, a column report), `\x`/`\u`/`\U` escapes, raw strings for regex patterns, and `graphemes` for combining marks, emoji modifiers, flags, and ZWJ sequences |
 | `40_syntax_gaps.tg` | conditional expressions (including chains), list and string slicing (bounds, negatives, steps, clamping), labeled `break`/`continue` across nested loops, and `do...while` with `continue` re-checking its condition |
+| `41_sets_and_tuples.tg` | set literals, de-duplication, `in` membership, `add`/`remove`/`has`/`clear`, union/intersection/difference, `set()`/`list()`/`tuple()` conversion, iteration order, tuple literals (`(1, 2)`, `(1,)`, `()`), indexing, slicing, concatenation, destructuring, structural equality, sequence built-ins over tuples, JSON/formatting, and every rejection path |
 
 Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 
@@ -63,7 +64,7 @@ Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 TIGER_BENCH_FILTER=_oop_ cargo test -p tiger-conformance --test benchmarks -- --nocapture
 ```
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty source files and forty matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream.
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty-one source files and forty-one matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 

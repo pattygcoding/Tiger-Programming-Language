@@ -27,6 +27,11 @@ pub enum Value {
     Bool(bool),
     Null,
     List(Rc<RefCell<Vec<Value>>>),
+    /// A fixed-length, immutable group: `(1, 2)`. Shared like a string, because
+    /// nothing can mutate it in place.
+    Tuple(Rc<[Value]>),
+    /// An insertion-ordered set of hashable scalars: `{1, 2}`.
+    Set(Rc<RefCell<Set>>),
     Dict(Rc<RefCell<Dict>>),
     Function(Rc<FunctionValue>),
     Builtin(Rc<Builtin>),
@@ -48,6 +53,8 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::Null => "null",
             Value::List(_) => "list",
+            Value::Tuple(_) => "tuple",
+            Value::Set(_) => "set",
             Value::Dict(_) => "dict",
             Value::Function(_) => "function",
             Value::Builtin(_) => "builtin",
@@ -68,6 +75,31 @@ impl Value {
     pub fn list(elements: Vec<Value>) -> Value {
         Value::List(Rc::new(RefCell::new(elements)))
     }
+
+    pub fn tuple(elements: Vec<Value>) -> Value {
+        Value::Tuple(Rc::from(elements))
+    }
+
+    pub fn set(elements: Vec<Value>) -> Result<Value, String> {
+        let mut set = Set::default();
+        for element in elements {
+            set.add(element)?;
+        }
+        Ok(Value::Set(Rc::new(RefCell::new(set))))
+    }
+
+    /// The elements of an ordered collection, or `None` for any other value.
+    ///
+    /// Lists and tuples are the language's ordered sequences, so the operations
+    /// that need positions — indexing, slicing, and the sequence built-ins — share
+    /// this one test.
+    pub fn sequence(&self) -> Option<Vec<Value>> {
+        match self {
+            Value::List(elements) => Some(elements.borrow().clone()),
+            Value::Tuple(elements) => Some(elements.to_vec()),
+            _ => None,
+        }
+    }
 }
 
 /// A dictionary key: the scalar value itself, so lookups never re-format.
@@ -85,17 +117,30 @@ pub enum Key {
 
 /// Builds the hash key for a value, rejecting non-scalar and non-finite keys.
 pub fn hash(value: &Value) -> Result<Key, String> {
+    key_for(value, "dictionary key", "dictionary keys must be finite")
+}
+
+/// Builds the hash key for a set element.
+///
+/// A set holds the same scalars a dictionary accepts as keys, so its members can
+/// be looked up without scanning, and a set can never contain a mutable value
+/// that would change out from under the index.
+pub fn element_key(value: &Value) -> Result<Key, String> {
+    key_for(value, "set element", "set elements must be finite")
+}
+
+fn key_for(value: &Value, role: &str, non_finite: &str) -> Result<Key, String> {
     match value {
         Value::Number(number) => {
             if number.is_nan() || number.is_infinite() {
-                return Err("dictionary keys must be finite".to_string());
+                return Err(non_finite.to_string());
             }
             let normalized = if *number == 0.0 { 0.0 } else { *number };
             Ok(Key::Number(normalized.to_bits()))
         }
         Value::String(text) => Ok(Key::String(text.clone())),
         Value::Bool(flag) => Ok(Key::Bool(*flag)),
-        other => Err(format!("{} cannot be a dictionary key", other.type_name())),
+        other => Err(format!("{} cannot be a {}", other.type_name(), role)),
     }
 }
 
@@ -136,6 +181,55 @@ impl Dict {
         self.indices.remove(&hashed);
         for offset in index..self.entries.len() {
             if let Ok(moved) = hash(&self.entries[offset].0) {
+                self.indices.insert(moved, offset);
+            }
+        }
+        Ok(true)
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.indices.clear();
+    }
+}
+
+/// An insertion-ordered set of hashable scalars with a hash index for membership.
+///
+/// The same shape as [`Dict`] without the values: elements keep insertion order,
+/// repeats are absorbed, and removal preserves the order of the rest.
+#[derive(Default)]
+pub struct Set {
+    pub entries: Vec<Value>,
+    pub indices: HashMap<Key, usize>,
+}
+
+impl Set {
+    /// Adds `value`; an element already present keeps its place.
+    pub fn add(&mut self, value: Value) -> Result<(), String> {
+        let hashed = element_key(&value)?;
+        if self.indices.contains_key(&hashed) {
+            return Ok(());
+        }
+        self.indices.insert(hashed, self.entries.len());
+        self.entries.push(value);
+        Ok(())
+    }
+
+    pub fn contains(&self, value: &Value) -> Result<bool, String> {
+        Ok(self.indices.contains_key(&element_key(value)?))
+    }
+
+    /// Removes `value`, preserving the order of the rest, and reports whether it
+    /// was there.
+    pub fn remove(&mut self, value: &Value) -> Result<bool, String> {
+        let hashed = element_key(value)?;
+        let Some(index) = self.indices.get(&hashed).copied() else {
+            return Ok(false);
+        };
+        self.entries.remove(index);
+        self.indices.remove(&hashed);
+        for offset in index..self.entries.len() {
+            if let Ok(moved) = element_key(&self.entries[offset]) {
                 self.indices.insert(moved, offset);
             }
         }
@@ -660,6 +754,37 @@ fn write_value(out: &mut String, value: &Value, seen: &mut Vec<usize>, nested: b
             out.push(']');
             seen.pop();
         }
+        Value::Tuple(elements) => {
+            // A tuple cannot contain itself, so only its elements need cycle marks.
+            out.push('(');
+            for (index, element) in elements.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                write_value(out, element, seen, true);
+            }
+            if elements.len() == 1 {
+                out.push(',');
+            }
+            out.push(')');
+        }
+        Value::Set(set) => {
+            let borrowed = set.borrow();
+            if borrowed.entries.is_empty() {
+                // `{}` stays an empty dictionary, so the empty set keeps its
+                // constructor spelling, as in Python.
+                out.push_str("set()");
+                return;
+            }
+            out.push('{');
+            for (index, element) in borrowed.entries.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                write_value(out, element, seen, true);
+            }
+            out.push('}');
+        }
         Value::Dict(dict) => {
             let pointer = Rc::as_ptr(dict) as usize;
             if seen.contains(&pointer) {
@@ -734,6 +859,8 @@ pub fn truthy(value: &Value) -> bool {
         Value::Number(number) => *number != 0.0,
         Value::String(text) => !text.is_empty(),
         Value::List(elements) => !elements.borrow().is_empty(),
+        Value::Tuple(elements) => !elements.is_empty(),
+        Value::Set(set) => !set.borrow().entries.is_empty(),
         Value::Dict(dict) => !dict.borrow().entries.is_empty(),
         _ => true,
     }
@@ -768,6 +895,15 @@ fn equal_inner(left: &Value, right: &Value, seen: &mut Vec<(usize, usize)>) -> b
                 return false;
             }
             first.iter().zip(second.iter()).all(|(a, b)| equal_inner(a, b, seen))
+        }
+        (Value::Tuple(first), Value::Tuple(second)) => {
+            first.len() == second.len() && first.iter().zip(second.iter()).all(|(a, b)| equal_inner(a, b, seen))
+        }
+        (Value::Set(first), Value::Set(second)) => {
+            let first = first.borrow();
+            let second = second.borrow();
+            // Membership is by hash key, so order does not matter.
+            first.entries.len() == second.entries.len() && first.indices.keys().all(|key| second.indices.contains_key(key))
         }
         (Value::Dict(first), Value::Dict(second)) => {
             let pair = (Rc::as_ptr(first) as usize, Rc::as_ptr(second) as usize);
@@ -833,6 +969,64 @@ mod tests {
         // A number key and its string spelling stay distinct.
         assert!(dict.get(&Value::string("1")).unwrap().is_none());
         assert_ne!(hash(&Value::string("1")).unwrap(), hash(&number(1.0)).unwrap());
+    }
+
+    #[test]
+    fn formats_sets_and_tuples() {
+        assert_eq!(text(&Value::tuple(vec![number(1.0), number(2.0)])), "(1, 2)");
+        assert_eq!(text(&Value::tuple(vec![number(1.0)])), "(1,)");
+        assert_eq!(text(&Value::tuple(Vec::new())), "()");
+        assert_eq!(text(&Value::tuple(vec![Value::string("a"), Value::list(vec![number(1.0)])])), "(\"a\", [1])");
+        assert_eq!(text(&Value::set(vec![number(1.0), number(2.0)]).expect("set")), "{1, 2}");
+        assert_eq!(text(&Value::set(Vec::new()).expect("set")), "set()");
+        // A set absorbs repeats and keeps the order it was built in.
+        assert_eq!(text(&Value::set(vec![number(2.0), number(1.0), number(2.0)]).expect("set")), "{2, 1}");
+    }
+
+    #[test]
+    fn sets_and_tuples_compare_structurally() {
+        assert!(equal(&Value::tuple(vec![number(1.0), Value::string("a")]), &Value::tuple(vec![number(1.0), Value::string("a")])));
+        assert!(!equal(&Value::tuple(vec![number(1.0)]), &Value::tuple(vec![number(2.0)])));
+        // A tuple and a list of the same elements stay distinct types.
+        assert!(!equal(&Value::tuple(vec![number(1.0)]), &Value::list(vec![number(1.0)])));
+        // Sets compare by membership, so insertion order does not matter.
+        assert!(equal(
+            &Value::set(vec![number(1.0), number(2.0)]).expect("set"),
+            &Value::set(vec![number(2.0), number(1.0)]).expect("set")
+        ));
+        assert!(!equal(&Value::set(vec![number(1.0)]).expect("set"), &Value::set(vec![number(2.0)]).expect("set")));
+        assert!(!equal(&Value::set(vec![number(1.0)]).expect("set"), &Value::list(vec![number(1.0)])));
+    }
+
+    #[test]
+    fn set_elements_and_dictionary_keys_use_the_same_scalars() {
+        // A mutable value cannot be an element, and the message names the role.
+        assert_eq!(Value::set(vec![Value::list(Vec::new())]).err().unwrap(), "list cannot be a set element");
+        assert_eq!(Value::set(vec![Value::Null]).err().unwrap(), "null cannot be a set element");
+        assert_eq!(element_key(&number(f64::NAN)).unwrap_err(), "set elements must be finite");
+        // Neither new type is a dictionary key.
+        assert_eq!(hash(&Value::tuple(vec![number(1.0)])).unwrap_err(), "tuple cannot be a dictionary key");
+        assert_eq!(hash(&Value::set(Vec::new()).expect("set")).unwrap_err(), "set cannot be a dictionary key");
+    }
+
+    #[test]
+    fn set_membership_and_removal_keep_order() {
+        let Value::Set(set) = Value::set(vec![number(1.0), number(2.0), number(3.0)]).expect("set") else { panic!("set") };
+        assert!(set.borrow().contains(&number(2.0)).expect("contains"));
+        assert!(!set.borrow().contains(&number(9.0)).expect("contains"));
+        assert!(set.borrow_mut().remove(&number(2.0)).expect("remove"));
+        assert!(!set.borrow_mut().remove(&number(2.0)).expect("remove"));
+        assert_eq!(text(&Value::Set(set.clone())), "{1, 3}");
+        set.borrow_mut().clear();
+        assert_eq!(text(&Value::Set(set)), "set()");
+    }
+
+    #[test]
+    fn the_new_collections_are_truthy_when_populated() {
+        assert!(!truthy(&Value::set(Vec::new()).expect("set")));
+        assert!(truthy(&Value::set(vec![number(0.0)]).expect("set")));
+        assert!(!truthy(&Value::tuple(Vec::new())));
+        assert!(truthy(&Value::tuple(vec![number(0.0)])));
     }
 
     #[test]

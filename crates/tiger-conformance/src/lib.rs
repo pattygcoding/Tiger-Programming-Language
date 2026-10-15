@@ -1,6 +1,6 @@
 //! The differential conformance harness.
 //!
-//! It drives the repository's own fixtures — the 40 benchmark programs, the
+//! It drives the repository's own fixtures — the 41 benchmark programs, the
 //! `tg`/`text`/`error`/`input` fences in `docs/*.md` and `README.md`, and the
 //! `examples/` and `portfolio-features/` programs — through the Rust
 //! interpreter, replicating the Go tests (`benchmarks/benchmarks_test.go`,

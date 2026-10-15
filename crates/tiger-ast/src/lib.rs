@@ -245,24 +245,118 @@ pub struct Pair {
     pub value: Expr,
 }
 
+/// One `for name in iterable if condition ...` clause of a comprehension.
+///
+/// The filters belong to the clause they follow, so
+/// `[v for a in xs for b in ys if p if q]` checks `p` and `q` for every `b`.
+#[derive(Clone, Debug)]
+pub struct ComprehensionClause {
+    pub name: String,
+    pub iterable: Expr,
+    pub filters: Vec<Expr>,
+}
+
+/// What a comprehension builds: one value per iteration for a list, or a key and
+/// a value for a dictionary.
+#[derive(Clone, Debug)]
+pub enum ComprehensionBody {
+    List(Box<Expr>),
+    Dict(Box<Pair>),
+}
+
 /// An expression node.
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Literal { base: Base, value: LiteralValue },
-    FormattedString { base: Base, parts: Vec<Expr> },
-    Interpolation { base: Base, value: Box<Expr>, spec: String },
-    Conditional { base: Base, condition: Box<Expr>, then: Box<Expr>, otherwise: Box<Expr> },
-    Slice { base: Base, collection: Box<Expr>, start: Option<Box<Expr>>, stop: Option<Box<Expr>>, step: Option<Box<Expr>> },
-    Identifier { base: Base, name: String },
-    Unary { base: Base, operator: String, right: Box<Expr> },
-    Update { base: Base, target: Box<Expr>, operator: String, prefix: bool },
-    Binary { base: Base, left: Box<Expr>, operator: String, right: Box<Expr> },
-    Call { base: Base, function: Box<Expr>, arguments: Vec<Argument>, keywords: Vec<KeywordArgument> },
-    Index { base: Base, collection: Box<Expr>, key: Box<Expr> },
-    Property { base: Base, receiver: Box<Expr>, name: String },
-    Super { base: Base },
-    List { base: Base, elements: Vec<Expr> },
-    Dict { base: Base, pairs: Vec<Pair> },
+    Literal {
+        base: Base,
+        value: LiteralValue,
+    },
+    FormattedString {
+        base: Base,
+        parts: Vec<Expr>,
+    },
+    Interpolation {
+        base: Base,
+        value: Box<Expr>,
+        spec: String,
+    },
+    Conditional {
+        base: Base,
+        condition: Box<Expr>,
+        then: Box<Expr>,
+        otherwise: Box<Expr>,
+    },
+    Slice {
+        base: Base,
+        collection: Box<Expr>,
+        start: Option<Box<Expr>>,
+        stop: Option<Box<Expr>>,
+        step: Option<Box<Expr>>,
+    },
+    Identifier {
+        base: Base,
+        name: String,
+    },
+    Unary {
+        base: Base,
+        operator: String,
+        right: Box<Expr>,
+    },
+    Update {
+        base: Base,
+        target: Box<Expr>,
+        operator: String,
+        prefix: bool,
+    },
+    Binary {
+        base: Base,
+        left: Box<Expr>,
+        operator: String,
+        right: Box<Expr>,
+    },
+    Call {
+        base: Base,
+        function: Box<Expr>,
+        arguments: Vec<Argument>,
+        keywords: Vec<KeywordArgument>,
+    },
+    Index {
+        base: Base,
+        collection: Box<Expr>,
+        key: Box<Expr>,
+    },
+    Property {
+        base: Base,
+        receiver: Box<Expr>,
+        name: String,
+    },
+    Super {
+        base: Base,
+    },
+    List {
+        base: Base,
+        elements: Vec<Expr>,
+    },
+    /// A set literal: `{1, 2}`.
+    Set {
+        base: Base,
+        elements: Vec<Expr>,
+    },
+    /// A tuple literal: `(1, 2)`, `(1,)`, or `()`.
+    Tuple {
+        base: Base,
+        elements: Vec<Expr>,
+    },
+    /// A comprehension: `[x * 2 for x in items if x > 0]`.
+    Comprehension {
+        base: Base,
+        body: ComprehensionBody,
+        clauses: Vec<ComprehensionClause>,
+    },
+    Dict {
+        base: Base,
+        pairs: Vec<Pair>,
+    },
     Function(Rc<FunctionDecl>),
 }
 
@@ -283,6 +377,9 @@ impl Expr {
             | Expr::Property { base, .. }
             | Expr::Super { base }
             | Expr::List { base, .. }
+            | Expr::Set { base, .. }
+            | Expr::Tuple { base, .. }
+            | Expr::Comprehension { base, .. }
             | Expr::Dict { base, .. } => base,
             Expr::Function(declaration) => &declaration.base,
         }

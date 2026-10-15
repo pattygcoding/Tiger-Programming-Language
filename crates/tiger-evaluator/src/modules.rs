@@ -677,6 +677,18 @@ fn write_json(out: &mut String, value: &Value, seen: &mut Vec<usize>) -> Result<
             out.push(']');
             seen.pop();
         }
+        Value::Tuple(elements) => {
+            // A tuple has no JSON shape of its own, so it serializes as an array,
+            // as in Python; a set has no order to preserve and is rejected below.
+            out.push('[');
+            for (index, element) in elements.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_json(out, element, seen)?;
+            }
+            out.push(']');
+        }
         Value::Dict(dict) => {
             let pointer = Rc::as_ptr(dict) as usize;
             if seen.contains(&pointer) {

@@ -13,6 +13,9 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | Message or symptom | Cause | Correction |
 | --- | --- | --- |
 | `expected ";"` | Missing statement terminator | End the simple statement with `;` |
+| `generator expressions are not supported` | A `(x for x in items)` form was written | Use a list comprehension, or a function that returns a list |
+| `set comprehensions are not supported` | A `{x for x in items}` form was written | Write `set([x for x in items])` |
+| `is not iterable` | A `for` loop or comprehension walked a value that has no elements | Iterate a list, tuple, set, string, or dictionary |
 | `expected "{"` | Missing block braces or a colon-style header | Use `{ ... }` without a header colon |
 | `undefined name` | No binding is visible | Define it before use; check block scope and spelling |
 | `cannot reassign const` | Assignment targets an immutable binding | Keep the binding or use a mutable variable |
@@ -30,8 +33,12 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | `duplicate keyword argument` | A keyword name was supplied twice, directly or through `**` | Remove the repeated name |
 | `type expects 1 argument` | `type` or `isinstance` was called with the wrong number of arguments | Pass the value, and for `isinstance` a type name |
 | `isinstance: unknown type name` | `isinstance` name is not one that `type` returns | Use a name from the [`type` reference](builtins.md#typevalue-isinstancevalue-name) |
-| `cannot unpack ... expected a list` | A `*` argument expanded to a non-list | Spread a list instead |
+| `cannot unpack ... expected a list or tuple` | A `*` argument expanded to something else | Spread a list or a tuple |
 | `cannot unpack ... expected a dictionary` | A `**` argument expanded to a non-dictionary | Spread a dictionary with string keys |
+| `cannot be a set element` | A set literal or `add` was given a mutable or non-finite value | Use strings, numbers, or booleans; convert with `list(...)` |
+| `set cannot be indexed` / `cannot be sliced` | A set has no positions | Convert with `list(my_set)`, or use `in` |
+| `cannot assign an index of tuple` | A tuple is immutable | Build a new tuple with `+`, or use a list |
+| `expects a list or tuple` | A sequence built-in received a set or another value | Convert with `list(value)` |
 | `has no property` | Instance member does not exist | Initialize the field or check the method name |
 | `super requires a parent class` | A parent method is requested in a class without a parent | Add inheritance or remove the delegation |
 | `file ... is not open for reading` | Read attempted on a stream opened without read access | Open with `r`, `r+`, `w+`, or `a+` |

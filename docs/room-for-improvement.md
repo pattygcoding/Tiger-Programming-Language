@@ -12,62 +12,47 @@ not yet.
 Each entry lists the missing capability, why it matters, a runnable workaround,
 a suggested direction, and any constraints that the addition would face.
 
-## 1. Sets and tuples
+## 1. Lazy generator expressions and iterators
 
-**Missing:** a set type and a tuple type.
+**Missing:** a lazy iterator: a value that produces its elements on demand, and
+the generator-expression syntax that would build one.
 
-**Why it matters:** these are the last two collection shapes. Without a set,
-membership and de-duplication go through `algo.removeDuplicates`, dictionary
-keys, or hand-written loops; without a tuple, the fixed-length groups that
-`enumerate`, `zip`, and `return a, b;` produce stay ordinary lists, so nothing
-distinguishes a pair from a two-element list. See [Collections](collections.md)
-and [Built-ins](builtins.md).
+**Why it matters:** every collection in Tiger is eager. `range`, `map`, `filter`,
+and comprehensions all build the whole result before the caller sees the first
+element, so a million-value sequence occupies a million slots even when the caller
+stops after the third value, and a sequence without an end cannot be expressed at
+all. See [Lists, Dictionaries, Sets, and Tuples](collections.md).
 
-**Suggested direction:** both add a runtime value type, so they touch equality,
-formatting, hashing, iteration, and `len`. A set can reuse the dictionary's key
-hashing for `add`, `remove`, `has`, and the union/intersection/difference
-operations; the parser change is a `{1, 2}` literal that is told apart from a
-dictionary by the first pair, keeping `{}` a dictionary as Python does. A tuple
-can reuse the list implementation with structural equality, no mutation, no
-`append`/`sort`, and `(1, 2)` syntax with a trailing comma for the one-element
-form.
-
-## 2. List and dictionary comprehensions
-
-**Missing:** comprehension syntax that builds a list or dictionary from an
-iterated expression, and lazy generator expressions.
-
-**Why it matters:** mapping and filtering a sequence is the most common loop in
-real code, and Python-like languages express it in one line. Tiger needs a
-mutable result, a `for`, and repeated `result = result + [value]`
-concatenation, which copies the outer list on every iteration. See
-[Lists and Dictionaries](collections.md).
-
-**Workaround:** build the result explicitly.
+**Workaround:** build only the values that are needed, and stop the loop early.
 
 ```tg
-var squares = [];
-for value in range(1, 5) {
-    squares = squares + [value * value];
+const squares = [n * n for n in range(1, 6)];
+var total = 0;
+for value in squares {
+    if value > 10 {
+        break;
+    }
+    total += value;
 }
-print(squares);
+print(squares[0], len(squares), total);
 ```
 
 Output:
 
 ```text
-[1, 4, 9, 16]
+1 5 14
 ```
 
-**Suggested direction:** the parser already tells `[` list literals, `{`
-dictionary literals, and `for` headers apart, so the syntax is a small change,
-but a comprehension needs its own scope and evaluation order, and a generator
-expression would require a lazy iterator type that the eager runtime does not
-have (`range`, `map`, and `filter` all return lists). A list-only comprehension
-is the smaller, safer first step; a dictionary form can reuse the same key
-hashing as the dictionary literal.
+**Suggested direction:** a lazy iterator is a runtime value type with a `next`
+operation, so `for`, `in`, and the reshaping built-ins would have to accept it,
+and `len`, indexing, and slicing would each have to decide what they mean for a
+value that has not produced its elements yet. The syntax slot is already
+reserved: `(x * 2 for x in items)` reports that generator expressions are not
+supported, and points at the comprehension that does the same work eagerly. The
+smaller first step is a runtime object behind `range` and `map` while every
+`len`-like operation keeps requiring a list, a tuple, a set, or a dictionary.
 
-## 3. Type annotations and optional static checking
+## 2. Type annotations and optional static checking
 
 **Missing:** a way to annotate parameters, variables, fields, and return values
 with types, and any static checking that could use them.
@@ -102,7 +87,7 @@ than a change to evaluation; the parser would need to accept a `: type` suffix
 after a name and `-> type` after a parameter list without breaking `case` labels
 or dictionary colons.
 
-## 4. Context managers and deterministic cleanup
+## 3. Context managers and deterministic cleanup
 
 **Missing:** a `with` statement, or an equivalent, that runs cleanup when a
 block ends, including on an error.
@@ -136,7 +121,7 @@ value type. Generalizing it to user objects would need a protocol, an `enter`
 and `exit` method pair, plus a way to bind the receiver, which the class system
 can already express once the protocol is named.
 
-## 5. Comparison and membership conveniences
+## 4. Comparison and membership conveniences
 
 **Missing:** chained comparisons (`lower < value < upper`), a `not in` operator,
 and an identity operator (`is`).
@@ -168,7 +153,7 @@ new operator that reuses the existing `in` evaluation and negates it. `is` would
 need a defined identity notion for numbers and strings, which are values rather
 than references, so it is the least clear of the three.
 
-## 6. String and list repetition
+## 5. String and list repetition
 
 **Missing:** sequence repetition with `*`, such as `"ab" * 3` or `[0] * 5`.
 
@@ -202,7 +187,7 @@ existing `+` handling for those types. The count must be range-checked against
 the same 1,000,000-element ceiling that `range` uses. There is likewise no `**=`
 or `div=` compound assignment, though those are only spelling.
 
-## 7. Standard-library collections and algorithms
+## 6. Standard-library collections and algorithms
 
 **Missing:** ready-made collection types and algorithms, such as a deque, a
 binary heap, a counter, and binary search.
@@ -235,7 +220,7 @@ wrapper, a heap is a list with `push`/`pop` helpers, and binary search operates
 on a sorted list. Keep them in-repo and free of new dependencies so the browser
 build stays within its size budget.
 
-## 8. Introspection and reflection
+## 7. Introspection and reflection
 
 **Missing:** reflective access such as `getattr`, `setattr`, `hasattr`, and
 `dir`, and a `hash` function.
@@ -268,7 +253,7 @@ per class, so `hasattr` and a name-based read are small additions. `setattr`
 would have to respect the declared-field rule, which is a deliberate design
 choice, so a read-only reflection surface is the consistent first step.
 
-## 9. Command-line arguments, environment, and exit codes
+## 8. Command-line arguments, environment, and exit codes
 
 **Missing:** access to the process's own context: command-line arguments
 (`sys.argv`), environment variables, and a way to choose the exit status.
@@ -299,7 +284,7 @@ browser and WASI targets have no meaningful `argv` or environment, so those
 members would report the same documented error that the `time` and `regex`
 stubs use.
 
-## 10. Assertions
+## 9. Assertions
 
 **Missing:** an `assert` statement, or function, for invariants and quick
 tests.
@@ -335,7 +320,7 @@ a structured error with its own `kind` when the condition is falsey, so existing
 `try`/`catch` and typed guards keep working. Empty blocks are already allowed
 (`if true { }` parses), so no separate no-op statement is needed.
 
-## 11. Exception ergonomics
+## 10. Exception ergonomics
 
 **Missing:** stack traces, a built-in error hierarchy, and exception chaining
 (`raise ... from`).
@@ -366,7 +351,7 @@ evaluator already builds, without changing the value model. A hierarchy needs
 classes that the standard error object can extend, and chaining needs a field on
 that object, so those two depend on deciding what a user-defined error class is.
 
-## 12. Selective exports and import forms
+## 11. Selective exports and import forms
 
 **Missing:** an `export` marker, named imports (`import { square } from ...`),
 and wildcard imports (`import * as ...`).
@@ -384,7 +369,7 @@ object the loader already builds, so they are parser-and-binding changes rather
 than new runtime behavior. `export` is the harder half, because it changes what
 the module object exposes and what standalone bundling must carry.
 
-## 13. Class-system breadth
+## 12. Class-system breadth
 
 **Missing:** static methods and fields, properties (getters and setters),
 operator overloading, interfaces or abstract classes, and multiple inheritance.
@@ -421,7 +406,7 @@ and member-access paths consult; both are larger than they look because they
 change how those paths resolve. Interfaces and multiple inheritance would change
 how method lookup walks parents.
 
-## 14. String and number helper breadth
+## 13. String and number helper breadth
 
 **Missing:** `printf`-style formatting (`"%d" % value`), a `format` method, and
 the smaller string helpers (`lstrip`, `rstrip`, `count`, `capitalize`, `title`),
@@ -455,7 +440,7 @@ existing methods, and the missing built-ins can delegate to the `math` module.
 `%` formatting is the only large piece, and it overlaps f-strings, so it is the
 weakest candidate.
 
-## 15. Enumerations
+## 14. Enumerations
 
 **Missing:** an `enum` type for a fixed set of named constants.
 

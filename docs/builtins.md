@@ -170,9 +170,31 @@ false false true true
 
 A class may define its own method with one of these names; the user method takes precedence when called through the instance. `str`, `print`, and f-strings still use the built-in formatting and never call user methods. Conversion methods can be extracted like other methods: `const read = "7".ToInt;` stores a callable. Conversion failures produce the same errors as the built-ins, prefixed with the method name.
 
+## list(value), tuple(value), set(value)
+
+The collection constructors copy the values any `for` loop can walk: a list, a tuple, a set, a dictionary's keys, or a string's characters. With no argument each builds an empty collection, and `set()` is how an empty set is written, because `{}` is an empty dictionary. A set accepts only the scalars a dictionary accepts as keys, so `set([1, [2]])` is an error. See [Sets and Tuples](collections.md#sets).
+
+```tg
+print(list("ab"), tuple([1, 2]), list({1, 2}), tuple((3,)), set([1, 1, 2]), set("ab"), set({"k": 1}), set(), list(set()));
+```
+
+```text
+["a", "b"] (1, 2) [1, 2] (3,) {1, 2} {"a", "b"} {"k"} set() []
+```
+
+**Expected error:**
+
+```tg
+set(9);
+```
+
+```error
+set expects an iterable, got number
+```
+
 ## len(value)
 
-`len(value)`, `value.size()`, and `value.length()` are one operation with three spellings. Each requires exactly one string, list, or dictionary and returns a number: Unicode code points for strings, element count for lists, or entry count for dictionaries. The three accept and return exactly the same things, and every other value is rejected by all three, so a program can use whichever spelling reads best.
+`len(value)`, `value.size()`, and `value.length()` are one operation with three spellings. Each requires exactly one string, list, tuple, set, or dictionary and returns a number: Unicode code points for a string, elements for a list or tuple, and entries for a set or dictionary. The three accept and return exactly the same things, and every other value is rejected by all three, so a program can use whichever spelling reads best.
 
 ```tg
 print(len("Tiger"), len([1, 2, 3]), len({"a": 1, "b": 2}));
@@ -232,18 +254,20 @@ size does not accept number
 
 ```tg
 print(type(1), type("x"), type(true), type(null));
-print(type([]), type({}), type(print), type(math));
+print(type([]), type({}), type(set()), type((1,)), type(print), type(math));
 class Point { function move() {} }
 const point = Point();
 print(type(Point), type(point), type(point.move));
 print(isinstance(1, "number"), isinstance("x", "number"), isinstance([], ["list", "dict"]));
+print(isinstance((1,), ["tuple", "set"]), isinstance({1}, "set"));
 ```
 
 ```text
 number string bool null
-list dict builtin module
+list dict set tuple builtin module
 class instance bound method
 true false true
+true true
 ```
 
 The names are stable and match the diagnostics produced elsewhere in the runtime:
@@ -255,6 +279,8 @@ The names are stable and match the diagnostics produced elsewhere in the runtime
 | `bool` | `true` or `false` |
 | `null` | `null` |
 | `list` | A list |
+| `tuple` | A tuple |
+| `set` | A set |
 | `dict` | A dictionary |
 | `function` | A user-defined `function` value |
 | `builtin` | A built-in function, method, or module member |
@@ -308,7 +334,7 @@ A non-string argument is an error, and the built-in accepts no keyword arguments
 
 ## Aggregate Built-ins
 
-These built-ins reduce or reshape lists. They complement `len`, `items.sort(...)`, and the `math` and `algo` modules.
+These built-ins reduce or reshape sequences — a list or a tuple — and always return a list or a number. They complement `len`, `items.sort(...)`, and the `math` and `algo` modules. A set is unordered, so convert it with `list(my_set)` first; see [Sets](collections.md#sets). A [comprehension](collections.md#comprehensions) writes the same mapping and filtering as `map` and `filter` in one expression: `[value * 2 for value in values if value > 0]`.
 
 | Built-in | Result |
 | --- | --- |
@@ -342,7 +368,7 @@ print(filter(values, function(value) { return value > 15; }));
 [16, 23, 42]
 ```
 
-`min`, `max`, and `sorted` compare numbers with numbers and strings with strings; mixing the two is an error, and an empty sequence has no extreme. `sorted` accepts the same `key` and `reverse` keywords as [`items.sort(...)`](collections.md#sorting) but returns a new list. `enumerate` and `zip` produce lists of lists because there is no tuple type. Dictionaries are reduced through `dict.keys()`, `.values()`, or `.items()`.
+`min`, `max`, and `sorted` compare numbers with numbers and strings with strings; mixing the two is an error, and an empty sequence has no extreme. `sorted` accepts the same `key` and `reverse` keywords as [`items.sort(...)`](collections.md#sorting) but returns a new list. Every argument shown as `list` above may also be a tuple. `enumerate` and `zip` return lists of lists, the shape they have always had, so existing programs are unaffected; write `tuple(pair)` where a fixed-length group reads better. Dictionaries are reduced through `dict.keys()`, `.values()`, or `.items()`.
 
 ## Built-in Modules
 

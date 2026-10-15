@@ -32,9 +32,10 @@ repeated below.
 | Operators (`**`, `div`, bitwise) | `35_operators` |
 | Standard library (`random`, `secrets`, `json`, `time`, `regex`, `list_dir`) | `36_stdlib` |
 | Function ergonomics | `37_function_ergonomics` |
-| Aggregate built-ins | `38_aggregates` |
+| Aggregate built-ins and comprehensions | `38_aggregates` |
 | Text precision | `39_text_precision` |
 | Syntax additions | `40_syntax_gaps` |
+| Sets and tuples | `41_sets_and_tuples` |
 | File imports / modules | docs only |
 
 ## Language core
@@ -118,6 +119,36 @@ print(describe("tiger", "wild", size="large"));
   with truncation of fractional operands and 64-bit shift handling.
 
 ## Collections and text
+
+### Sets and tuples (`41_sets_and_tuples`)
+
+- A set is an insertion-ordered collection of unique scalars: `{1, 2, 3}`, with
+  `set()` for the empty set because `{}` stays an empty dictionary. `add`,
+  `remove`, `has`, and `clear` mutate it; `union`, `intersection`, and
+  `difference` take any iterable and return a new set. Membership (`in`, `has`),
+  iteration, equality (order-insensitive), `len`/`size()`/`length()`, and `type`
+  work as they do for the other collections.
+- A tuple is a fixed-length, immutable group: `(1, 2)`, `(1,)`, and `()`. It
+  supports indexing, slicing, `+`, membership, iteration, destructuring, and
+  structural equality, and the sequence built-ins (`sum`, `sorted`, `zip`, `map`,
+  `filter`, `min`, `max`, `any`, `all`, `enumerate`) accept it wherever they
+  accept a list. It has no `append`, no `sort`, and no assignment to an index.
+- `list(value)`, `tuple(value)`, and `set(value)` convert any iterable, and
+  `json.stringify` writes a tuple as a JSON array.
+
+### Comprehensions (`38_aggregates`)
+
+- A list comprehension builds a list in one expression:
+  `[x * x for x in range(1, 5)]`, with any number of `if` filters —
+  `[x for x in values if x > 0 if x < 10]` — and one or more nested clauses, which
+  run left to right: `[b for a in [1, 2] for b in [a, a * 10]]`.
+- A dictionary comprehension uses the brace form: `{word: len(word) for word in
+  words}`, with the same filters and clauses. A repeated key keeps its first
+  position and takes the last value.
+- Any value a `for` loop can walk may be iterated, and the clause variables live
+  in a scope of their own, so they neither leak nor disturb an outer name. The
+  runtime is eager: there are no generator expressions, and a set comprehension is
+  reported with the workaround `set([x for x in items])`.
 
 ### List and dictionary methods (`34_collection_methods`)
 
@@ -225,6 +256,6 @@ print(describe("tiger", "wild", size="large"));
 ## Still missing
 
 See [Room for Improvement](docs/room-for-improvement.md) for the gaps that
-remain (sets and tuples, comprehensions, type annotations, context managers,
-and more), each with a runnable workaround and a suggested direction.
+remain (lazy iterators, type annotations, context managers, and more), each with
+a runnable workaround and a suggested direction.
 
