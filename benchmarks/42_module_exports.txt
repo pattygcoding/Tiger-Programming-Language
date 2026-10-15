@@ -1,0 +1,42 @@
+== alias and wildcard ==
+toolbox 1.2 toolbox 1.2
+true true
+1 100 number
+42 inner
+function class module
+== named imports ==
+toolbox 1.2 1 true
+low medium high
+true low
+0.8 0
+8
+== module state ==
+15 17
+8 0 0
+low 1
+2 3
+== imported values in expressions ==
+["high", "low"] 5
+[2, 2] ["high", "high"]
+[2, 8, 18] [3, 2, 1]
+102
+== extending an imported class ==
+10 10 instance
+true true
+== privacy ==
+true
+true
+true
+true
+true
+true
+== read-only members ==
+toolbox 1.2
+read only true
+toolbox 1.2 toolbox 1.2
+== imports inside functions ==
+medium 8
+true
+== missing modules ==
+true
+done

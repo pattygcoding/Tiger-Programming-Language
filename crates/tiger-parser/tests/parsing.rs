@@ -536,3 +536,51 @@ fn comprehension_literals() {
     assert!(reject("const value = [x for 1 in items];").contains("expected \"identifier\""));
     assert!(reject("const value = {x: y for x in items if};").contains("expected expression"));
 }
+
+#[test]
+fn import_and_export_forms() {
+    // The alias form and the wildcard form are the same import.
+    let program = parse("import \"a.tg\" as a;");
+    let Stmt::Import { path, name, names, .. } = &program.statements[0] else { panic!("import") };
+    assert_eq!((path.as_str(), name.as_str(), names.len()), ("a.tg", "a", 0));
+
+    let program = parse("import * as b from \"a.tg\";");
+    let Stmt::Import { path, name, names, .. } = &program.statements[0] else { panic!("import") };
+    assert_eq!((path.as_str(), name.as_str(), names.len()), ("a.tg", "b", 0));
+
+    // A named import binds each member, and `as` renames it.
+    let program = parse("import { square, cube as cubed } from \"a.tg\";");
+    let Stmt::Import { name, names, .. } = &program.statements[0] else { panic!("import") };
+    assert!(name.is_empty(), "a named import has no module alias");
+    assert_eq!(names.len(), 2);
+    assert_eq!((names[0].name.as_str(), names[0].alias.as_str()), ("square", "square"));
+    assert_eq!((names[1].name.as_str(), names[1].alias.as_str()), ("cube", "cubed"));
+
+    // A trailing comma is allowed, as in every other list.
+    let program = parse("import { a, } from \"a.tg\";");
+    let Stmt::Import { names, .. } = &program.statements[0] else { panic!("import") };
+    assert_eq!(names.len(), 1);
+
+    // `export` records the names a declaration shares, in source order.
+    let program =
+        parse("export const x = 1;\nexport function f() {}\nexport class C {}\nexport var y = 2;\nexport const [first, second] = [1, 2];");
+    let exported: Vec<&str> = program.exports.iter().map(|exported| exported.name.as_str()).collect();
+    assert_eq!(exported, ["x", "f", "C", "y", "first", "second"]);
+    assert!(parse("const plain = 1;").exports.is_empty(), "an unmarked file shares nothing");
+
+    // `export` in front of an import re-exports what that import binds.
+    let program = parse("export import \"a.tg\" as a;");
+    assert_eq!(program.exports.iter().map(|exported| exported.name.as_str()).collect::<Vec<_>>(), ["a"]);
+    let program = parse("export import { square, cube as cubed } from \"a.tg\";");
+    assert_eq!(program.exports.iter().map(|exported| exported.name.as_str()).collect::<Vec<_>>(), ["square", "cubed"]);
+
+    assert!(reject("import { } from \"a.tg\";").contains("needs at least one name"));
+    assert!(reject("import { a } \"a.tg\";").contains("expected \"from\""));
+    assert!(reject("import * as a \"a.tg\";").contains("expected \"from\""));
+    assert!(reject("import a from \"a.tg\";").contains("expected"));
+    assert!(reject("export print(1);").contains("only a declaration can be exported"));
+    assert!(reject("export throw 1;").contains("only a declaration can be exported"));
+    assert!(reject("function f() { export const x = 1; }").contains("only allowed at the top level"));
+    assert!(reject("if true { export const x = 1; }").contains("only allowed at the top level"));
+    assert!(reject("export export const x = 1;").contains("only one export marker"));
+}

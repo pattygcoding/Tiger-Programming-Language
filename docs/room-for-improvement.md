@@ -253,38 +253,7 @@ per class, so `hasattr` and a name-based read are small additions. `setattr`
 would have to respect the declared-field rule, which is a deliberate design
 choice, so a read-only reflection surface is the consistent first step.
 
-## 8. Command-line arguments, environment, and exit codes
-
-**Missing:** access to the process's own context: command-line arguments
-(`sys.argv`), environment variables, and a way to choose the exit status.
-
-**Why it matters:** a script that cannot read its arguments is not a command
-line tool. Tiger programs read configuration through `input()` or files, and
-every program exits `0` on success or `1` on error, so callers cannot
-distinguish outcomes. The CLI itself accepts only `run`, `build`, and `help`.
-
-**Workaround:** read configuration from a file.
-
-```tg
-write_file("config.txt", "port=8080");
-const config = read_file("config.txt");
-print(config.startswith("port="));
-```
-
-Output:
-
-```text
-true
-```
-
-**Suggested direction:** a read-only `sys` module with `args` (the arguments
-after the script path), `env` (a dictionary), and `exit(code)` is the least
-surprising shape, and it matches the existing built-in module pattern. The
-browser and WASI targets have no meaningful `argv` or environment, so those
-members would report the same documented error that the `time` and `regex`
-stubs use.
-
-## 9. Assertions
+## 8. Assertions
 
 **Missing:** an `assert` statement, or function, for invariants and quick
 tests.
@@ -320,7 +289,7 @@ a structured error with its own `kind` when the condition is falsey, so existing
 `try`/`catch` and typed guards keep working. Empty blocks are already allowed
 (`if true { }` parses), so no separate no-op statement is needed.
 
-## 10. Exception ergonomics
+## 9. Exception ergonomics
 
 **Missing:** stack traces, a built-in error hierarchy, and exception chaining
 (`raise ... from`).
@@ -351,25 +320,7 @@ evaluator already builds, without changing the value model. A hierarchy needs
 classes that the standard error object can extend, and chaining needs a field on
 that object, so those two depend on deciding what a user-defined error class is.
 
-## 11. Selective exports and import forms
-
-**Missing:** an `export` marker, named imports (`import { square } from ...`),
-and wildcard imports (`import * as ...`).
-
-**Why it matters:** a module exports every top-level name, so there is no way to
-keep a helper private or to pull in a single function without an alias prefix.
-The only import form is `import "path.tg" as name;`, and every member is reached
-through `name.member`. See [Importing Tiger Files](modules.md).
-
-**Workaround:** import the whole module under a short alias and reach the members
-you need through it, which is already the only supported form.
-
-**Suggested direction:** named and wildcard imports are aliases over the module
-object the loader already builds, so they are parser-and-binding changes rather
-than new runtime behavior. `export` is the harder half, because it changes what
-the module object exposes and what standalone bundling must carry.
-
-## 12. Class-system breadth
+## 10. Class-system breadth
 
 **Missing:** static methods and fields, properties (getters and setters),
 operator overloading, interfaces or abstract classes, and multiple inheritance.
@@ -406,7 +357,7 @@ and member-access paths consult; both are larger than they look because they
 change how those paths resolve. Interfaces and multiple inheritance would change
 how method lookup walks parents.
 
-## 13. String and number helper breadth
+## 11. String and number helper breadth
 
 **Missing:** `printf`-style formatting (`"%d" % value`), a `format` method, and
 the smaller string helpers (`lstrip`, `rstrip`, `count`, `capitalize`, `title`),
@@ -440,7 +391,7 @@ existing methods, and the missing built-ins can delegate to the `math` module.
 `%` formatting is the only large piece, and it overlaps f-strings, so it is the
 weakest candidate.
 
-## 14. Enumerations
+## 12. Enumerations
 
 **Missing:** an `enum` type for a fixed set of named constants.
 

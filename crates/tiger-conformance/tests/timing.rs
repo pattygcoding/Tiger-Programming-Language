@@ -48,7 +48,7 @@ fn time_source_file() {
     let show = std::env::var_os("TIGER_SHOW_OUTPUT").is_some();
     let run_once = |source: &str, name: &str| {
         let writer: Box<dyn std::io::Write> = if show { Box::new(std::io::stdout()) } else { Box::new(std::io::sink()) };
-        tiger_evaluator::run_with_options(source, name, None, None, None, writer, options).expect("run")
+        tiger_evaluator::run_with_options(source, name, None, None, None, writer, options.clone()).expect("run")
     };
     let _ = run_once(&source, &name);
     let mut best = f64::INFINITY;

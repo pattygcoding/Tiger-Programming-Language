@@ -1,5 +1,5 @@
 //! Module loaders and the built-in `math`, `algo`, `random`, `secrets`, `json`,
-//! `time`, and `regex` modules.
+//! `time`, `regex`, and `sys` modules.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -78,7 +78,7 @@ fn module(name: &str, definitions: &[(&str, Rc<object::Builtin>)]) -> Rc<Module>
     for (entry, builtin) in definitions {
         let _ = object::define(&env, entry, Value::Builtin(builtin.clone()), true);
     }
-    Rc::new(Module { name: name.to_string(), env })
+    Module::new(name.to_string(), env)
 }
 
 /// The `math` module: rounding, roots, powers, logarithms, trigonometry, min/max.
@@ -928,6 +928,41 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let doy = (153 * mp + 2) / 5 + day as i64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
+}
+
+/// The process environment a program reads through `sys.env`.
+///
+/// The browser build has no environment to read, so it reports none. The gate
+/// keeps `std::env::vars` out of `tiger.wasm`, the way the `time` and `regex`
+/// stubs keep the host clock and the RE2 engine out.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn environment_variables() -> Vec<(String, String)> {
+    std::env::vars().collect()
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn environment_variables() -> Vec<(String, String)> {
+    Vec::new()
+}
+
+/// The `sys` module: `argv`, `env`, and `exit`.
+///
+/// `argv` holds the program's arguments with its own path first, exactly as
+/// Python's `sys.argv` does; a host that runs a program without a name leaves it
+/// empty. `env` is a dictionary of the process environment's variables, and
+/// changing that dictionary does not change the process. `exit(status)` stops the
+/// program with the status Python's `sys.exit` would use; see [`crate::Exit`].
+pub fn sys_module(arguments: &[String]) -> Rc<Module> {
+    let env = object::Environment::new(None);
+    let argv: Vec<Value> = arguments.iter().map(|argument| Value::string(argument)).collect();
+    let _ = object::define(&env, "argv", Value::list(argv), true);
+    let variables = Rc::new(RefCell::new(object::Dict::default()));
+    for (name, value) in environment_variables() {
+        let _ = variables.borrow_mut().set(Value::string(&name), Value::string(&value));
+    }
+    let _ = object::define(&env, "env", Value::Dict(variables), true);
+    let _ = object::define(&env, "exit", Value::Builtin(object::Builtin::higher_order("sys.exit", None)), true);
+    Module::new("sys".to_string(), env)
 }
 
 /// The `regex` module: regular expressions via the standard RE2 engine.

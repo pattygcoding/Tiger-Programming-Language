@@ -10,10 +10,10 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use tiger_evaluator::{BundleLoader, FileLoader, ModuleLoader};
+use tiger_evaluator::{BundleLoader, Exit, FileLoader, ModuleLoader, RunOptions};
 
-/// The usage text, exactly as the Go CLI prints it.
-pub const USAGE: &str = "Usage:\n  tiger run <file.tg>\n  tiger build <file.tg> [-o <executable>]\n  tiger help\n";
+/// The usage text, as the Go CLI prints it apart from the program's arguments.
+pub const USAGE: &str = "Usage:\n  tiger run <file.tg> [arguments...]\n  tiger build <file.tg> [-o <executable>]\n  tiger help\n";
 
 /// The trailer that marks a built executable and locates its bundle.
 pub const MAGIC: &[u8; 16] = b"tiger-bundle-v1\n";
@@ -36,6 +36,7 @@ pub fn run(args: &[String], stdin: Option<Box<dyn BufRead>>, stdout: Box<dyn Wri
     let building = args[0] == "build";
     let mut filename = String::new();
     let mut output = String::new();
+    let mut program: Vec<String> = Vec::new();
     let mut index = 1;
     while index < args.len() {
         let argument = &args[index];
@@ -46,7 +47,15 @@ pub fn run(args: &[String], stdin: Option<Box<dyn BufRead>>, stdout: Box<dyn Wri
             }
             index += 1;
             output = args[index].clone();
-        } else if argument.starts_with('-') || !filename.is_empty() {
+        } else if !filename.is_empty() {
+            if building {
+                let _ = stderr.write_all(USAGE.as_bytes());
+                return 2;
+            }
+            // Everything after the program's path belongs to the program, the way
+            // every argument after a script path belongs to the script in Python.
+            program.push(argument.clone());
+        } else if argument.starts_with('-') {
             let _ = stderr.write_all(USAGE.as_bytes());
             return 2;
         } else {
@@ -59,8 +68,11 @@ pub fn run(args: &[String], stdin: Option<Box<dyn BufRead>>, stdout: Box<dyn Wri
         return 2;
     }
     if !building {
-        return match run_file(&filename, stdin, stdout) {
-            Ok(()) => 0,
+        // `sys.argv` is the program's path first, then its arguments, as in Python.
+        let mut arguments = vec![filename.clone()];
+        arguments.extend(program);
+        return match run_file(&filename, &arguments, stdin, stdout) {
+            Ok(exit) => report_exit(exit, &mut stderr),
             Err(error) => {
                 let _ = writeln!(stderr, "{}", error);
                 1
@@ -114,15 +126,26 @@ fn default_output(filename: &str) -> String {
     }
 }
 
+/// Reports how a program exited: the message it asked for on standard error, then
+/// its status, the way a Python interpreter reports `sys.exit`.
+fn report_exit(exit: Exit, stderr: &mut dyn Write) -> i32 {
+    if let Some(message) = &exit.message {
+        let _ = writeln!(stderr, "{}", message);
+    }
+    exit.code
+}
+
 /// Reads a program through the host filesystem and runs it.
 ///
 /// The Rust counterpart of Go's `evaluator.RunFileWithInput`, shared by the
-/// `tiger run` command and the WASI entry point.
-pub fn run_file(filename: &str, stdin: Option<Box<dyn BufRead>>, output: Box<dyn Write>) -> Result<(), String> {
+/// `tiger run` command and the WASI entry point. `arguments` is the program's
+/// `sys.argv`: its own path first, then each argument.
+pub fn run_file(filename: &str, arguments: &[String], stdin: Option<Box<dyn BufRead>>, output: Box<dyn Write>) -> Result<Exit, String> {
     let loader = FileLoader;
     let canonical = loader.resolve("", filename)?;
     let source = loader.load(&canonical)?;
-    tiger_evaluator::run_with_input(&source, &canonical, Some(Rc::new(FileLoader)), None, stdin, output)
+    let options = RunOptions { arguments: arguments.to_vec(), ..RunOptions::default() };
+    tiger_evaluator::run_with_options(&source, &canonical, Some(Rc::new(FileLoader)), None, stdin, output, options)
 }
 
 /// Reports whether two paths name the same file, as Go's `os.SameFile` does.
@@ -319,7 +342,17 @@ pub fn find_payload(bytes: &[u8]) -> Option<&[u8]> {
 }
 
 /// Runs the program embedded in a built executable.
-pub fn run_embedded(payload: &[u8], stdin: Option<Box<dyn BufRead>>, stdout: Box<dyn Write>, stderr: Box<dyn Write>) -> i32 {
+///
+/// `arguments` is the process's own command line, so `sys.argv[0]` is the
+/// executable's path and the rest are the program's arguments, exactly as they are
+/// for a Python program frozen into an executable.
+pub fn run_embedded(
+    payload: &[u8],
+    arguments: &[String],
+    stdin: Option<Box<dyn BufRead>>,
+    stdout: Box<dyn Write>,
+    stderr: Box<dyn Write>,
+) -> i32 {
     let mut stderr = stderr;
     let (bundle, entry) = match decode_bundle(payload) {
         Ok(pair) => pair,
@@ -329,8 +362,9 @@ pub fn run_embedded(payload: &[u8], stdin: Option<Box<dyn BufRead>>, stdout: Box
         }
     };
     let source = bundle.sources.get(&entry).cloned().unwrap_or_default();
-    match tiger_evaluator::run_with_input(&source, &entry, Some(Rc::new(bundle)), None, stdin, stdout) {
-        Ok(()) => 0,
+    let options = RunOptions { arguments: arguments.to_vec(), ..RunOptions::default() };
+    match tiger_evaluator::run_with_options(&source, &entry, Some(Rc::new(bundle)), None, stdin, stdout, options) {
+        Ok(exit) => report_exit(exit, &mut stderr),
         Err(error) => {
             let _ = writeln!(stderr, "{}", error);
             1
@@ -385,12 +419,15 @@ mod tests {
         let valid = directory.join("valid.tg");
         let invalid = directory.join("invalid.tg");
         let greet = directory.join("greet.tg");
+        let arguments = directory.join("arguments.tg");
         std::fs::write(&valid, "print(\"hello\");").expect("write valid");
         std::fs::write(&invalid, "print(\"hello\")").expect("write invalid");
         std::fs::write(&greet, "print(\"hi \" + input(\"name: \"));").expect("write greet");
+        std::fs::write(&arguments, "print(sys.argv[1:]);").expect("write arguments");
         let valid = valid.to_string_lossy().to_string();
         let invalid = invalid.to_string_lossy().to_string();
         let greet = greet.to_string_lossy().to_string();
+        let arguments = arguments.to_string_lossy().to_string();
 
         let (code, out, err) = invoke(&["help"], "");
         assert_eq!((code, out.contains("Usage:"), err.is_empty()), (0, true, true));
@@ -419,7 +456,15 @@ mod tests {
         let (code, _, err) = invoke(&["build", &valid, "-o", &valid], "");
         assert_eq!((code, err.contains("different from the input")), (2, true));
 
-        let (code, _, err) = invoke(&["run", &valid, "extra"], "");
+        // Everything after the program's path belongs to the program, exactly as
+        // every argument after a script path belongs to the script in Python.
+        let (code, out, err) = invoke(&["run", &arguments, "one", "two"], "");
+        assert_eq!((code, out.as_str(), err.is_empty()), (0, "[\"one\", \"two\"]\n", true));
+
+        // A flag before the path is still the CLI's own, and `build` takes none.
+        let (code, _, err) = invoke(&["run", "-x", &valid], "");
+        assert_eq!((code, err.contains("Usage:")), (2, true));
+        let (code, _, err) = invoke(&["build", &valid, "extra"], "");
         assert_eq!((code, err.contains("Usage:")), (2, true));
 
         let (code, out, err) = invoke(&["run", &greet], "Ada\n");
@@ -428,11 +473,41 @@ mod tests {
     }
 
     #[test]
+    fn passes_arguments_and_reports_the_exit_status() {
+        let directory = temporary("arguments");
+        let program = directory.join("program.tg");
+        std::fs::write(&program, "print(sys.argv[0].endswith(\"program.tg\"), sys.argv[1:]);\nsys.exit(5);\nprint(\"not reached\");")
+            .expect("write program");
+        let program = program.to_string_lossy().to_string();
+
+        // The status the program chose reaches the caller, and nothing after the
+        // call runs.
+        let (code, out, err) = invoke(&["run", &program, "one", "two"], "");
+        assert_eq!((code, out.as_str(), err.as_str()), (5, "true [\"one\", \"two\"]\n", ""));
+
+        // A message a non-integer status asked for goes to standard error first.
+        let message = directory.join("message.tg");
+        std::fs::write(&message, "sys.exit(\"missing argument\");").expect("write message");
+        let message = message.to_string_lossy().to_string();
+        let (code, out, err) = invoke(&["run", &message], "");
+        assert_eq!((code, out.as_str(), err.as_str()), (1, "", "missing argument\n"));
+
+        // A program that runs out of code reports success with no message.
+        let plain = directory.join("plain.tg");
+        std::fs::write(&plain, "print(sys.argv[1:], len(sys.argv));").expect("write plain");
+        let plain = plain.to_string_lossy().to_string();
+        let (code, out, err) = invoke(&["run", &plain], "");
+        assert_eq!((code, out.as_str(), err.as_str()), (0, "[] 1\n", ""));
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
     fn runs_programs_with_imports() {
         let directory = temporary("imports");
         std::fs::create_dir_all(directory.join("lib")).expect("library directory");
         std::fs::write(directory.join("main.tg"), "import \"lib/math.tg\" as math; print(math.square(9));").expect("write entry");
-        std::fs::write(directory.join("lib").join("math.tg"), "function square(value) { return value * value; }").expect("write library");
+        std::fs::write(directory.join("lib").join("math.tg"), "export function square(value) { return value * value; }")
+            .expect("write library");
         let entry = directory.join("main.tg").to_string_lossy().to_string();
         let (code, out, err) = invoke(&["run", &entry], "");
         assert_eq!((code, out.as_str(), err.as_str()), (0, "81\n", ""));

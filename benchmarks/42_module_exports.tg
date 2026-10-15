@@ -1,0 +1,104 @@
+// 42_module_exports.tg - selective exports and the import forms.
+//
+// Exercises the three import forms (alias, wildcard, and named), the declarations
+// a module can share (a constant, a variable, functions, a class, a destructured
+// pair, and a re-exported module), what it keeps private, module caching and
+// identity, importing from inside a function, and the error paths a private or
+// misspelled member takes. The module it imports lives in
+// `benchmarks/support/toolbox.tg`, which re-exports `benchmarks/support/inner.tg`.
+
+import "support/toolbox.tg" as box;
+import * as same_box from "support/toolbox.tg";
+
+print("== alias and wildcard ==");
+print(box.VERSION, same_box.VERSION);
+print(box == same_box, box.inner == same_box.inner);
+print(box.MIN, box.MAX, type(box.MIN));
+print(box.inner.doubled(21), box.inner.label);
+print(type(box.grade), type(box.Counter), type(box.inner));
+
+print("== named imports ==");
+import { grade, ratio, VERSION, MIN as lowest, Counter } from "support/toolbox.tg";
+import { grade as ranked } from "support/toolbox.tg";
+
+print(VERSION, lowest, VERSION == box.VERSION);
+print(grade(5), grade(10), grade(20));
+print(ranked(20) == grade(20), ranked(5));
+print(ratio(4), ratio(0));
+print(box.uses);
+
+print("== module state ==");
+const counter = Counter(10);
+print(counter.add(5).total, counter.add(2).total);
+print(box.uses, box.reset(), box.uses);
+print(grade(1), box.uses);
+print([grade(6), grade(11)].length(), box.uses);
+
+print("== imported values in expressions ==");
+const reports = [grade(20), grade(0)];
+print(reports, box.uses);
+print([value * 2 for value in [box.MIN, lowest]], [grade(15) for index in range(0, 2)]);
+print(map([1, 4, 9], box.inner.doubled), sorted([3, 1, 2], reverse=true));
+print(box.inner.doubled(box.MIN) + box.MAX);
+
+print("== extending an imported class ==");
+const Base = box.Counter;
+class Doubling extends Base {
+    Doubling(start) {
+        super(start);
+    }
+    function double() {
+        this.total = this.total * 2;
+        return this.total;
+    }
+}
+const doubling = Doubling(4);
+print(doubling.add(1).double(), doubling.total, type(doubling));
+print(isinstance(doubling, "instance"), isinstance(counter, "instance"));
+
+print("== privacy ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return str(error);
+    }
+}
+print("has no export" in fails(function() { return box.ladder(1); }));
+print("has no export" in fails(function() { return box.normalize(1); }));
+print("has no export" in fails(function() { return box.private_helper(); }));
+print("has no export" in fails(function() { return box.missing; }));
+print("has no export" in fails(function() { return box.inner.hidden(); }));
+print("has no export" in fails(function() { return same_box.uses_and_gone; }));
+
+print("== read-only members ==");
+print(box.VERSION);
+try {
+    box.VERSION = "changed";
+} catch (error) {
+    print("read only", "cannot assign" in error);
+}
+print(box.VERSION, same_box.VERSION);
+
+print("== imports inside functions ==");
+function counts() {
+    import { grade as local_grade } from "support/toolbox.tg";
+    return local_grade(10);
+}
+function redeclares() {
+    const grade = "local";
+    import { grade } from "support/toolbox.tg";
+    return grade;
+}
+print(counts(), box.uses);
+print("already declared" in fails(redeclares));
+
+print("== missing modules ==");
+function missing_module() {
+    import "support/nope.tg" as nope;
+    return nope;
+}
+print("open" in fails(missing_module));
+
+print("done");

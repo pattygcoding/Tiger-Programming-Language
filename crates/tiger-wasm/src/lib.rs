@@ -207,6 +207,11 @@ fn response(status: i32) -> Result<String, String> {
 }
 
 /// Runs one program, returning its error and leaving its output in [`OUTPUT`].
+///
+/// The browser has no process of its own, so the program gets no arguments and no
+/// environment variables; `sys.argv` and `sys.env` are empty. A message a
+/// `sys.exit(value)` asked for joins the program's output, because the page shows
+/// one pane.
 fn execute(source: &str, filename: &str) -> Result<(), String> {
     OUTPUT.with(|cell| cell.borrow_mut().clear());
     let input: Option<Box<dyn BufRead>> = if unsafe { tiger_has_input() } != 0 { Some(Box::new(BrowserInput::default())) } else { None };
@@ -216,7 +221,11 @@ fn execute(source: &str, filename: &str) -> Result<(), String> {
         filename = loader.resolve("", &filename)?;
     }
     let filesystem: Option<Box<dyn FileSystem>> = Some(Box::new(MemoryFileSystem::default()));
-    tiger_evaluator::run_with_input(source, &filename, loader, filesystem, input, Box::new(BrowserOutput))
+    let exit = tiger_evaluator::run_with_input(source, &filename, loader, filesystem, input, Box::new(BrowserOutput))?;
+    if let Some(message) = exit.message {
+        OUTPUT.with(|cell| cell.borrow_mut().extend_from_slice(message.as_bytes()));
+    }
+    Ok(())
 }
 
 /// Runs a program for the page and encodes `{output, error}` for the glue.

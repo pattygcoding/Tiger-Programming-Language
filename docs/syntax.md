@@ -56,7 +56,7 @@ Keywords are reserved, so none of them can name a variable, function, field, or 
 
 `this` is reserved and is available automatically inside every constructor and method; it is never listed as a parameter. Constructors are declared Java-style with the class name, as in `Counter(start) { ... }`; `init` is an ordinary name, not a keyword. `super(...)` calls the parent constructor. `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, and `isinstance` are built-in constant bindings, not keywords. See the [editor highlighting reference](syntax-highlighting.md) for token categories.
 
-`import "helpers.tg" as helpers;` declares a module alias. Import statements require semicolons; see [Importing Tiger Files](modules.md).
+`import "helpers.tg" as helpers;`, `import * as helpers from "helpers.tg";`, and `import { square, cube as cubed } from "helpers.tg";` declare a module alias or bind selected names directly. `export` in front of a declaration shares it with the files that import this one. Import and export statements require semicolons, and `export` is only allowed at the top level of a file; see [Importing Tiger Files](modules.md).
 
 A function or method parameter list may end with one `*args` declaration and then one `**kwargs` declaration. In a call, `*value` unpacks a list or a tuple into positional arguments and `**value` unpacks a dictionary into keyword arguments. `*` and `**` are not exponentiation; see [Functions and Closures](functions-and-closures.md).
 

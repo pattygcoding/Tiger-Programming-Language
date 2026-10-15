@@ -405,7 +405,7 @@ pub fn algo_module() -> Rc<Module> {
     for (name, builtin) in definitions {
         let _ = object::define(&env, name, Value::Builtin(builtin), true);
     }
-    Rc::new(Module { name: "algo".to_string(), env })
+    Module::new("algo".to_string(), env)
 }
 
 /// Keeps a deque of indexes whose values decrease, so each window's maximum is at the front.

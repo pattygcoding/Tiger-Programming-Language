@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Built-ins](builtins.md) | [Files](file-io.md)
 
-Beyond `print`/`len`/conversions and the [`math`](math.md) and [`algo`](algo.md) modules, Tiger ships five more read-only modules — `random`, `secrets`, `json`, `time`, and `regex` — plus the `list_dir` file helper. All are available without an import.
+Beyond `print`/`len`/conversions and the [`math`](math.md) and [`algo`](algo.md) modules, Tiger ships six more read-only modules — `random`, `secrets`, `json`, `time`, `regex`, and `sys` — plus the `list_dir` file helper. All are available without an import.
 
 ## random
 
@@ -171,6 +171,71 @@ regex.match("[", "x");
 
 ```error
 invalid pattern
+```
+
+## sys
+
+`sys` is the program's own context: the arguments it was started with, the environment it inherited, and the status it exits with. It follows Python's `sys`: `sys.argv[0]` is the program's own path, `sys.env` plays the part of `os.environ`, and `sys.exit` stops the program with the status Python would use.
+
+| Member | Result |
+| --- | --- |
+| `sys.argv` | The program's arguments as a list, its own path first |
+| `sys.env` | A dictionary of the inherited environment variables. It is a snapshot: changing the dictionary does not change the process |
+| `sys.exit(status)` | Stops the program. An integer is the process status, `null` means success, and any other value is printed on standard error with status 1 |
+
+```sh
+tiger run greet.tg Ada Grace   # sys.argv is ["greet.tg", "Ada", "Grace"]
+tiger run status.tg            # exits with whatever the program chose
+```
+
+A host that runs a program without arguments leaves `sys.argv` empty, which is what the browser playground does. `sys.env` reports the variables the program was started with; the browser build has no environment to read, so its `sys.env` is empty.
+
+```tg
+// With no arguments given, everything after the program's own path is empty, and
+// the members keep their shape.
+print(sys.argv[1:], type(sys.argv), type(sys.env));
+print("TIGER_NO_SUCH_VARIABLE" in sys.env, sys.env.get("TIGER_NO_SUCH_VARIABLE", "unset"));
+```
+
+Output:
+
+```text
+[] list dict
+false unset
+```
+
+`sys.exit` stops the program where it stands: nothing after the call runs, every `finally` block on the way out still does, and no `catch` clause takes it — a program stops for the same reason Python's `sys.exit` does. The status reaches the caller, so a program can report failure without printing anything, and `tiger run` passes it on.
+
+```tg
+function finish() {
+    try {
+        print("checking");
+        sys.exit(0);
+    } finally {
+        print("cleanup");
+    }
+}
+finish();
+print("not reached");
+```
+
+Output:
+
+```text
+checking
+cleanup
+```
+
+Because the language has one number type, an integral argument is a status and a fractional one is Python's "print the value and exit 1" case: `sys.exit(2)` exits with 2, while `sys.exit(2.5)` prints `2.5` and exits with 1. A status outside the range a process can report is treated the same way, as a message. Nothing else about the module depends on the host: `sys.argv` is a list, `sys.env` is a dictionary, and every program that runs to its end exits with 0.
+
+**Expected error:**
+
+```tg
+sys.exit(1, "extra");
+```
+
+```error
+sys.exit expects at most 1 argument
 ```
 
 ## list_dir(path)

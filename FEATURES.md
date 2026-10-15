@@ -30,13 +30,13 @@ repeated below.
 | String methods | `33_string_methods` |
 | List and dictionary methods | `34_collection_methods` |
 | Operators (`**`, `div`, bitwise) | `35_operators` |
-| Standard library (`random`, `secrets`, `json`, `time`, `regex`, `list_dir`) | `36_stdlib` |
+| Standard library (`random`, `secrets`, `json`, `time`, `regex`, `sys`, `list_dir`) | `36_stdlib` |
 | Function ergonomics | `37_function_ergonomics` |
 | Aggregate built-ins and comprehensions | `38_aggregates` |
 | Text precision | `39_text_precision` |
 | Syntax additions | `40_syntax_gaps` |
 | Sets and tuples | `41_sets_and_tuples` |
-| File imports / modules | docs only |
+| File imports and exports | `42_module_exports` |
 
 ## Language core
 
@@ -210,12 +210,19 @@ print(describe("tiger", "wild", size="large"));
 
 ## Modules and the standard library
 
-### File imports / modules (`docs/modules.md`)
+### File imports and exports (`docs/modules.md`)
 
-- `import "path/to/file.tg" as name;` with isolated per-file namespaces,
-  once-per-run module caching, paths relative to the importing file, and
-  standalone-executable bundling. Exported classes can be constructed and
-  extended, and imported collections/instances stay mutable.
+- `import "path/to/file.tg" as name;` and `import * as name from "path/to/file.tg";`
+  for a whole module, with isolated per-file namespaces, once-per-run module
+  caching, paths relative to the importing file, and standalone-executable
+  bundling.
+- `import { member, member as alias } from "path/to/file.tg";` binds selected
+  names directly, as constants.
+- `export` in front of a declaration shares it; everything else in the file stays
+  private while its own functions keep using it. `export import` re-exports a
+  module under its alias.
+- Exported classes can be constructed and extended, and imported
+  collections/instances stay mutable.
 
 ### `math` module (`23_math`)
 
@@ -242,6 +249,9 @@ print(describe("tiger", "wild", size="large"));
 - `time`: `now`, `now_ms`, `sleep`, `iso`, `parts`; native and WASI only.
 - `regex`: `match`, `find`, `findAll`, `groups`, `replace`, `split`; native and
   WASI only.
+- `sys`: `argv` (the program's path first, then its arguments), `env` (a dictionary
+  of the inherited environment), and `exit(status)`, which stops the program with
+  Python's status rules and reaches the caller.
 - `list_dir(path)`: a sorted list of a directory's immediate entries.
 
 ## Documentation added since the milestone

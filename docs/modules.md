@@ -4,7 +4,7 @@
 
 ## Import a Module
 
-Use `import "path/to/file.tg" as name;`, then access its declarations through the alias. The path must be a literal string ending in `.tg`; the alias and semicolon are required. Single and double quotes both work. Paths are relative to the file containing the import, not the process working directory.
+Use `import "path/to/file.tg" as name;` or the equivalent long form `import * as name from "path/to/file.tg";`, then access the module's exported names through the alias. The path must be a literal string ending in `.tg`; single and double quotes both work. Paths are relative to the file containing the import, not the process working directory.
 
 This example uses the repository's [math module](../examples/modules/math.tg):
 
@@ -21,9 +21,65 @@ Area: 12.56636
 
 Run [the complete import example](../examples/imports.tg) with `tiger run examples/imports.tg`, or select `imports.tg` in the playground.
 
-## Scope and Exports
+## Named Imports
 
-Each module has its own lexical environment and built-ins. It cannot see caller-local variables. Its top-level variables, constants, functions, classes, and imported aliases are automatically exported; built-ins and block-local names are not. There is no `export`, wildcard import, or named-import syntax.
+A named import binds the members it lists directly, so they are used without the alias. Rename any of them with `as`:
+
+```tg
+import { square, circle_area as area } from "../examples/modules/math.tg";
+print(square(9), area(2));
+```
+
+```text
+81 12.56636
+```
+
+Each bound name is a constant, like the module alias itself, and a name the module does not share is an error. A named import binds the value the member had when the import ran, so a later change to an exported variable is visible through the module but not through the bound name:
+
+```tg
+import "../examples/modules/math.tg" as math;
+print(math.PI, type(math.PI));
+```
+
+```text
+3.14159 number
+```
+
+**Expected error:**
+
+```tg
+import { rounded } from "../examples/modules/math.tg";
+```
+
+```error
+has no export "rounded"
+```
+
+## Exports and Privacy
+
+A file shares exactly the declarations marked with `export`: `export const`, `export var`, `export function`, `export class`, and `export` in front of a destructuring declaration. Everything else stays private to the file, so a helper only its own functions use is out of reach from everywhere else. A file with no `export` marker shares nothing; its top-level code still runs when another file imports it.
+
+`export` is only allowed at the top level of a file, and only a declaration can carry it.
+
+```tg
+import "../examples/modules/math.tg" as math;
+import { circle_area_rounded } from "../examples/modules/math.tg";
+print(circle_area_rounded(2, 3));
+```
+
+```text
+12.566
+```
+
+Exported names read from the outside, but the module keeps its own environment: its functions still see the private names they closed over, which is why the rounded area above works while `math.rounded` does not.
+
+## Re-exporting a Module
+
+`export` in front of an import shares what that import binds, which is how a file re-exports another module: `export import "lib.tg" as lib;` shares `lib`, and `export import { square } from "lib.tg";` shares `square`.
+
+## Scope and Modules
+
+Each module has its own lexical environment and built-ins. It cannot see caller-local variables; an imported file's names are visible to it only through the module objects it imports.
 
 The import alias is a constant binding in its current scope; an alias named like a built-in, such as `math` here, shadows the built-in [`math` module](math.md) in that scope. Module properties are read-only from outside: `math.PI = 4;` is an error, even for an exported `var`. Exported functions may update their own module state, and exported collections or instances remain mutable under their ordinary rules. Functions keep their defining environment, so imports inside an exported function remain relative to that function's module.
 

@@ -28,16 +28,40 @@ mod vm;
 
 pub use files::{parse_file_mode, FileMode, FileSystem, MemoryFileSystem, OsFileSystem};
 pub use modules::{
-    algo_module, json_module, math_module, random_module, regex_module, secrets_module, time_module, BundleLoader, FileLoader, ModuleLoader,
+    algo_module, json_module, math_module, random_module, regex_module, secrets_module, sys_module, time_module, BundleLoader, FileLoader,
+    ModuleLoader,
 };
 
-/// A non-local exit: a runtime error, a thrown value, or control flow.
+/// How a program finished: the status `sys.exit` chose, and the message a
+/// non-integer argument asked the host to print.
+///
+/// A program that runs to its end reports status 0 with no message, which is what
+/// [`Default`] gives. A non-integer `sys.exit` argument behaves as it does in
+/// Python: the value is printed on standard error and the status is 1.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Exit {
+    /// The process status the program chose.
+    pub code: i32,
+    /// The message the host should print on standard error, if any.
+    pub message: Option<String>,
+}
+
+/// A non-local exit: a runtime error, a thrown value, control flow, or `sys.exit`.
 pub enum Signal {
-    Runtime { error: Rc<RuntimeError>, fatal: bool },
-    Throw { value: Value, origin: String },
+    Runtime {
+        error: Rc<RuntimeError>,
+        fatal: bool,
+    },
+    Throw {
+        value: Value,
+        origin: String,
+    },
     Return(Value),
     Break(String),
     Continue(String),
+    /// `sys.exit` stopped the program. It unwinds like a `return`, runs every
+    /// `finally` on the way out, and no `catch` clause takes it.
+    Exit(Exit),
 }
 
 /// Control flow produced by a statement.
@@ -108,6 +132,21 @@ fn finite_number(base: &Base, value: f64) -> Eval {
     Ok(Value::Number(value))
 }
 
+/// The process status a number names, or `None` for a number Python would not
+/// accept as an exit status: a fractional, infinite, or NaN one, or one outside
+/// the range a status can hold.
+fn exit_code(number: f64) -> Option<i32> {
+    if !number.is_finite() || number.fract() != 0.0 {
+        return None;
+    }
+    let code = number as i64;
+    if (i64::from(i32::MIN)..=i64::from(i32::MAX)).contains(&code) {
+        Some(code as i32)
+    } else {
+        None
+    }
+}
+
 /// The values `for name in value` walks, or the type name of a value that cannot
 /// be iterated.
 ///
@@ -173,20 +212,25 @@ pub enum Engine {
 /// The step limit [`Evaluator::new`] starts with; `0` means unlimited.
 pub const DEFAULT_MAX_STEPS: u64 = 1_000_000;
 
-/// Which engine a run uses and how many steps it may take.
+/// Which engine a run uses, how many steps it may take, and the arguments the
+/// program sees as `sys.argv`.
 ///
 /// The two engines count steps differently — the compiled engine counts
 /// instructions, the tree-walker counts statements — so the differential tests
 /// run both with `max_steps` set to `0` and compare only the result.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct RunOptions {
     pub engine: Engine,
     pub max_steps: u64,
+    /// The program's arguments, with the program's own path first as in Python.
+    /// A host that runs a program without one leaves this empty, so `sys.argv` is
+    /// empty too.
+    pub arguments: Vec<String>,
 }
 
 impl Default for RunOptions {
     fn default() -> RunOptions {
-        RunOptions { engine: Engine::Auto, max_steps: DEFAULT_MAX_STEPS }
+        RunOptions { engine: Engine::Auto, max_steps: DEFAULT_MAX_STEPS, arguments: Vec::new() }
     }
 }
 
@@ -197,6 +241,9 @@ pub struct Evaluator {
     pub max_steps: u64,
     pub loader: Option<Rc<dyn ModuleLoader>>,
     pub source_path: String,
+    /// The program's arguments, with its own path first as in Python, which
+    /// `sys.argv` reports.
+    pub arguments: Vec<String>,
     /// Which engine a program runs on; `Auto` unless a caller forces one.
     pub engine: Engine,
     /// `None` means the operating system's filesystem, as in Go.
@@ -230,6 +277,7 @@ impl Evaluator {
             max_steps: DEFAULT_MAX_STEPS,
             loader: None,
             source_path: String::new(),
+            arguments: Vec::new(),
             engine: Engine::Auto,
             filesystem: None,
             modules: HashMap::new(),
@@ -272,8 +320,11 @@ impl Evaluator {
         }
     }
 
-    /// Parses and executes a program, returning a formatted error on failure.
-    pub fn execute(&mut self, program: &tiger_ast::Program) -> Result<(), String> {
+    /// Parses and executes a program, returning how it finished.
+    ///
+    /// The error string carries a positioned diagnostic; the [`Exit`] carries the
+    /// status `sys.exit` chose.
+    pub fn execute(&mut self, program: &tiger_ast::Program) -> Result<Exit, String> {
         self.steps = 0;
         self.depth = 0;
         self.modules.clear();
@@ -283,7 +334,7 @@ impl Evaluator {
             self.loading.push(self.source_path.clone());
         }
         let builtins = object::Environment::new(None);
-        builtins::install(&builtins);
+        builtins::install(&builtins, &self.arguments);
         let env = object::Environment::new(Some(builtins));
         env.borrow_mut().source_path = self.source_path.clone();
         // Run the linear engine when the program lowers, and fall back to the
@@ -298,10 +349,11 @@ impl Evaluator {
             },
         };
         match outcome {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(Exit::default()),
             Err(Signal::Runtime { error, .. }) => Err(error.text()),
             Err(Signal::Throw { value, origin }) => Err(format!("{}: uncaught throw: {}", origin, object::format(&value))),
-            Err(_) => Ok(()),
+            Err(Signal::Exit(exit)) => Ok(exit),
+            Err(_) => Ok(Exit::default()),
         }
     }
 
@@ -325,7 +377,7 @@ pub fn run_with_input(
     filesystem: Option<Box<dyn FileSystem>>,
     input: Option<Box<dyn BufRead>>,
     output: Box<dyn Write>,
-) -> Result<(), String> {
+) -> Result<Exit, String> {
     run_with_options(source, filename, loader, filesystem, input, output, RunOptions::default())
 }
 
@@ -344,7 +396,7 @@ pub fn run_with_options(
     input: Option<Box<dyn BufRead>>,
     output: Box<dyn Write>,
     options: RunOptions,
-) -> Result<(), String> {
+) -> Result<Exit, String> {
     let program = tiger_parser::parse_source(source, filename)?;
     let mut evaluator = Evaluator::new(output);
     evaluator.source_path = filename.to_string();
@@ -353,6 +405,7 @@ pub fn run_with_options(
     evaluator.input = input;
     evaluator.engine = options.engine;
     evaluator.max_steps = options.max_steps;
+    evaluator.arguments = options.arguments;
     evaluator.execute(&program)
 }
 
@@ -443,9 +496,18 @@ impl Evaluator {
             return Err(fatal(statement.base(), "execution step limit exceeded".to_string()));
         }
         match statement {
-            Stmt::Import { base, path, name } => {
+            Stmt::Import { base, path, name, names } => {
                 let module = self.import_module(base, path, env)?;
-                object::define(env, name, Value::Module(module), true).map_err(|message| runtime(base, message))?;
+                if names.is_empty() {
+                    object::define(env, name, Value::Module(module), true).map_err(|message| runtime(base, message))?;
+                } else {
+                    // A named import binds each member it asked for, as a constant
+                    // like the module alias itself.
+                    for imported in names {
+                        let value = self.module_member(&imported.base, &module, &imported.name)?;
+                        object::define(env, &imported.alias, value, true).map_err(|message| runtime(&imported.base, message))?;
+                    }
+                }
             }
             Stmt::Throw { base, value } => {
                 let value = self.expression(value, env)?;
@@ -1841,12 +1903,7 @@ impl Evaluator {
                 }
                 Err(runtime(base, format!("dict has no property {:?}", name)))
             }
-            Value::Module(module) => {
-                if let Some(value) = object::get_own(&module.env, name) {
-                    return Ok(value);
-                }
-                Err(runtime(base, format!("module {:?} has no export {:?}", module.name, name)))
-            }
+            Value::Module(module) => self.module_member(base, module, name),
             Value::File(file) => self.file_property(base, file, name),
             Value::Instance(instance) => {
                 // Look the member up once: a field and a method cannot share a
@@ -1928,8 +1985,34 @@ impl Evaluator {
                 Some(Value::List(list)) => self.sort_builtin(base, &list, arguments, keywords, env),
                 _ => Err(runtime(base, "sort requires a list receiver".to_string())),
             },
+            "sys.exit" => self.exit_builtin(base, arguments, keywords),
             _ => Err(runtime(base, format!("unknown aggregate built-in {:?}", name))),
         }
+    }
+
+    /// Implements `sys.exit(status)`, which stops the program.
+    ///
+    /// The status is Python's: an integer is the process status, `null` means
+    /// success, and any other value is printed on standard error with status 1.
+    /// The language has one number type, so an integral number is a status and a
+    /// fractional one is a message.
+    fn exit_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword]) -> Eval {
+        if !keywords.is_empty() {
+            return Err(runtime(base, "sys.exit does not accept keyword arguments".to_string()));
+        }
+        if arguments.len() > 1 {
+            return Err(runtime(base, format!("sys.exit expects at most 1 argument, got {}", arguments.len())));
+        }
+        let exit = match arguments.first() {
+            None | Some(Value::Null) => Exit::default(),
+            Some(Value::Bool(flag)) => Exit { code: i32::from(*flag), message: None },
+            Some(Value::Number(number)) => match exit_code(*number) {
+                Some(code) => Exit { code, message: None },
+                None => Exit { code: 1, message: Some(object::format(&arguments[0])) },
+            },
+            Some(other) => Exit { code: 1, message: Some(object::format(other)) },
+        };
+        Err(Signal::Exit(exit))
     }
 
     fn map_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
@@ -2515,6 +2598,18 @@ impl Evaluator {
         Ok(None)
     }
 
+    /// Reads one member a module exposes, reporting a name it keeps private.
+    ///
+    /// A module shares only the names a file marked with `export`, so this is the
+    /// single gate every member access goes through: `module.member` and each name a
+    /// named import asked for.
+    fn module_member(&self, base: &Base, module: &Rc<Module>, name: &str) -> Eval {
+        match module.member(name) {
+            Some(value) => Ok(value),
+            None => Err(runtime(base, format!("module {:?} has no export {:?}", module.name, name))),
+        }
+    }
+
     fn import_module(&mut self, base: &Base, path: &str, env: &Env) -> Result<Rc<Module>, Signal> {
         let Some(loader) = self.loader.clone() else {
             return Err(runtime(base, "imports require a module loader; use RunFile or configure Evaluator.Loader".to_string()));
@@ -2537,10 +2632,11 @@ impl Evaluator {
         self.loading.push(filename.clone());
         self.import_depth += 1;
         let builtins = object::Environment::new(None);
-        builtins::install(&builtins);
+        builtins::install(&builtins, &self.arguments);
         let scope = object::Environment::new(Some(builtins));
         scope.borrow_mut().source_path = filename.clone();
-        let module = Rc::new(Module { name: filename.clone(), env: scope.clone() });
+        let exports: Vec<String> = program.exports.iter().map(|exported| exported.name.clone()).collect();
+        let module = Module::with_exports(filename.clone(), scope.clone(), exports);
         let result = self.block(&program.statements, &scope);
         self.loading.pop();
         self.import_depth -= 1;

@@ -117,13 +117,13 @@ fn loads_imported_modules() {
     let Some(module) = ready() else { return };
     let directory = workspace("imports");
     std::fs::create_dir_all(directory.join("lib")).expect("library directory");
-    std::fs::write(directory.join("main.tg"), "import \"lib/math.tg\" as math; print(math.calculate(9));").expect("write entry");
+    std::fs::write(directory.join("main.tg"), "import { calculate } from \"lib/math.tg\"; print(calculate(9));").expect("write entry");
     std::fs::write(
         directory.join("lib").join("math.tg"),
-        "function calculate(value) { import \"factor.tg\" as factor; return value * factor.amount; }",
+        "export function calculate(value) { import \"factor.tg\" as factor; return value * factor.amount; }",
     )
     .expect("write library");
-    std::fs::write(directory.join("lib").join("factor.tg"), "const amount = 3;").expect("write factor");
+    std::fs::write(directory.join("lib").join("factor.tg"), "export const amount = 3;").expect("write factor");
     let (text, code) = run(&module, &directory.join("main.tg"), None);
     assert_eq!(code, 0, "{}", text);
     assert_eq!(text, "27\n");
