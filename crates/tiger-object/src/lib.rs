@@ -42,6 +42,10 @@ pub enum Value {
     Module(Rc<Module>),
     File(Rc<RefCell<FileData>>),
     Error(Rc<RuntimeError>),
+    /// A lazy iterator: a value that produces its elements on demand. The
+    /// evaluator drives every step, because a `map` or generator body may call
+    /// back into user code; see [`IteratorValue`].
+    Iterator(Rc<RefCell<IteratorValue>>),
 }
 
 impl Value {
@@ -65,6 +69,7 @@ impl Value {
             Value::Module(_) => "module",
             Value::File(_) => "file",
             Value::Error(_) => "error",
+            Value::Iterator(_) => "iterator",
         }
     }
 
@@ -86,6 +91,16 @@ impl Value {
             set.add(element)?;
         }
         Ok(Value::Set(Rc::new(RefCell::new(set))))
+    }
+
+    /// A fresh lazy iterator with the given state.
+    pub fn iterator(kind: IteratorKind) -> Value {
+        Value::Iterator(Rc::new(RefCell::new(IteratorValue { kind, done: false })))
+    }
+
+    /// Whether this value is a lazy iterator.
+    pub fn is_iterator(&self) -> bool {
+        matches!(self, Value::Iterator(_))
     }
 
     /// The elements of an ordered collection, or `None` for any other value.
@@ -240,6 +255,54 @@ impl Set {
         self.entries.clear();
         self.indices.clear();
     }
+}
+
+/// A lazy iterator's state, driven one step at a time by the evaluator.
+///
+/// Nothing here evaluates user code: the evaluator reads the state, does the
+/// step, and stores it back. That keeps this crate free of the interpreter while
+/// still letting a generator body or a `map` callback run.
+pub struct IteratorValue {
+    pub kind: IteratorKind,
+    pub done: bool,
+}
+
+/// What a lazy iterator is walking.
+pub enum IteratorKind {
+    /// Exhausted. The evaluator also swaps this in while it steps a real kind
+    /// out, so the state can be replaced without holding a borrow across a call.
+    Done,
+    /// `range(start, stop, step)`, advanced arithmetically.
+    Range { current: i64, stop: i64, step: i64 },
+    /// A one-shot walk over a collection already in memory, by position.
+    Sequence { source: Value, index: usize },
+    /// `map(source, function)`: `function` is called for each element of `source`.
+    Map { source: Value, function: Value, env: Env },
+    /// `filter(source, function)`: keeps the elements `function` reports truthy.
+    Filter { source: Value, function: Value, env: Env },
+    /// A generator expression. `cursors` holds one open source iterator per
+    /// active clause, innermost last.
+    Generator { proto: Rc<bytecode::GenProto>, env: Env, scope: Env, cursors: Vec<Value> },
+}
+
+/// The element at `index` of a collection already in memory, or `None` past its
+/// end. A dictionary contributes its keys, exactly as a `for` loop iterates it.
+pub fn sequence_element(value: &Value, index: usize) -> Option<Value> {
+    match value {
+        Value::List(elements) => elements.borrow().get(index).cloned(),
+        Value::Tuple(elements) => elements.get(index).cloned(),
+        Value::Set(set) => set.borrow().entries.get(index).cloned(),
+        Value::String(text) => text.chars().nth(index).map(|ch| Value::string(&ch.to_string())),
+        Value::Dict(dict) => dict.borrow().entries.get(index).map(|(key, _)| key.clone()),
+        _ => None,
+    }
+}
+
+/// Whether a value can be walked by a `for` loop, a comprehension, or a
+/// reshaping built-in: the ordered collections, a string, a dictionary's keys,
+/// and a lazy iterator.
+pub fn is_iterable(value: &Value) -> bool {
+    matches!(value, Value::List(_) | Value::Tuple(_) | Value::Set(_) | Value::Dict(_) | Value::String(_) | Value::Iterator(_))
 }
 
 /// One binding in a lexical scope.
@@ -700,9 +763,14 @@ pub type BuiltinFn = dyn Fn(&mut dyn Host, &[Value], &[Keyword]) -> Result<Value
 /// A built-in function. `higher_order` marks a callable the evaluator dispatches
 /// itself so it can call back into user code (map, filter, sorted, list.sort);
 /// `payload` carries the receiver for bound higher-order methods.
+///
+/// `consumes_iterables` marks a built-in that walks its arguments: the evaluator
+/// drains a lazy iterator argument into a list before the call, so `list`, `sum`,
+/// `zip`, and their kin accept a generator exactly as they accept a list.
 pub struct Builtin {
     pub name: String,
     pub higher_order: bool,
+    pub consumes_iterables: bool,
     pub payload: Option<Value>,
     pub call: Rc<BuiltinFn>,
 }
@@ -712,7 +780,16 @@ impl Builtin {
     where
         F: Fn(&mut dyn Host, &[Value], &[Keyword]) -> Result<Value, String> + 'static,
     {
-        Rc::new(Builtin { name: name.to_string(), higher_order: false, payload: None, call: Rc::new(call) })
+        Rc::new(Builtin { name: name.to_string(), higher_order: false, consumes_iterables: false, payload: None, call: Rc::new(call) })
+    }
+
+    /// Builds a built-in that walks its arguments, so the evaluator drains any
+    /// lazy iterator among them first.
+    pub fn consuming<F>(name: &str, call: F) -> Rc<Builtin>
+    where
+        F: Fn(&mut dyn Host, &[Value], &[Keyword]) -> Result<Value, String> + 'static,
+    {
+        Rc::new(Builtin { name: name.to_string(), higher_order: false, consumes_iterables: true, payload: None, call: Rc::new(call) })
     }
 
     /// Builds a placeholder for a callable the evaluator dispatches itself.
@@ -721,6 +798,7 @@ impl Builtin {
         Rc::new(Builtin {
             name: label.clone(),
             higher_order: true,
+            consumes_iterables: false,
             payload,
             call: Rc::new(move |_host, _arguments, _keywords| Err(format!("{} is dispatched by the evaluator", label))),
         })
@@ -885,6 +963,9 @@ fn write_value(out: &mut String, value: &Value, seen: &mut Vec<usize>, nested: b
             out.push('>');
         }
         Value::Error(error) => out.push_str(&error.text()),
+        // A lazy iterator has not produced its elements yet, so it prints as
+        // itself rather than materializing. Use `list(...)` for the values.
+        Value::Iterator(_) => out.push_str("<iterator>"),
     }
 }
 
@@ -974,6 +1055,7 @@ fn equal_inner(left: &Value, right: &Value, seen: &mut Vec<(usize, usize)>) -> b
         (Value::Module(first), Value::Module(second)) => Rc::ptr_eq(first, second),
         (Value::File(first), Value::File(second)) => Rc::ptr_eq(first, second),
         (Value::Error(first), Value::Error(second)) => Rc::ptr_eq(first, second),
+        (Value::Iterator(first), Value::Iterator(second)) => Rc::ptr_eq(first, second),
         _ => false,
     }
 }

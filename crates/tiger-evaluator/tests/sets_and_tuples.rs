@@ -55,7 +55,7 @@ fn tuple_literals_and_indexing() {
         ("print((1, (2, 3)).ToString(), json.stringify((1, (2, 3))), json.stringify([(1, 2)]));", "(1, (2, 3)) [1,[2,3]] [[1,2]]\n"),
         ("print(type(sorted((2, 1))), sorted((2, 1)), sum((1, 2, 3)), min((3, 1)), enumerate((7, 8)));", "list [1, 2] 6 1 [[0, 7], [1, 8]]\n"),
         (
-            "print(zip((1, 2), (\"a\", \"b\")), map((1, 2), function(v) { return v * 10; }), filter((1, 2, 3), function(v) { return v != 2; }));",
+            "print(zip((1, 2), (\"a\", \"b\")), list(map((1, 2), function(v) { return v * 10; })), list(filter((1, 2, 3), function(v) { return v != 2; })));",
             "[[1, \"a\"], [2, \"b\"]] [10, 20] [1, 3]\n",
         ),
         ("print(isinstance((1,), \"tuple\"), isinstance((1,), [\"tuple\", \"list\"]), isinstance((1,), \"list\"));", "true true false\n"),

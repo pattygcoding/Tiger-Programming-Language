@@ -237,6 +237,34 @@ fn sets_and_tuples() -> Vec<Fixture> {
         .collect()
 }
 
+/// Lazy iterators: `range`, `map`, `filter`, and generator expressions, how the
+/// two engines consume them, and the operations that reject one.
+fn lazy_iterators() -> Vec<Fixture> {
+    const SOURCES: [&str; 8] = [
+        r#"print(list((x * x for x in range(1, 5))), list((x for x in [3, 1, 2] if x % 2 == 1)), list((x for x in [1, 2, 3] if x > 1 if x < 3)));"#,
+        r#"print(list((b for a in [1, 2] for b in [a, a * 10])), list((y for y in (x * 2 for x in [1, 2]) if y > 2)));"#,
+        r#"var total = 0; for n in (n * n for n in range(1, 1000000)) { if n > 10 { break; } total += n; } print(total);"#,
+        r#"const stream = (n for n in [1, 2, 3]); print(list(stream), list(stream), type(stream), isinstance(stream, "iterator"));"#,
+        r#"print(list(map([1, 2, 3], function(v) { return v * 2; })), list(filter([1, 2, 3, 4], function(v) { return v % 2 == 0; })));"#,
+        r#"print(sum(range(5)), sorted(filter([3, 1, 2], function(v) { return v > 1; })), zip([1, 2], (n * 10 for n in [3, 4])), 7 in (n for n in [1, 7, 3]));"#,
+        r#"print(list(tuple((n for n in [1, 2]))), list(set((n for n in [1, 1, 2]))), max((n for n in [2, 9, 4])));"#,
+        r#"try { len(range(3)); } catch (error) { print(error); } try { range(3)[0]; } catch (error) { print(error); } try { range(3) + range(3); } catch (error) { print(error); }"#,
+    ];
+    SOURCES
+        .iter()
+        .enumerate()
+        .map(|(index, source)| Fixture {
+            name: format!("iterators[{}]", index),
+            filename: "iterators.tg".to_string(),
+            source: (*source).to_string(),
+            files: Files::Memory,
+            loader: false,
+            input: None,
+            directory: None,
+        })
+        .collect()
+}
+
 /// List and dictionary comprehensions: both engines must agree on the values, the
 /// evaluation order, the scope rules, and the diagnostics.
 fn comprehensions() -> Vec<Fixture> {
@@ -271,6 +299,7 @@ fn engines_agree_on_every_fixture() {
     fixtures.extend(semantics());
     fixtures.extend(length_spellings());
     fixtures.extend(sets_and_tuples());
+    fixtures.extend(lazy_iterators());
     fixtures.extend(comprehensions());
     assert!(fixtures.len() >= 200, "expected the whole corpus, found {} fixtures", fixtures.len());
     let mut failures: Vec<String> = Vec::new();

@@ -132,6 +132,8 @@ pub enum Instr {
     BuildSet(u32),
     /// Push the comprehension `chunk.comprehensions[i]` builds.
     Comprehension(u32),
+    /// Push a lazy generator iterator for `chunk.generators[i]`.
+    Generator(u32),
     /// Pop `count` key/value pairs and push a dictionary of them.
     BuildDict(u32),
     /// Push a closure over `chunk.functions[i]`, capturing the current scope.
@@ -215,6 +217,18 @@ pub struct CompProto {
     pub clauses: Vec<tiger_ast::ComprehensionClause>,
 }
 
+/// A compiled generator expression: the element it yields and the clauses that
+/// drive it.
+///
+/// Kept as AST for the same reason a comprehension is: the engine runs it
+/// through the interpreter's own helpers, so the two engines agree. A lazy
+/// iterator holds this prototype behind an `Rc`, so stepping it clones a pointer,
+/// not the tree.
+pub struct GenProto {
+    pub body: tiger_ast::Expr,
+    pub clauses: Vec<tiger_ast::ComprehensionClause>,
+}
+
 /// One catch clause of a `try`: the name the caught value binds to, an optional
 /// condition that must be truthy for the clause to take the error, and the body.
 pub struct CatchProto {
@@ -285,6 +299,7 @@ pub struct Chunk {
     pub tries: Vec<Rc<TryProto>>,
     pub slices: Vec<Rc<SliceProto>>,
     pub comprehensions: Vec<Rc<CompProto>>,
+    pub generators: Vec<Rc<GenProto>>,
     /// How many flat locals this frame needs: the number of its declarations that
     /// no nested function can reach.
     pub flat_count: usize,

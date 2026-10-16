@@ -74,7 +74,7 @@ fn runs_language_features() {
         "class Shape { var name; Shape(name) { this.name = name; } function describe() { return f\"a {this.name}\"; } }\n\
          const shapes = [Shape(\"circle\"), Shape(\"square\")];\n\
          for shape in shapes { print(shape.describe()); }\n\
-         print(map([1, 2, 3], function(x) { return x * x; }), \"abc\".upper(), len(\"héllo\"));\n\
+         print(list(map([1, 2, 3], function(x) { return x * x; })), \"abc\".upper(), len(\"héllo\"));\n\
          try { throw [1, 2]; } catch (error) { print(error, error[1]); }\n",
     )
     .expect("write program");

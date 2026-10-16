@@ -38,7 +38,7 @@ print("== imported values in expressions ==");
 const reports = [grade(20), grade(0)];
 print(reports, box.uses);
 print([value * 2 for value in [box.MIN, lowest]], [grade(15) for index in range(0, 2)]);
-print(map([1, 4, 9], box.inner.doubled), sorted([3, 1, 2], reverse=true));
+print(list(map([1, 4, 9], box.inner.doubled)), sorted([3, 1, 2], reverse=true));
 print(box.inner.doubled(box.MIN) + box.MAX);
 
 print("== extending an imported class ==");

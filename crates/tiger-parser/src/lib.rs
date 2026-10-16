@@ -934,13 +934,12 @@ impl Parser {
                 } else {
                     let first = self.nested(|parser| parser.expression(0))?;
                     if self.at("for") {
-                        // `(x for x in items)` would build values one at a time; the
-                        // runtime is eager, so this form stays unimplemented.
-                        return Err(self
-                            .current()
-                            .errorf("generator expressions are not supported; use a list comprehension like [x for x in items]"));
-                    }
-                    if self.at(",") {
+                        // `(x for x in items)` is a generator expression: it builds a
+                        // lazy iterator rather than collecting a list up front.
+                        let clauses = self.comprehension_clauses()?;
+                        self.expect(")")?;
+                        left = Expr::Generator { base: base.clone(), body: Box::new(first), clauses };
+                    } else if self.at(",") {
                         let mut elements = vec![first];
                         while self.take_if(",") {
                             if self.at(")") {

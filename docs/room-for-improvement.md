@@ -12,47 +12,7 @@ not yet.
 Each entry lists the missing capability, why it matters, a runnable workaround,
 a suggested direction, and any constraints that the addition would face.
 
-## 1. Lazy generator expressions and iterators
-
-**Missing:** a lazy iterator: a value that produces its elements on demand, and
-the generator-expression syntax that would build one.
-
-**Why it matters:** every collection in Tiger is eager. `range`, `map`, `filter`,
-and comprehensions all build the whole result before the caller sees the first
-element, so a million-value sequence occupies a million slots even when the caller
-stops after the third value, and a sequence without an end cannot be expressed at
-all. See [Lists, Dictionaries, Sets, and Tuples](collections.md).
-
-**Workaround:** build only the values that are needed, and stop the loop early.
-
-```tg
-const squares = [n * n for n in range(1, 6)];
-var total = 0;
-for value in squares {
-    if value > 10 {
-        break;
-    }
-    total += value;
-}
-print(squares[0], len(squares), total);
-```
-
-Output:
-
-```text
-1 5 14
-```
-
-**Suggested direction:** a lazy iterator is a runtime value type with a `next`
-operation, so `for`, `in`, and the reshaping built-ins would have to accept it,
-and `len`, indexing, and slicing would each have to decide what they mean for a
-value that has not produced its elements yet. The syntax slot is already
-reserved: `(x * 2 for x in items)` reports that generator expressions are not
-supported, and points at the comprehension that does the same work eagerly. The
-smaller first step is a runtime object behind `range` and `map` while every
-`len`-like operation keeps requiring a list, a tuple, a set, or a dictionary.
-
-## 2. Type annotations and optional static checking
+## 1. Type annotations and optional static checking
 
 **Missing:** a way to annotate parameters, variables, fields, and return values
 with types, and any static checking that could use them.
@@ -87,7 +47,7 @@ than a change to evaluation; the parser would need to accept a `: type` suffix
 after a name and `-> type` after a parameter list without breaking `case` labels
 or dictionary colons.
 
-## 3. Context managers and deterministic cleanup
+## 2. Context managers and deterministic cleanup
 
 **Missing:** a `with` statement, or an equivalent, that runs cleanup when a
 block ends, including on an error.
@@ -121,7 +81,7 @@ value type. Generalizing it to user objects would need a protocol, an `enter`
 and `exit` method pair, plus a way to bind the receiver, which the class system
 can already express once the protocol is named.
 
-## 4. Comparison and membership conveniences
+## 3. Comparison and membership conveniences
 
 **Missing:** chained comparisons (`lower < value < upper`), a `not in` operator,
 and an identity operator (`is`).
@@ -153,7 +113,7 @@ new operator that reuses the existing `in` evaluation and negates it. `is` would
 need a defined identity notion for numbers and strings, which are values rather
 than references, so it is the least clear of the three.
 
-## 5. String and list repetition
+## 4. String and list repetition
 
 **Missing:** sequence repetition with `*`, such as `"ab" * 3` or `[0] * 5`.
 
@@ -187,7 +147,7 @@ existing `+` handling for those types. The count must be range-checked against
 the same 1,000,000-element ceiling that `range` uses. There is likewise no `**=`
 or `div=` compound assignment, though those are only spelling.
 
-## 6. Standard-library collections and algorithms
+## 5. Standard-library collections and algorithms
 
 **Missing:** ready-made collection types and algorithms, such as a deque, a
 binary heap, a counter, and binary search.
@@ -220,7 +180,7 @@ wrapper, a heap is a list with `push`/`pop` helpers, and binary search operates
 on a sorted list. Keep them in-repo and free of new dependencies so the browser
 build stays within its size budget.
 
-## 7. Introspection and reflection
+## 6. Introspection and reflection
 
 **Missing:** reflective access such as `getattr`, `setattr`, `hasattr`, and
 `dir`, and a `hash` function.
@@ -253,7 +213,7 @@ per class, so `hasattr` and a name-based read are small additions. `setattr`
 would have to respect the declared-field rule, which is a deliberate design
 choice, so a read-only reflection surface is the consistent first step.
 
-## 8. Assertions
+## 7. Assertions
 
 **Missing:** an `assert` statement, or function, for invariants and quick
 tests.
@@ -289,7 +249,7 @@ a structured error with its own `kind` when the condition is falsey, so existing
 `try`/`catch` and typed guards keep working. Empty blocks are already allowed
 (`if true { }` parses), so no separate no-op statement is needed.
 
-## 9. Exception ergonomics
+## 8. Exception ergonomics
 
 **Missing:** stack traces, a built-in error hierarchy, and exception chaining
 (`raise ... from`).
@@ -320,7 +280,7 @@ evaluator already builds, without changing the value model. A hierarchy needs
 classes that the standard error object can extend, and chaining needs a field on
 that object, so those two depend on deciding what a user-defined error class is.
 
-## 10. Class-system breadth
+## 9. Class-system breadth
 
 **Missing:** static methods and fields, properties (getters and setters),
 operator overloading, interfaces or abstract classes, and multiple inheritance.
@@ -357,7 +317,7 @@ and member-access paths consult; both are larger than they look because they
 change how those paths resolve. Interfaces and multiple inheritance would change
 how method lookup walks parents.
 
-## 11. String and number helper breadth
+## 10. String and number helper breadth
 
 **Missing:** `printf`-style formatting (`"%d" % value`), a `format` method, and
 the smaller string helpers (`lstrip`, `rstrip`, `count`, `capitalize`, `title`),
@@ -391,7 +351,7 @@ existing methods, and the missing built-ins can delegate to the `math` module.
 `%` formatting is the only large piece, and it overlaps f-strings, so it is the
 weakest candidate.
 
-## 12. Enumerations
+## 11. Enumerations
 
 **Missing:** an `enum` type for a fixed set of named constants.
 
@@ -454,8 +414,8 @@ Every language or runtime change should ship with, per
 
 Some of the "missing" pieces are choices, not oversights, and should stay out
 unless the design changes: arbitrary-precision integers (numbers are float64),
-a package manager (imports are file-based), asynchronous syntax and generators
-(the runtime is a synchronous tree-walker), and network access in the sandboxed
+a package manager (imports are file-based), asynchronous syntax (the runtime is a
+synchronous tree-walker), and network access in the sandboxed
 browser and WASI targets.
 
 [Guide index](README.md) | [Project README](../README.md)

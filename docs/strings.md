@@ -74,7 +74,7 @@ const name = "Tiger";
 const scores = {"total": 12};
 print(f"Hello, {name}! Total: {scores["total"]}");
 print(f'Next: {scores["total"] + 1}; literal braces: {{value}}');
-const message = F"Values: {range(3)}";
+const message = F"Values: {list(range(3))}";
 print(message);
 ```
 

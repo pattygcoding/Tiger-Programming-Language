@@ -13,9 +13,13 @@ use tiger_object::{Env, FunctionValue, Keyword, Value};
 use crate::{runtime, Evaluator, Signal};
 
 /// A `for ... in` iteration in progress.
-struct IterState {
-    values: Vec<Value>,
-    index: usize,
+///
+/// A lazy iterator is stepped one element at a time, so a generator stopped
+/// early produces nothing beyond what the loop reads; anything else is
+/// snapshotted when the loop opens, exactly as before.
+enum IterState {
+    Values(Vec<Value>, usize),
+    Lazy(Value),
 }
 
 type Vm = Result<Value, Signal>;
@@ -511,21 +515,38 @@ impl Evaluator {
                 }
                 Instr::IterInit => {
                     let iterable = stack.pop().expect("stack");
-                    let values = self.iterable_values(&chunk.base_at(chunk.position(pc - 1)), &iterable)?;
-                    iters.push(IterState { values, index: 0 });
+                    if iterable.is_iterator() {
+                        iters.push(IterState::Lazy(iterable));
+                    } else {
+                        let values = self.iterable_values(&chunk.base_at(chunk.position(pc - 1)), &iterable)?;
+                        iters.push(IterState::Values(values, 0));
+                    }
                 }
                 Instr::IterDrop => {
                     iters.pop();
                 }
                 Instr::IterNext(target) => {
-                    let state = iters.last_mut().expect("iterator");
-                    if state.index >= state.values.len() {
-                        iters.pop();
-                        pc = target as usize;
-                    } else {
-                        let value = state.values[state.index].clone();
-                        state.index += 1;
-                        stack.push(value);
+                    let step = match iters.last_mut().expect("iterator") {
+                        IterState::Values(values, index) => {
+                            if *index >= values.len() {
+                                None
+                            } else {
+                                let value = values[*index].clone();
+                                *index += 1;
+                                Some(value)
+                            }
+                        }
+                        IterState::Lazy(source) => {
+                            let source = source.clone();
+                            self.iterator_next(&chunk.base_at(chunk.position(pc - 1)), &source)?
+                        }
+                    };
+                    match step {
+                        Some(value) => stack.push(value),
+                        None => {
+                            iters.pop();
+                            pc = target as usize;
+                        }
                     }
                 }
                 Instr::Import { path, name } => {
@@ -560,6 +581,11 @@ impl Evaluator {
                 Instr::Comprehension(index) => {
                     let proto = &chunk.comprehensions[index as usize];
                     let value = self.comprehension(&chunk.base_at(chunk.position(pc - 1)), &proto.body, &proto.clauses, &env)?;
+                    stack.push(value);
+                }
+                Instr::Generator(index) => {
+                    let proto = chunk.generators[index as usize].clone();
+                    let value = self.generator(&proto, &env)?;
                     stack.push(value);
                 }
                 Instr::Slice(index) => {

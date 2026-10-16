@@ -112,7 +112,7 @@ for row in range(3) {
     print("nested", outer);
 }
 
-print("ranges", range(2, 8, 2), range(3, -2, -2));
+print("ranges", list(range(2, 8, 2)), list(range(3, -2, -2)));
 
 function grade(score, attendance, approved) {
     if (score >= 90 && attendance >= 90) {

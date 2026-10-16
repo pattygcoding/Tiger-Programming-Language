@@ -62,7 +62,7 @@ fn builds_the_extended_syntax() {
     let directory = temporary("extended");
     let source = "class Counter { private var count = 0; function next() { return ++this.count; } }\n\
 const counter = Counter(); for (var index = 0; index < 3; index++) { print(f\"{counter.next()}\"); }\n\
-try { throw range(3); } catch (error) { print(error); }\n\
+try { throw list(range(3)); } catch (error) { print(error); }\n\
 print(input(\"name? \") + \"!\");";
     let output = build(&directory, source, "embedded.tg");
     assert_eq!(execute(&output, &directory, "Tiger\n"), ("1\n2\n3\n[0, 1, 2]\nname? Tiger!\n".to_string(), 0));

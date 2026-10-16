@@ -1,0 +1,115 @@
+/* Lazy iterators: `range`, `map`, `filter`, and generator expressions produce
+   their elements on demand. Nothing is stored until it is read, so a loop that
+   stops early never builds the rest of a long sequence. */
+
+print("== lazy ranges ==");
+var total = 0;
+for value in range(1, 6) {
+    total += value;
+}
+print(total, sum(range(10)), min(range(5, 0, -1)), max(range(3, 7)));
+
+// A million-element range with an early break produces only the values read.
+var seen = 0;
+for value in range(1, 1000000) {
+    if value > 4 {
+        break;
+    }
+    seen += value;
+}
+print(seen, list(range(2, 11, 2)), list(range(0)));
+
+print("== generator expressions ==");
+print(list((n * n for n in range(1, 6))));
+print(list((n for n in range(1, 11) if n % 3 == 0)));
+print(list((a * 10 + b for a in [1, 2] for b in [3, 4])));
+print(list(((a, b) for a in [1, 2] for b in [3, 4])));
+
+// Generators compose: a filter over a generator stays lazy end to end.
+const evens = (n for n in range(1, 20) if n % 2 == 0);
+const small = (n * 2 for n in evens if n < 8);
+print(list(small));
+
+print("== map and filter ==");
+const values = [1, 2, 3, 4, 5];
+print(list(map(values, function(v) { return v * v; })));
+print(list(filter(values, function(v) { return v > 2; })));
+print(sum(map(values, function(v) { return v * 10; })));
+print(sorted(filter(values, function(v) { return v % 2 == 1; }), reverse=true));
+print(zip(values, (c for c in "abcde")));
+
+print("== nested laziness ==");
+const rows = [[1, 2], [3, 4], [5, 6]];
+const flat = (cell for row in rows for cell in row);
+print(list(flat));
+print(list((cell * cell for row in rows for cell in row if cell % 2 == 1)));
+
+print("== reductions over generators ==");
+print(any((n > 4 for n in [1, 2, 9])), all((n > 0 for n in [1, 2, 3])));
+const words = ["delta", "alpha", "charlie", "bravo"];
+print(min((len(word) for word in words)), max((len(word) for word in words)));
+print(list((word.upper() for word in words if len(word) > 5)));
+print(sum((len(word) for word in words)));
+
+print("== single use and scope ==");
+const stream = (n for n in [1, 2, 3]);
+print(list(stream), list(stream), type(stream), isinstance(stream, "iterator"));
+var outer = 100;
+print(list((outer + n for n in [1, 2])), outer);
+print(type(range(1)), (n for n in [1]));
+
+print("== membership and reshaping ==");
+print(4 in (n * n for n in [1, 2, 3]), 5 in (n * n for n in [1, 2]));
+print(list(set((n % 3 for n in range(10)))), tuple((c for c in "ab")));
+print(enumerate((n * n for n in [2, 3])));
+
+print("== early exit through map ==");
+var first_big = 0;
+for value in map(range(1, 1000000), function(n) { return n * 3; }) {
+    if value > 6 {
+        first_big = value;
+        break;
+    }
+}
+print(first_big);
+
+print("== continue and filter ==");
+var sum_of_odds = 0;
+for value in range(1, 20) {
+    if value % 2 == 0 {
+        continue;
+    }
+    if value > 12 {
+        break;
+    }
+    sum_of_odds += value;
+}
+print(sum_of_odds);
+
+print("== a generator built per call ==");
+function squares_up_to(limit) {
+    return (n * n for n in range(1, limit + 1));
+}
+print(list(squares_up_to(4)), list(squares_up_to(3)));
+
+print("== iterator over a dictionary ==");
+const ages = {"ada": 36, "alan": 41, "grace": 45};
+print(list((name for name in ages)));
+print(list((name for name in ages if ages[name] > 40)));
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return error;
+    }
+}
+print("len does not accept iterator" in fails(function() { return len(range(3)); }));
+print("cannot be indexed" in fails(function() { return range(3)[0]; }));
+print("not supported" in fails(function() { return range(3) + range(3); }));
+print("not iterable" in fails(function() { return list((n for n in 5)); }));
+print("not callable" in fails(function() { return list(map([1], 2)); }));
+
+print("done");

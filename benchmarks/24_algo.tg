@@ -182,7 +182,7 @@ const recipe = ["oil", "garlic", "rice", "rice"];
 print("matches", algo.findMatches(pantry, recipe), algo.findMatches(recipe, pantry));
 print("no matches", algo.findMatches([1, 2], [3, 4]), algo.findMatches([], pantry));
 print("deep matches", algo.findMatches([[1], {"a": [2]}, 3, "3"], [3.0, {"a": [2]}, [1]]));
-print("common fib", algo.findMatches(algo.fibonacciList(15), range(0, 100, 2)));
+print("common fib", algo.findMatches(algo.fibonacciList(15), list(range(0, 100, 2))));
 
 try {
     algo.findMatches(pantry);

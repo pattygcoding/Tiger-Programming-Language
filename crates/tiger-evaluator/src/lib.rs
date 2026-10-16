@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use tiger_ast::{Base, Block, ComprehensionBody, ComprehensionClause, Expr, Stmt};
 use tiger_object as object;
-use tiger_object::bytecode::CallLayout;
+use tiger_object::bytecode::{CallLayout, GenProto};
 use tiger_object::{Env, Keyword, Module, RuntimeError, Value};
 
 mod algo;
@@ -594,8 +594,26 @@ impl Evaluator {
             }
             Stmt::For { base, label, name, iterable, body, else_block } => {
                 let iterable = self.expression(iterable, env)?;
-                let values = self.iterable_values(base, &iterable)?;
-                for value in values {
+                // A lazy iterator is stepped one element at a time, so a generator
+                // that is stopped early never builds the rest; anything else is
+                // snapshotted first, exactly as before.
+                let lazy = iterable.is_iterator();
+                let values = if lazy { Vec::new() } else { self.iterable_values(base, &iterable)? };
+                let mut index = 0usize;
+                loop {
+                    let value = if lazy {
+                        match self.iterator_next(base, &iterable)? {
+                            Some(value) => value,
+                            None => break,
+                        }
+                    } else {
+                        if index >= values.len() {
+                            break;
+                        }
+                        let value = values[index].clone();
+                        index += 1;
+                        value
+                    };
                     self.tick(base)?;
                     // The loop variable lives in a pooled scope; the pool keeps it
                     // out of a captured scope, so per-iteration bindings still work.
@@ -804,6 +822,10 @@ impl Evaluator {
                 Ok(Value::tuple(values))
             }
             Expr::Comprehension { base, body, clauses } => self.comprehension(base, body, clauses, env),
+            Expr::Generator { body, clauses, .. } => {
+                let proto = Rc::new(GenProto { body: (**body).clone(), clauses: clauses.clone() });
+                self.generator(&proto, env)
+            }
             Expr::Dict { base, pairs } => {
                 let dict = Rc::new(std::cell::RefCell::new(object::Dict::default()));
                 for pair in pairs {
@@ -1074,6 +1096,161 @@ impl Evaluator {
         iterable_elements(iterable).map_err(|kind| runtime(base, format!("{} is not iterable", kind)))
     }
 
+    /// Drains any iterable into a list, stepping a lazy iterator to its end.
+    ///
+    /// This is the one materializing entry point, used where every element is
+    /// genuinely needed — a constructor, an aggregate built-in, or `sorted` — and
+    /// by the built-ins that accepted only a list or tuple before.
+    fn materialize(&mut self, base: &Base, value: &Value) -> Result<Vec<Value>, Signal> {
+        if value.is_iterator() {
+            let mut values = Vec::new();
+            while let Some(element) = self.iterator_next(base, value)? {
+                values.push(element);
+            }
+            return Ok(values);
+        }
+        iterable_elements(value).map_err(|kind| runtime(base, format!("{} is not iterable", kind)))
+    }
+
+    /// Turns any iterable into a lazy iterator, leaving an iterator as it is.
+    fn open_iterator(&mut self, base: &Base, value: Value) -> Result<Value, Signal> {
+        if value.is_iterator() {
+            return Ok(value);
+        }
+        if object::is_iterable(&value) {
+            return Ok(Value::iterator(object::IteratorKind::Sequence { source: value, index: 0 }));
+        }
+        Err(runtime(base, format!("{} is not iterable", value.type_name())))
+    }
+
+    /// Produces the next element of a lazy iterator, or `None` when it ends.
+    ///
+    /// The kind is stepped out of the value and stored back, so no borrow is held
+    /// while a `map`/`filter` callback or a generator body runs user code.
+    fn iterator_next(&mut self, base: &Base, iterator: &Value) -> Result<Option<Value>, Signal> {
+        let Value::Iterator(state) = iterator else {
+            return Err(runtime(base, format!("{} is not an iterator", iterator.type_name())));
+        };
+        self.tick(base)?;
+        let kind = {
+            let mut borrowed = state.borrow_mut();
+            if borrowed.done {
+                return Ok(None);
+            }
+            std::mem::replace(&mut borrowed.kind, object::IteratorKind::Done)
+        };
+        let (result, restored) = match kind {
+            object::IteratorKind::Done => (Ok(None), object::IteratorKind::Done),
+            object::IteratorKind::Range { current, stop, step } => {
+                let produced = if step > 0 { current < stop } else { current > stop };
+                if produced {
+                    let next = current.checked_add(step).unwrap_or(stop);
+                    (Ok(Some(Value::Number(current as f64))), object::IteratorKind::Range { current: next, stop, step })
+                } else {
+                    (Ok(None), object::IteratorKind::Done)
+                }
+            }
+            object::IteratorKind::Sequence { source, index } => match object::sequence_element(&source, index) {
+                Some(value) => (Ok(Some(value)), object::IteratorKind::Sequence { source, index: index + 1 }),
+                None => (Ok(None), object::IteratorKind::Done),
+            },
+            object::IteratorKind::Map { source, function, env } => match self.iterator_next(base, &source)? {
+                Some(element) => {
+                    let mapped = self.call(base, function.clone(), &[element], &[], &env)?;
+                    (Ok(Some(mapped)), object::IteratorKind::Map { source, function, env })
+                }
+                None => (Ok(None), object::IteratorKind::Done),
+            },
+            object::IteratorKind::Filter { source, function, env } => {
+                let kept = loop {
+                    match self.iterator_next(base, &source)? {
+                        Some(element) => {
+                            if object::truthy(&self.call(base, function.clone(), std::slice::from_ref(&element), &[], &env)?) {
+                                break Some(element);
+                            }
+                        }
+                        None => break None,
+                    }
+                };
+                if kept.is_none() {
+                    (Ok(None), object::IteratorKind::Done)
+                } else {
+                    (Ok(kept), object::IteratorKind::Filter { source, function, env })
+                }
+            }
+            object::IteratorKind::Generator { proto, env, scope, mut cursors } => {
+                match self.generator_next(base, &proto, &scope, &mut cursors)? {
+                    Some(value) => (Ok(Some(value)), object::IteratorKind::Generator { proto, env, scope, cursors }),
+                    None => (Ok(None), object::IteratorKind::Done),
+                }
+            }
+        };
+        let done = matches!(restored, object::IteratorKind::Done);
+        {
+            let mut borrowed = state.borrow_mut();
+            borrowed.kind = restored;
+            borrowed.done = done;
+        }
+        result
+    }
+
+    /// Builds a lazy generator iterator from a generator expression.
+    ///
+    /// Nothing is evaluated now: the clauses and element run in `scope`, the
+    /// generator's own scope, only as elements are pulled. The scope lives as long
+    /// as the iterator, so a clause name never leaks into the caller.
+    fn generator(&self, proto: &Rc<GenProto>, env: &Env) -> Eval {
+        let scope = object::Environment::new(Some(env.clone()));
+        Ok(Value::iterator(object::IteratorKind::Generator { proto: proto.clone(), env: env.clone(), scope, cursors: Vec::new() }))
+    }
+
+    /// Pulls the next value a generator yields, advancing its clause cursors.
+    fn generator_next(
+        &mut self,
+        base: &Base,
+        proto: &Rc<GenProto>,
+        scope: &Env,
+        cursors: &mut Vec<Value>,
+    ) -> Result<Option<Value>, Signal> {
+        loop {
+            if cursors.is_empty() {
+                let iterable = self.expression(&proto.clauses[0].iterable, scope)?;
+                cursors.push(self.open_iterator(base, iterable)?);
+            }
+            let level = cursors.len() - 1;
+            let source = cursors[level].clone();
+            let Some(value) = self.iterator_next(base, &source)? else {
+                cursors.pop();
+                if cursors.is_empty() {
+                    return Ok(None);
+                }
+                continue;
+            };
+            let clause = &proto.clauses[level];
+            // The clause variable is rebound in place, so a later clause can read
+            // an earlier one; `define` succeeds once and `assign` afterwards.
+            if object::define(scope, &clause.name, value.clone(), false).is_err() {
+                object::assign(scope, &clause.name, value).map_err(|message| runtime(base, message))?;
+            }
+            let mut keep = true;
+            for filter in &clause.filters {
+                if !object::truthy(&self.expression(filter, scope)?) {
+                    keep = false;
+                    break;
+                }
+            }
+            if !keep {
+                continue;
+            }
+            if level + 1 < proto.clauses.len() {
+                let iterable = self.expression(&proto.clauses[level + 1].iterable, scope)?;
+                cursors.push(self.open_iterator(base, iterable)?);
+                continue;
+            }
+            return Ok(Some(self.expression(&proto.body, scope)?));
+        }
+    }
+
     /// Evaluates a list or dictionary comprehension.
     ///
     /// The clauses nest left to right, so every iteration of one clause runs the
@@ -1109,8 +1286,25 @@ impl Evaluator {
     ) -> Result<(), Signal> {
         let clause = &clauses[index];
         let iterable = self.expression(&clause.iterable, scope)?;
-        let values = self.iterable_values(clause.iterable.base(), &iterable)?;
-        for value in values {
+        // A lazy iterator source is stepped one element at a time; anything else
+        // is snapshotted first. Either way the clause body below is identical.
+        let lazy = iterable.is_iterator();
+        let values = if lazy { Vec::new() } else { self.iterable_values(clause.iterable.base(), &iterable)? };
+        let mut position = 0usize;
+        loop {
+            let value = if lazy {
+                match self.iterator_next(clause.iterable.base(), &iterable)? {
+                    Some(value) => value,
+                    None => break,
+                }
+            } else {
+                if position >= values.len() {
+                    break;
+                }
+                let value = values[position].clone();
+                position += 1;
+                value
+            };
             self.tick(base)?;
             // The clause variable is rebound in place on every iteration, so a
             // later clause can still read the one before it.
@@ -1304,6 +1498,21 @@ impl Evaluator {
             Value::Builtin(builtin) => {
                 if builtin.higher_order {
                     return self.call_aggregate(base, &builtin.name, builtin.payload.clone(), arguments, keywords, env);
+                }
+                // A built-in that walks its arguments gets any lazy iterator among
+                // them drained first, so `list`, `sum`, `zip`, and their kin accept
+                // a generator exactly as they accept a list. Built-ins that only
+                // inspect a value — `type`, `len`, `str` — keep the iterator.
+                if builtin.consumes_iterables && arguments.iter().any(Value::is_iterator) {
+                    let mut materialized = Vec::with_capacity(arguments.len());
+                    for argument in arguments {
+                        if argument.is_iterator() {
+                            materialized.push(Value::list(self.materialize(base, argument)?));
+                        } else {
+                            materialized.push(argument.clone());
+                        }
+                    }
+                    return (builtin.call)(self, &materialized, keywords).map_err(|message| runtime(base, message));
                 }
                 (builtin.call)(self, arguments, keywords).map_err(|message| runtime(base, message))
             }
@@ -2016,31 +2225,33 @@ impl Evaluator {
     }
 
     fn map_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
-        let (elements, function) = callable_list_arguments("map", arguments, keywords).map_err(|message| runtime(base, message))?;
-        let mut mapped = Vec::with_capacity(elements.len());
-        for element in elements {
-            mapped.push(self.call(base, function.clone(), &[element], &[], env)?);
-        }
-        Ok(Value::list(mapped))
+        // `map` is lazy: it captures the source and the callable and applies the
+        // callable only as elements are pulled.
+        let (input, function) = callable_source_arguments("map", arguments, keywords).map_err(|message| runtime(base, message))?;
+        let source = self.open_iterator(base, input)?;
+        Ok(Value::iterator(object::IteratorKind::Map { source, function, env: env.clone() }))
     }
 
     fn filter_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
-        let (elements, function) = callable_list_arguments("filter", arguments, keywords).map_err(|message| runtime(base, message))?;
-        let mut kept = Vec::new();
-        for element in elements {
-            if object::truthy(&self.call(base, function.clone(), &[element.clone()], &[], env)?) {
-                kept.push(element);
-            }
-        }
-        Ok(Value::list(kept))
+        // `filter` is lazy for the same reason `map` is: the predicate runs once
+        // per element, when the element is needed.
+        let (input, function) = callable_source_arguments("filter", arguments, keywords).map_err(|message| runtime(base, message))?;
+        let source = self.open_iterator(base, input)?;
+        Ok(Value::iterator(object::IteratorKind::Filter { source, function, env: env.clone() }))
     }
 
     fn sorted_builtin(&mut self, base: &Base, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
         if arguments.len() != 1 {
             return Err(runtime(base, format!("sorted expects 1 argument, got {}", arguments.len())));
         }
-        let Some(items) = arguments[0].sequence() else {
-            return Err(runtime(base, format!("sorted expects a list or tuple, got {}", arguments[0].type_name())));
+        let items = if arguments[0].is_iterator() {
+            // A sort needs every element, so a lazy source is drained here.
+            self.materialize(base, &arguments[0])?
+        } else {
+            let Some(items) = arguments[0].sequence() else {
+                return Err(runtime(base, format!("sorted expects a list or tuple, got {}", arguments[0].type_name())));
+            };
+            items
         };
         let (key, reverse) = sort_options("sorted", keywords).map_err(|message| runtime(base, message))?;
         let keys = self.sort_keys(base, &items, &key, env)?;
@@ -2102,16 +2313,21 @@ impl Evaluator {
     }
 }
 
-fn callable_list_arguments(name: &str, arguments: &[Value], keywords: &[Keyword]) -> Result<(Vec<Value>, Value), String> {
+/// The source and the callable of a `map` or `filter` call.
+///
+/// The source is returned as a value rather than a list, so a lazy iterator is
+/// passed on untouched and stays lazy; a list or tuple is accepted exactly as
+/// before. Any other type is rejected here, with the call's own name.
+fn callable_source_arguments(name: &str, arguments: &[Value], keywords: &[Keyword]) -> Result<(Value, Value), String> {
     if !keywords.is_empty() {
         return Err(format!("{} does not accept keyword arguments", name));
     }
     if arguments.len() != 2 {
         return Err(format!("{} expects 2 arguments, got {}", name, arguments.len()));
     }
-    match arguments[0].sequence() {
-        Some(elements) => Ok((elements, arguments[1].clone())),
-        None => Err(format!("{} expects a list or tuple, got {}", name, arguments[0].type_name())),
+    match &arguments[0] {
+        Value::List(_) | Value::Tuple(_) | Value::Iterator(_) => Ok((arguments[0].clone(), arguments[1].clone())),
+        other => Err(format!("{} expects a list or tuple, got {}", name, other.type_name())),
     }
 }
 
@@ -2220,6 +2436,18 @@ impl Evaluator {
                     Value::Error(error) => {
                         if let Value::String(needle) = &left {
                             return Ok(Value::Bool(error.text().contains(&**needle)));
+                        }
+                    }
+                    Value::Iterator(_) => {
+                        // Membership walks a lazy iterator, stopping at the first
+                        // match; like a `for` loop, it consumes what it reads.
+                        let probe = right.clone();
+                        loop {
+                            match self.iterator_next(base, &probe)? {
+                                Some(element) if object::equal(&left, &element) => return Ok(Value::Bool(true)),
+                                Some(_) => continue,
+                                None => return Ok(Value::Bool(false)),
+                            }
                         }
                     }
                     _ => {}
@@ -2686,7 +2914,7 @@ mod tests {
         assert_eq!(run_capture("const xs = [3, 1, 2]; xs.sort(); print(xs);").unwrap(), "[1, 2, 3]\n");
         assert_eq!(run_capture("const d = {}; d[\"a\"] = 1; print(d, len(d));").unwrap(), "{\"a\": 1} 1\n");
         assert_eq!(run_capture("function f(a, b = 2) { return a + b; } print(f(1));").unwrap(), "3\n");
-        assert_eq!(run_capture("print(map([1, 2, 3], function(x) { return x * 2; }));").unwrap(), "[2, 4, 6]\n");
+        assert_eq!(run_capture("print(list(map([1, 2, 3], function(x) { return x * 2; })));").unwrap(), "[2, 4, 6]\n");
         assert_eq!(run_capture("print(sorted([3, 1, 2], reverse=true));").unwrap(), "[3, 2, 1]\n");
         assert_eq!(run_capture("print([1, 2, 3][0:2], \"hello\"[1:3]);").unwrap(), "[1, 2] el\n");
         assert_eq!(run_capture("print(1 if false else 2);").unwrap(), "2\n");

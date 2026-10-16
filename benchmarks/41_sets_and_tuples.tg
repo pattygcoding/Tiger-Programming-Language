@@ -68,7 +68,7 @@ print(nested, nested[1], nested[2], nested[1][1]);
 print("== tuples as sequences ==");
 print(sum((1, 2, 3)), min((3, 1, 2)), max((3, 1, 2)), any((0, 1)), all((1, 2)));
 print(enumerate((7, 8)), zip((1, 2), ("a", "b")), zip((1, 2, 3), (4, 5)));
-print(map((1, 2), function(v) { return v * 10; }), filter((1, 2, 3), function(v) { return v != 2; }));
+print(list(map((1, 2), function(v) { return v * 10; })), list(filter((1, 2, 3), function(v) { return v != 2; })));
 print(sorted((3, 1, 2)), sorted((3, 1, 2), reverse=true), sorted(("bb", "a"), key=len));
 function total_of(first, second) {
     return first + second;

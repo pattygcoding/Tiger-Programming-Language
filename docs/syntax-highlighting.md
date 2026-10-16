@@ -106,7 +106,7 @@ for (var index = 0; index < 2; ++index) {
 if (counter.next() > 0 && !false) {
     print("complete");
 }
-try { throw range(2); } catch (error) { print(error); }
+try { throw list(range(2)); } catch (error) { print(error); }
 ```
 
 ```text

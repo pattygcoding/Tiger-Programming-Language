@@ -32,12 +32,12 @@ for pair in enumerate(["red", "blue"]) {
 }
 
 print("== higher order ==");
-const doubled = map(values, function(value) { return value * 2; });
+const doubled = list(map(values, function(value) { return value * 2; }));
 print(doubled);
-const evens = filter(values, function(value) { return value % 2 == 0; });
+const evens = list(filter(values, function(value) { return value % 2 == 0; }));
 print(evens);
-print(map(["a", "bb", "ccc"], len));
-print(filter([0, "", 5, null, "x"], function(value) { return value; }));
+print(list(map(["a", "bb", "ccc"], len)));
+print(list(filter([0, "", 5, null, "x"], function(value) { return value; })));
 
 print("== sorting ==");
 print(sorted(values));
@@ -59,7 +59,7 @@ for pair in enumerate(sorted(words)) {
 
 print("== nested and mixed ==");
 const matrix = [[1, 2], [3, 4], [5, 6]];
-print(map(matrix, sum));
+print(list(map(matrix, sum)));
 print(sum(map(matrix, sum)));
 const names = ["ada", "alan", "grace", "edsger"];
 print(zip(names, map(names, len)));
@@ -119,7 +119,9 @@ function bad_zip() {
     return zip([1], 2);
 }
 function bad_map() {
-    return map([1], 2);
+    // `map` is lazy, so the bad callable is only rejected when the iterator is
+    // drained; `list(...)` forces that inside `fails`.
+    return list(map([1], 2));
 }
 function bad_comprehension() {
     return [value for value in 1];

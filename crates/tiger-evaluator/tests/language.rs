@@ -245,7 +245,7 @@ fn both_control_flow_spellings_agree() {
 fn range_and_exceptions() {
     expect_outputs(&[
         (
-            "print(range(4), range(2, 5), range(5, -1, -2), range(0), range(5, 1), range(1, 5, -1));",
+            "print(list(range(4)), list(range(2, 5)), list(range(5, -1, -2)), list(range(0)), list(range(5, 1)), list(range(1, 5, -1)));",
             "[0, 1, 2, 3] [2, 3, 4] [5, 3, 1] [] [] []\n",
         ),
         ("var total = 0; for value in range(5) { total = total + value; } else { print(total); }", "10\n"),
@@ -292,7 +292,7 @@ fn range_and_exceptions() {
 fn formatted_strings() {
     expect_outputs(&[
         ("const name = \"Tiger\"; print(f\"Hello, {name}! {2 + 3}\");", "Hello, Tiger! 5\n"),
-        ("print(F'{{braces}} {true} {null} {range(3)}');", "{braces} true null [0, 1, 2]\n"),
+        ("print(F'{{braces}} {true} {null} {list(range(3))}');", "{braces} true null [0, 1, 2]\n"),
         ("var count = 0; print(f\"{count++}:{++count}:{count}\");", "0:2:2\n"),
         ("const data = {\"value\": 7}; print(f\"{data[\"value\"]} {{ { {\"key\": 2}[\"key\"] } }}\");", "7 { 2 }\n"),
         ("print(f\"outer {f'inner {1 + 2}'}\", f\"\", f'line\\nnext');", "outer inner 3  line\nnext\n"),
