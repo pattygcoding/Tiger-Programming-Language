@@ -1,0 +1,47 @@
+== lazy ranges ==
+15 45 1 6
+10 [2, 4, 6, 8, 10] []
+== generator expressions ==
+[1, 4, 9, 16, 25]
+[3, 6, 9]
+[13, 14, 23, 24]
+[(1, 3), (1, 4), (2, 3), (2, 4)]
+[4, 8, 12]
+== map and filter ==
+[1, 4, 9, 16, 25]
+[3, 4, 5]
+150
+[5, 3, 1]
+[[1, "a"], [2, "b"], [3, "c"], [4, "d"], [5, "e"]]
+== nested laziness ==
+[1, 2, 3, 4, 5, 6]
+[1, 9, 25]
+== reductions over generators ==
+true true
+5 7
+["CHARLIE"]
+22
+== single use and scope ==
+[1, 2, 3] [] iterator true
+[101, 102] 100
+iterator <iterator>
+== membership and reshaping ==
+true false
+[0, 1, 2] ("a", "b")
+[[0, 4], [1, 9]]
+== early exit through map ==
+9
+== continue and filter ==
+36
+== a generator built per call ==
+[1, 4, 9, 16] [1, 4, 9]
+== iterator over a dictionary ==
+["ada", "alan", "grace"]
+["alan", "grace"]
+== errors ==
+true
+true
+true
+true
+true
+done

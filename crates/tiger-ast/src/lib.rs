@@ -356,6 +356,13 @@ pub enum Expr {
         body: ComprehensionBody,
         clauses: Vec<ComprehensionClause>,
     },
+    /// A generator expression: `(x * 2 for x in items if x > 0)`. Unlike a
+    /// comprehension it builds a lazy iterator, producing each element on demand.
+    Generator {
+        base: Base,
+        body: Box<Expr>,
+        clauses: Vec<ComprehensionClause>,
+    },
     Dict {
         base: Base,
         pairs: Vec<Pair>,
@@ -383,6 +390,7 @@ impl Expr {
             | Expr::Set { base, .. }
             | Expr::Tuple { base, .. }
             | Expr::Comprehension { base, .. }
+            | Expr::Generator { base, .. }
             | Expr::Dict { base, .. } => base,
             Expr::Function(declaration) => &declaration.base,
         }

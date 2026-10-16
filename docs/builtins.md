@@ -334,20 +334,20 @@ A non-string argument is an error, and the built-in accepts no keyword arguments
 
 ## Aggregate Built-ins
 
-These built-ins reduce or reshape sequences — a list or a tuple — and always return a list or a number. They complement `len`, `items.sort(...)`, and the `math` and `algo` modules. A set is unordered, so convert it with `list(my_set)` first; see [Sets](collections.md#sets). A [comprehension](collections.md#comprehensions) writes the same mapping and filtering as `map` and `filter` in one expression: `[value * 2 for value in values if value > 0]`.
+These built-ins reduce or reshape iterables — a list, a tuple, or a lazy iterator. Every one accepts a lazy iterator in place of a list, and drains it as needed. `map` and `filter` return a lazy iterator themselves, so wrap one in `list(...)` to collect it; the reductions (`sum`, `min`, `max`, `any`, `all`), the reshaping built-ins (`enumerate`, `zip`), and `sorted` consume whatever they are given. They complement `len`, `items.sort(...)`, and the `math` and `algo` modules. A set is unordered, so convert it with `list(my_set)` first; see [Sets](collections.md#sets). A [comprehension](collections.md#comprehensions) writes the same mapping and filtering as `map` and `filter` in one expression: `[value * 2 for value in values if value > 0]`.
 
 | Built-in | Result |
 | --- | --- |
-| `sum(list)` | The total of a list of numbers; `0` for an empty list |
-| `min(list)`, `max(list)` | The smallest or largest number or string in a list |
+| `sum(iterable)` | The total of a sequence of numbers; `0` for an empty one |
+| `min(iterable)`, `max(iterable)` | The smallest or largest number or string in a sequence |
 | `min(a, b, ...)`, `max(a, b, ...)` | The extreme of several arguments |
-| `any(list)` | `true` if any element is truthy |
-| `all(list)` | `true` if every element is truthy |
-| `enumerate(list)` | `[[0, first], [1, second], ...]` |
-| `zip(a, b, ...)` | `[[a0, b0], [a1, b1], ...]`, cut to the shortest list |
-| `map(list, function)` | A new list of `function(element)` |
-| `filter(list, function)` | The elements for which `function(element)` is truthy |
-| `sorted(list, key=..., reverse=...)` | A new sorted list; the original is unchanged |
+| `any(iterable)` | `true` if any element is truthy |
+| `all(iterable)` | `true` if every element is truthy |
+| `enumerate(iterable)` | `[[0, first], [1, second], ...]` |
+| `zip(a, b, ...)` | `[[a0, b0], [a1, b1], ...]`, cut to the shortest input |
+| `map(iterable, function)` | A lazy iterator of `function(element)`; `list(...)` collects it |
+| `filter(iterable, function)` | A lazy iterator of the elements for which `function(element)` is truthy |
+| `sorted(iterable, key=..., reverse=...)` | A new sorted list; the original is unchanged |
 
 ```tg
 const values = [4, 8, 15, 16, 23, 42];
@@ -355,8 +355,8 @@ print(sum(values), min(values), max(values));
 print(sorted(values, reverse=true));
 print(enumerate(["a", "b"]));
 print(zip([1, 2, 3], ["x", "y"]));
-print(map(values, function(value) { return value / 2; }));
-print(filter(values, function(value) { return value > 15; }));
+print(list(map(values, function(value) { return value / 2; })));
+print(list(filter(values, function(value) { return value > 15; })));
 ```
 
 ```text
@@ -396,10 +396,10 @@ There is no network API, `reduce`, or `groupby`. File input and output use the h
 
 ## range(stop), range(start, stop), range(start, stop, step)
 
-Returns a new list starting at `start` (default `0`) and stopping before `stop`. The default step is `1`; negative steps count downward. A direction mismatch produces an empty list. Arguments must be finite integers with absolute value at most `9007199254740991`; step cannot be zero. A range may contain at most 1,000,000 elements. This is an eager list, not a lazy iterator.
+Returns a lazy iterator starting at `start` (default `0`) and stopping before `stop`. The default step is `1`; negative steps count downward. A direction mismatch produces an empty sequence. Arguments must be finite integers with absolute value at most `9007199254740991`; step cannot be zero. A range may contain at most 1,000,000 elements. Nothing is stored up front: `for value in range(1000000)` reads one value at a time, and a loop that stops early never produces the rest. Wrap it in `list(...)` for the whole sequence as a list. See [Lazy Iterators](collections.md#lazy-iterators-and-generator-expressions).
 
 ```tg
-print(range(4), range(2, 7, 2), range(5, 0, -2), range(0));
+print(list(range(4)), list(range(2, 7, 2)), list(range(5, 0, -2)), list(range(0)));
 ```
 
 ```text

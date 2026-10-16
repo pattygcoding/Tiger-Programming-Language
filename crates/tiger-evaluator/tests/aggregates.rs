@@ -28,11 +28,11 @@ fn aggregate_builtins() {
             "[[1, \"a\"], [2, \"b\"]] [[1, 3, 5], [2, 4, 6]]\n",
         ),
         (
-            "print(map([1, 2, 3], function(v) { return v * 2; }), map([\"a\", \"bb\"], len));",
+            "print(list(map([1, 2, 3], function(v) { return v * 2; })), list(map([\"a\", \"bb\"], len)));",
             "[2, 4, 6] [1, 2]\n",
         ),
         (
-            "print(filter([1, 2, 3, 4], function(v) { return v % 2 == 0; }), filter([0, \"\", 5, null, \"x\"], function(v) { return v; }));",
+            "print(list(filter([1, 2, 3, 4], function(v) { return v % 2 == 0; })), list(filter([0, \"\", 5, null, \"x\"], function(v) { return v; })));",
             "[2, 4] [5, \"x\"]\n",
         ),
         ("const values = [3, 1, 2]; const ordered = sorted(values); print(ordered, values);", "[1, 2, 3] [3, 1, 2]\n"),
@@ -62,7 +62,7 @@ fn aggregate_builtin_errors() {
         ("zip();", "expects at least 1 argument"),
         ("zip([1], 2);", "expects lists"),
         ("map([1]);", "expects 2 arguments"),
-        ("map([1], 2);", "not callable"),
+        ("list(map([1], 2));", "not callable"),
         ("filter(\"x\", len);", "expects a list"),
         ("sorted([1, 2], reverse=1.5);", "must be a boolean or integer"),
         ("sorted([1, 2], bogus=1);", "does not accept keyword argument"),

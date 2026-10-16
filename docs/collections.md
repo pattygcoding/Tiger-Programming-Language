@@ -312,7 +312,7 @@ print([x + y for x in [1] for y in [x, x * 10]]);
 [2, 11]
 ```
 
-A repeated key in a dictionary comprehension keeps its first position and takes the last value, exactly as a dictionary literal does. The runtime is eager, so a comprehension builds its whole result immediately: there are no generator expressions, and a set comprehension is a syntax error — write `set([x for x in items])`. Inside a clause header `if` starts a filter, so a conditional expression there needs parentheses: `[x for x in (a if flag else b)]`.
+A repeated key in a dictionary comprehension keeps its first position and takes the last value, exactly as a dictionary literal does. A comprehension builds its whole result immediately. When the sequence is too large to hold, or a loop will stop reading long before the end, use a generator expression instead — see [Lazy Iterators and Generator Expressions](#lazy-iterators-and-generator-expressions). A set comprehension is a syntax error — write `set([x for x in items])`. Inside a clause header `if` starts a filter, so a conditional expression there needs parentheses: `[x for x in (a if flag else b)]`.
 
 **Expected error:**
 
@@ -322,6 +322,49 @@ A repeated key in a dictionary comprehension keeps its first position and takes 
 
 ```error
 number is not iterable
+```
+
+## Lazy Iterators and Generator Expressions
+
+A **lazy iterator** produces its elements on demand rather than all at once. `range`, `map`, and `filter` return one, and a **generator expression** — a comprehension spelled with parentheses instead of brackets — builds one from any iterable:
+
+```tg
+const squares = (n * n for n in range(1, 1000000));
+var total = 0;
+for value in squares {
+    if value > 10 {
+        break;
+    }
+    total += value;
+}
+print(total, list((n * n for n in range(1, 5))));
+```
+
+```text
+14 [1, 4, 9, 16]
+```
+
+Nothing is stored until it is read: the loop above stops after four elements of a million-element range, and `list(...)` collects the rest only when the whole sequence is wanted. A `for` loop, membership (`in`), a comprehension clause, and the reshaping built-ins (`list`, `tuple`, `set`, `sum`, `min`, `max`, `any`, `all`, `enumerate`, `zip`, `sorted`) all walk a lazy iterator. An iterator is consumed once and in order, so a second pass over the same value sees only what is left:
+
+```tg
+const values = (n for n in [1, 2, 3]);
+print(list(values), list(values));
+print(type(values), isinstance(values, "iterator"));
+```
+
+```text
+[1, 2, 3] []
+iterator true
+```
+
+`len`, indexing, slicing, and `+` do not accept a lazy iterator, because its elements have not been produced yet — collect it with `list(...)` first:
+
+```tg
+len(range(3));
+```
+
+```error
+len does not accept iterator
 ```
 
 ## Sharing and Shallow Copies

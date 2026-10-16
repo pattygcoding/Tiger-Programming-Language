@@ -146,9 +146,21 @@ print(describe("tiger", "wild", size="large"));
   words}`, with the same filters and clauses. A repeated key keeps its first
   position and takes the last value.
 - Any value a `for` loop can walk may be iterated, and the clause variables live
-  in a scope of their own, so they neither leak nor disturb an outer name. The
-  runtime is eager: there are no generator expressions, and a set comprehension is
-  reported with the workaround `set([x for x in items])`.
+  in a scope of their own, so they neither leak nor disturb an outer name. A set
+  comprehension is reported with the workaround `set([x for x in items])`.
+
+### Lazy iterators and generator expressions (`43_lazy_iterators`)
+
+- `range`, `map`, and `filter` return a **lazy iterator** that produces its
+  elements on demand, and a generator expression `(x * 2 for x in items)` builds
+  one from any iterable. Nothing is stored until it is read, so a `for` loop that
+  stops early never builds the rest.
+- A `for` loop, membership (`in`), a comprehension clause, and the reshaping
+  built-ins (`list`, `tuple`, `set`, `sum`, `min`, `max`, `any`, `all`,
+  `enumerate`, `zip`, `sorted`) all walk a lazy iterator. An iterator is consumed
+  once, in order.
+- `len`, indexing, slicing, and `+` reject a lazy iterator; collect it with
+  `list(...)` first. `type` reports `"iterator"`, and it prints as `<iterator>`.
 
 ### List and dictionary methods (`34_collection_methods`)
 

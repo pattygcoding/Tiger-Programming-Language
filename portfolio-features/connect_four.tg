@@ -22,7 +22,7 @@ function join(items, separator) {
 }
 
 const BORDER = "+" + repeat("-", COLS * 2 - 1) + "+";
-const LABELS = " " + join(range(1, COLS + 1), " ");
+const LABELS = " " + join(list(range(1, COLS + 1)), " ");
 const HEADER = "=== Connect Four ===\n" + "Get four of your pieces in a row to win. Columns are numbered 1-7.\n";
 
 // board[0] is the bottom row.

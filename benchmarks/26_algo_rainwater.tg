@@ -108,7 +108,7 @@ for trial in range(20) {
 }
 print("random agree", agree, "of 20");
 
-const valley = range(10, 0, -1) + range(0, 11);
+const valley = list(range(10, 0, -1)) + list(range(0, 11));
 print("valley", len(valley), algo.rainwater(valley));
 
 var walls = [];

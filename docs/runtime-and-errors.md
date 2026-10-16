@@ -13,9 +13,9 @@ The browser displays the evaluator's `line:column` diagnostic without a source f
 | Message or symptom | Cause | Correction |
 | --- | --- | --- |
 | `expected ";"` | Missing statement terminator | End the simple statement with `;` |
-| `generator expressions are not supported` | A `(x for x in items)` form was written | Use a list comprehension, or a function that returns a list |
 | `set comprehensions are not supported` | A `{x for x in items}` form was written | Write `set([x for x in items])` |
-| `is not iterable` | A `for` loop or comprehension walked a value that has no elements | Iterate a list, tuple, set, string, or dictionary |
+| `len does not accept iterator` | `len`, indexing, or a slice was applied to a lazy iterator | Collect it with `list(...)` first |
+| `is not iterable` | A `for` loop or comprehension walked a value that has no elements | Iterate a list, tuple, set, string, dictionary, or lazy iterator |
 | `sys.exit expects at most 1 argument` | `sys.exit` was given more than one argument | Pass one status, or none |
 | `module "x" has no export "y"` | The member is private to the module, or misspelled | Mark it with `export` in the module, or read an exported name |
 | `export is only allowed at the top level of a file` | An `export` marker was written inside a block or function | Move the declaration and its marker to the top level |

@@ -111,7 +111,7 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 828 KB, about 258 KB with gzip, and smaller still
+The stripped binary is about 844 KB, about 263 KB with gzip, and smaller still
 with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable
 gzip or Brotli for the `application/wasm` content type. The local `cargo run -p
 tiger-web` server does not compress.
@@ -215,8 +215,8 @@ share of a workload is measured without a profiler, and `TIGER_SHOW_OUTPUT=1`
 keeps the program's own output for a program that times itself.
 
 `cargo test` checks the unit tests, the language suites in
-`crates/tiger-evaluator/tests/`, the forty-two 100-200-line benchmark programs
-against fixed output files, the 174 documentation examples, every example and
+`crates/tiger-evaluator/tests/`, the forty-three 100-200-line benchmark programs
+against fixed output files, the 176 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, the
 differential test that runs every one of those programs on both engines and
 checks that the results match, and the

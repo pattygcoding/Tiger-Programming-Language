@@ -528,9 +528,13 @@ fn comprehension_literals() {
     assert!(matches!(assigned("const value = {\"a\": 1};"), Expr::Dict { .. }));
     assert!(matches!(assigned("const value = {1, 2};"), Expr::Set { .. }));
 
-    // The two forms the eager runtime does not have are reported as themselves.
+    // A set comprehension stays unsupported, but a generator expression now
+    // builds a lazy iterator, so it parses to its own node.
     assert!(reject("const value = {x for x in items};").contains("set comprehensions are not supported"));
-    assert!(reject("const value = (x for x in items);").contains("generator expressions are not supported"));
+    let Expr::Generator { clauses, .. } = assigned("const value = (x for x in items);") else { panic!("generator expression") };
+    assert_eq!(clauses.len(), 1);
+    assert_eq!(clauses[0].name, "x");
+    assert!(clauses[0].filters.is_empty());
     assert!(reject("const value = [x for x in];").contains("expected expression"));
     assert!(reject("const value = [x for x in items if];").contains("expected expression"));
     assert!(reject("const value = [x for 1 in items];").contains("expected \"identifier\""));

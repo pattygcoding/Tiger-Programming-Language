@@ -8,7 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use tiger_ast::{Base, Block, ClassDecl, ComprehensionBody, Expr, FunctionDecl, LiteralValue, Stmt};
-use tiger_object::bytecode::{CallLayout, CatchProto, Chunk, ClassProto, CompProto, FunctionProto, Instr, Op, SliceProto, TryProto};
+use tiger_object::bytecode::{
+    CallLayout, CatchProto, Chunk, ClassProto, CompProto, FunctionProto, GenProto, Instr, Op, SliceProto, TryProto,
+};
 use tiger_object::Value;
 
 use crate::declares_in;
@@ -141,6 +143,7 @@ struct Compiler {
     tries: Vec<Rc<TryProto>>,
     slices: Vec<Rc<SliceProto>>,
     comprehensions: Vec<Rc<CompProto>>,
+    generators: Vec<Rc<GenProto>>,
     escape_return: bool,
     /// The names a nested function, class, `try`, or slice bound mentions, which
     /// therefore have to stay in the shared environment.
@@ -222,6 +225,7 @@ impl Compiler {
             tries: Vec::new(),
             slices: Vec::new(),
             comprehensions: Vec::new(),
+            generators: Vec::new(),
             escape_return,
             captured,
             flat_slots,
@@ -443,6 +447,7 @@ impl Compiler {
             tries: self.tries,
             slices: self.slices,
             comprehensions: self.comprehensions,
+            generators: self.generators,
             flat_count: self.flat_slots as usize,
             call_layout,
             frame_needed: !self.scopes[0].names.is_empty() || self.is_method,
@@ -585,6 +590,14 @@ impl Compiler {
                 let index = self.comprehensions.len() as u32;
                 self.comprehensions.push(Rc::new(CompProto { body: body.clone(), clauses: clauses.clone() }));
                 self.emit(Instr::Comprehension(index), base);
+            }
+            Expr::Generator { base, body, clauses } => {
+                // Like a comprehension, the clauses and element stay as AST for the
+                // engine's shared generator helper; the engine only builds the
+                // iterator here, and nothing is evaluated until it is walked.
+                let index = self.generators.len() as u32;
+                self.generators.push(Rc::new(GenProto { body: (**body).clone(), clauses: clauses.clone() }));
+                self.emit(Instr::Generator(index), base);
             }
             Expr::Slice { base, collection, start, stop, step } => {
                 self.expression(collection)?;
@@ -1328,6 +1341,18 @@ fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
                     scan_expr(&pair.value, true, out);
                 }
             }
+            for clause in clauses {
+                scan_expr(&clause.iterable, true, out);
+                for filter in &clause.filters {
+                    scan_expr(filter, true, out);
+                }
+            }
+        }
+        Expr::Generator { body, clauses, .. } => {
+            // A generator body and its clause expressions run later, in the scope
+            // the generator captured, so any name they mention has to stay
+            // reachable through the environment rather than a flat slot.
+            scan_expr(body, true, out);
             for clause in clauses {
                 scan_expr(&clause.iterable, true, out);
                 for filter in &clause.filters {

@@ -87,7 +87,9 @@ fn range_builtin() -> Rc<object::Builtin> {
         if count > 1_000_000 {
             return Err("range exceeds 1000000 elements".to_string());
         }
-        Ok(Value::list((0..count).map(|index| Value::Number((start + index * step) as f64)).collect()))
+        // A lazy iterator: `for`, `in`, and the reshaping built-ins step it one
+        // element at a time, so nothing is materialized unless it is needed.
+        Ok(Value::iterator(object::IteratorKind::Range { current: start, stop, step }))
     })
 }
 
@@ -197,6 +199,7 @@ const TYPE_NAMES: &[&str] = &[
     "module",
     "file",
     "error",
+    "iterator",
 ];
 
 fn isinstance_builtin() -> Rc<object::Builtin> {
@@ -276,7 +279,7 @@ fn conversion_builtin(name: &'static str) -> Rc<object::Builtin> {
 /// is how an empty set is written, because `{}` stays an empty dictionary, and an
 /// unhashable element is rejected the way a dictionary key would be.
 fn collection_builtin(name: &'static str) -> Rc<object::Builtin> {
-    object::Builtin::new(name, move |_host, arguments, keywords| {
+    object::Builtin::consuming(name, move |_host, arguments, keywords| {
         if !keywords.is_empty() {
             return Err(format!("{} does not accept keyword arguments", name));
         }
@@ -392,7 +395,7 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
     vec![
         (
             "sum",
-            object::Builtin::new("sum", |_host, arguments, keywords| {
+            object::Builtin::consuming("sum", |_host, arguments, keywords| {
                 let elements = sequence_argument("sum", arguments, keywords)?;
                 let mut total = 0.0;
                 for (index, element) in elements.iter().enumerate() {
@@ -407,11 +410,11 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
                 Ok(Value::Number(total))
             }),
         ),
-        ("min", object::Builtin::new("min", |_host, arguments, keywords| extreme("min", arguments, keywords, -1))),
-        ("max", object::Builtin::new("max", |_host, arguments, keywords| extreme("max", arguments, keywords, 1))),
+        ("min", object::Builtin::consuming("min", |_host, arguments, keywords| extreme("min", arguments, keywords, -1))),
+        ("max", object::Builtin::consuming("max", |_host, arguments, keywords| extreme("max", arguments, keywords, 1))),
         (
             "any",
-            object::Builtin::new("any", |_host, arguments, keywords| {
+            object::Builtin::consuming("any", |_host, arguments, keywords| {
                 let elements = sequence_argument("any", arguments, keywords)?;
                 let found = elements.iter().any(object::truthy);
                 Ok(Value::Bool(found))
@@ -419,7 +422,7 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
         ),
         (
             "all",
-            object::Builtin::new("all", |_host, arguments, keywords| {
+            object::Builtin::consuming("all", |_host, arguments, keywords| {
                 let elements = sequence_argument("all", arguments, keywords)?;
                 let every = elements.iter().all(object::truthy);
                 Ok(Value::Bool(every))
@@ -427,7 +430,7 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
         ),
         (
             "enumerate",
-            object::Builtin::new("enumerate", |_host, arguments, keywords| {
+            object::Builtin::consuming("enumerate", |_host, arguments, keywords| {
                 let elements = sequence_argument("enumerate", arguments, keywords)?;
                 Ok(Value::list(
                     elements
@@ -440,7 +443,7 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
         ),
         (
             "zip",
-            object::Builtin::new("zip", |_host, arguments, keywords| {
+            object::Builtin::consuming("zip", |_host, arguments, keywords| {
                 if !keywords.is_empty() {
                     return Err("zip does not accept keyword arguments".to_string());
                 }
