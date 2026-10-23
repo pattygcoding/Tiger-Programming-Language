@@ -149,9 +149,10 @@ cargo test -p tiger-conformance --test benchmarks -- --nocapture
 `make benchmarks` runs the same checks; `cargo test` includes them too, along with execution checks for every example and portfolio-feature program. See [benchmarks/README.md](benchmarks/README.md) for coverage and filtering commands.
 
 For timings, `make timing` reports each program in process, with no
-process startup in the numbers, and `make compare` times a paired
-Tiger/Python workload on identical work. See the
-[performance guide](docs/performance.md) for the two engines, what the
+process startup in the numbers, `make compare` times a paired Tiger/Python
+workload on identical work, and `make protocol` times the same workload in
+process on both sides and fails while any section is slower than CPython. See
+the [performance guide](docs/performance.md) for the two engines, what the
 compiler recognizes, and how a change is measured.
 
 ## Layout

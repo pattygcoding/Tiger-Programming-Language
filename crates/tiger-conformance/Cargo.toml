@@ -8,3 +8,6 @@ tiger-evaluator = { workspace = true }
 
 [dev-dependencies]
 tiger-evaluator = { workspace = true }
+# The protocol test parses the paired workload once and runs it many times, so it
+# needs the parser as directly as the timing harness needs the runner.
+tiger-parser = { workspace = true }

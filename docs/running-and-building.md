@@ -223,8 +223,11 @@ keeps the program's own output for a program that times itself.
 `make compare` times a paired Tiger/Python workload on identical work and reports
 the ratio, subtracting each language's process-startup floor so the numbers
 compare the interpreters. The two programs print the same checksum, and the runner
-refuses to report a time if they ever disagree. See the
-[performance guide](performance.md) and
+refuses to report a time if they ever disagree. Its numbers carry the launcher,
+though, so `make protocol` is the measurement to read: it runs the same workload
+on Tiger in process and on CPython in process, with the program's own compile
+removed from both sides, and it fails while any section is slower than CPython.
+See the [performance guide](performance.md) and
 [benchmarks/python/README.md](../benchmarks/python/README.md).
 
 `cargo test` checks the unit tests, the language suites in
@@ -235,11 +238,14 @@ differential test that runs every one of those programs on both engines and
 checks that the results match, and the
 browser runtime under Node. The documentation suite checks Tiger examples against
 the output shown in Markdown, and the benchmark suite checks the programs against
-their `.txt` files; neither is a performance threshold test. The standalone
-integration tests build and execute real executables.
+their `.txt` files; neither is a performance threshold test. The protocol test is
+the one performance threshold: it is measured in release builds only, so
+`cargo test` reports its table and asserts nothing, and `make protocol` is what
+fails. The standalone integration tests build and execute real executables.
 
 `make build`, `make run`, `make test`, `make benchmarks`, `make timing`,
-`make compare`, `make wasm`, `make wasm-check`, `make startup`, `make web`, and
+`make compare`, `make protocol`, `make wasm`, `make wasm-check`, `make startup`,
+`make web`, and
 `make wasi` wrap the commands
 above. `make startup` boots the served playground over HTTP with Node and runs a
 program on it, which is the same path a browser takes.

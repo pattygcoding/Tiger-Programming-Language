@@ -1,5 +1,6 @@
 //! The global built-in functions and module installation.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use tiger_object as object;
@@ -7,47 +8,91 @@ use tiger_object::{Env, Value};
 
 use crate::modules;
 
-fn define(env: &Env, name: &str, value: Value) {
-    let _ = object::define(env, name, value, true);
-}
-
 /// Installs every built-in and module into the top-level scope.
 ///
 /// `arguments` is the running program's `sys.argv`: its own path first, then each
 /// argument, which is what the host passes in.
 pub(crate) fn install(env: &Env, arguments: &[String]) {
-    define(env, "range", Value::Builtin(range_builtin()));
-    define(env, "print", Value::Builtin(print_builtin()));
-    define(env, "len", Value::Builtin(len_builtin()));
-    define(env, "type", Value::Builtin(type_builtin()));
-    define(env, "isinstance", Value::Builtin(isinstance_builtin()));
-    define(env, "graphemes", Value::Builtin(graphemes_builtin()));
-    define(env, "input", Value::Builtin(input_builtin()));
-    for name in ["int", "float", "str", "bool"] {
-        define(env, name, Value::Builtin(conversion_builtin(name)));
+    // Everything stateless is built once per thread and copied into this scope as a
+    // name insert and an `Rc` clone per entry. Rebuilding it per run meant rebuilding
+    // the module tables and re-reading the process environment for `sys.env`, and that
+    // was most of what a run cost before it did any work; what follows is what
+    // genuinely belongs to one run.
+    for (name, value) in shared().iter() {
+        let _ = object::define_shared(env, name, value.clone(), true);
     }
-    // The collection constructors. `set()` is the only way to spell an empty set,
-    // because `{}` stays an empty dictionary.
+    // `sys.argv` is this run's arguments, and `random` and `secrets` each hold a
+    // generator a program seeds for itself, so they are built per run.
+    let _ = object::define(env, "random", Value::Module(modules::random_module()), true);
+    let _ = object::define(env, "secrets", Value::Module(modules::secrets_module()), true);
+    let _ = object::define(env, "sys", Value::Module(modules::sys_module(arguments)), true);
+}
+
+/// The stateless half of the top-level scope, shared by every run on a thread: the
+/// binding each scope gets, in the order it is installed.
+type SharedBindings = Rc<Vec<(Rc<str>, Value)>>;
+
+/// The stateless half of the top-level scope: the built-ins and modules that are
+/// built once per thread and shared by every run on it.
+///
+/// Nothing in here is mutable state or depends on the program, so one copy serves
+/// every scope: every value is immutable, and a scope is only a name-to-value table
+/// that a run may shadow in its own scope. Each thread builds its own, because these
+/// values are `Rc`s and cannot be shared between threads.
+fn shared() -> SharedBindings {
+    thread_local! {
+        static SHARED: RefCell<Option<SharedBindings>> = const { RefCell::new(None) };
+    }
+    SHARED.with(|cell| {
+        let built = cell.borrow().clone();
+        match built {
+            Some(bindings) => bindings,
+            None => {
+                let bindings = Rc::new(build_shared());
+                *cell.borrow_mut() = Some(bindings.clone());
+                bindings
+            }
+        }
+    })
+}
+
+/// Builds the stateless half of the top-level scope, in the order it is installed.
+///
+/// The installed order puts `random`, `secrets`, and `sys` after `regex` rather than
+/// between the modules, because those three are the ones a run builds for itself.
+/// A scope's order is only its declaration order: every lookup is by name, and the
+/// one place that reads the names back sorts them.
+fn build_shared() -> Vec<(Rc<str>, Value)> {
+    let mut bindings: Vec<(Rc<str>, Value)> = Vec::new();
+    let mut add = |name: &str, value: Value| bindings.push((Rc::from(name), value));
+    add("range", Value::Builtin(range_builtin()));
+    add("print", Value::Builtin(print_builtin()));
+    add("len", Value::Builtin(len_builtin()));
+    add("type", Value::Builtin(type_builtin()));
+    add("isinstance", Value::Builtin(isinstance_builtin()));
+    add("graphemes", Value::Builtin(graphemes_builtin()));
+    add("input", Value::Builtin(input_builtin()));
+    for name in ["int", "float", "str", "bool"] {
+        add(name, Value::Builtin(conversion_builtin(name)));
+    }
     for name in ["list", "tuple", "set"] {
-        define(env, name, Value::Builtin(collection_builtin(name)));
+        add(name, Value::Builtin(collection_builtin(name)));
     }
     for (name, builtin) in aggregate_builtins() {
-        define(env, name, Value::Builtin(builtin));
+        add(name, Value::Builtin(builtin));
     }
     for name in ["sorted", "map", "filter"] {
-        define(env, name, Value::Builtin(object::Builtin::higher_order(name, None)));
+        add(name, Value::Builtin(object::Builtin::higher_order(name, None)));
     }
     for (name, builtin) in crate::files::file_builtins() {
-        define(env, name, Value::Builtin(builtin));
+        add(name, Value::Builtin(builtin));
     }
-    define(env, "math", Value::Module(modules::math_module()));
-    define(env, "algo", Value::Module(modules::algo_module()));
-    define(env, "random", Value::Module(modules::random_module()));
-    define(env, "secrets", Value::Module(modules::secrets_module()));
-    define(env, "json", Value::Module(modules::json_module()));
-    define(env, "time", Value::Module(modules::time_module()));
-    define(env, "regex", Value::Module(modules::regex_module()));
-    define(env, "sys", Value::Module(modules::sys_module(arguments)));
+    add("math", Value::Module(modules::math_module()));
+    add("algo", Value::Module(modules::algo_module()));
+    add("json", Value::Module(modules::json_module()));
+    add("time", Value::Module(modules::time_module()));
+    add("regex", Value::Module(modules::regex_module()));
+    bindings
 }
 
 /// Implements `range(start?, stop, step?)`.

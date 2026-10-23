@@ -4,7 +4,7 @@ ifeq ($(OS),Windows_NT)
 EXE := .exe
 endif
 
-.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi timing compare
+.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi timing compare protocol
 
 build:
 	$(CARGO) build --release
@@ -28,6 +28,12 @@ timing:
 compare:
 	$(CARGO) build --release
 	python benchmarks/python/compare.py
+
+# Times the same paired workload in process on both sides and fails while any
+# section is slower than CPython with the program's own compile removed from both.
+# Nothing about process startup is in either number.
+protocol:
+	$(CARGO) test -p tiger-conformance --test protocol --release -- --nocapture
 
 fmt:
 	$(CARGO) fmt --check

@@ -68,6 +68,7 @@ name = "tiger-conformance"
 version = "0.1.0"
 dependencies = [
  "tiger-evaluator",
+ "tiger-parser",
 ]
 
 [[package]]

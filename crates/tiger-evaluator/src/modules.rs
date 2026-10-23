@@ -930,19 +930,43 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     era * 146097 + doe - 719468
 }
 
+/// The process environment, as the name and value strings `sys.env` copies from.
+type EnvironmentSnapshot = Rc<Vec<(object::RcStr, object::RcStr)>>;
+
 /// The process environment a program reads through `sys.env`.
 ///
 /// The browser build has no environment to read, so it reports none. The gate
 /// keeps `std::env::vars` out of `tiger.wasm`, the way the `time` and `regex`
 /// stubs keep the host clock and the RE2 engine out.
+///
+/// The variables are read once per thread and the same strings are reused, because
+/// `sys.env` is documented as a snapshot: a run needs its own copy of the
+/// *dictionary*, which it gets, but not a fresh read of the process. Reading the
+/// whole environment costs a conversion and two allocations per variable, and it
+/// used to happen on every run, including runs that never look at `sys.env`.
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-fn environment_variables() -> Vec<(String, String)> {
-    std::env::vars().collect()
+fn environment_variables() -> EnvironmentSnapshot {
+    thread_local! {
+        static VARIABLES: RefCell<Option<EnvironmentSnapshot>> = const { RefCell::new(None) };
+    }
+    VARIABLES.with(|cell| {
+        let built = cell.borrow().clone();
+        match built {
+            Some(variables) => variables,
+            None => {
+                let variables = Rc::new(
+                    std::env::vars().map(|(name, value)| (object::RcStr::new(&name), object::RcStr::new(&value))).collect::<Vec<_>>(),
+                );
+                *cell.borrow_mut() = Some(variables.clone());
+                variables
+            }
+        }
+    })
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-fn environment_variables() -> Vec<(String, String)> {
-    Vec::new()
+fn environment_variables() -> EnvironmentSnapshot {
+    Rc::new(Vec::new())
 }
 
 /// The `sys` module: `argv`, `env`, and `exit`.
@@ -957,8 +981,8 @@ pub fn sys_module(arguments: &[String]) -> Rc<Module> {
     let argv: Vec<Value> = arguments.iter().map(|argument| Value::string(argument)).collect();
     let _ = object::define(&env, "argv", Value::list(argv), true);
     let variables = Rc::new(RefCell::new(object::Dict::default()));
-    for (name, value) in environment_variables() {
-        let _ = variables.borrow_mut().set(Value::string(&name), Value::string(&value));
+    for (name, value) in environment_variables().iter() {
+        let _ = variables.borrow_mut().set(Value::String(name.clone()), Value::String(value.clone()));
     }
     let _ = object::define(&env, "env", Value::Dict(variables), true);
     let _ = object::define(&env, "exit", Value::Builtin(object::Builtin::higher_order("sys.exit", None)), true);

@@ -223,7 +223,8 @@ cheaply, such as a string or a tuple, skips the cache entirely.
 
 ## Measuring
 
-Two harnesses report timings, and neither is part of `cargo test`:
+Three harnesses report timings. The first two are diagnostics; the third is a
+threshold, and it is the only performance test in the repository:
 
 ```sh
 # A per-operation cost for the interpreter's hot paths, in process.
@@ -231,6 +232,9 @@ cargo test -p tiger-evaluator --test micro --release -- --ignored --nocapture
 
 # Every benchmark program, in process, with no process startup in the numbers.
 cargo test -p tiger-conformance --test timing --release -- --ignored --nocapture
+
+# The paired Tiger/Python workload, in process on both sides, asserted.
+cargo test -p tiger-conformance --test protocol --release -- --nocapture
 
 # One program, on either engine.
 TIGER_BENCH_FILE=benchmarks/24_algo.tg TIGER_BENCH_ITERATIONS=200 \
@@ -259,6 +263,21 @@ refuses to report a time unless both print the same checksum, and subtracts each
 language's process-startup floor so the remaining column compares the
 interpreters rather than the launchers. See
 [benchmarks/python/README.md](../benchmarks/python/README.md).
+
+That end-to-end comparison is the wrong measurement for the interpreters, though:
+the workload is one to three milliseconds of work against a five to eighteen
+millisecond startup floor, so the subtraction mostly amplifies the floor's own
+jitter. `cargo test -p tiger-conformance --test protocol` — `make protocol` — is
+the measurement to read instead. It runs the same workload **in process on both
+sides**: Tiger through `Evaluator::compile` and `Evaluator::execute_compiled`
+(the compile once, the run many times), CPython through
+`benchmarks/python/protocol.py`, which compiles `workload.py` once and executes it
+the same number of times. One pinned section at a time in both files, 300
+iterations each, the minimum reported, and every checksum compared, so the two are
+demonstrably doing the same work. It **fails while any section is slower than
+CPython** with the program's own compile removed from both sides, which is what
+"2.6x slower" means. A debug build reports the table and asserts nothing, because
+the ratio a debug build measures is not a ratio anything is about.
 
 ## Where the time goes
 
@@ -302,6 +321,57 @@ Two changes that look like the obvious next step were implemented and measured
   thinned `String` but left `Tuple` a fat pointer, so `Value` never actually shrank;
   see [a smaller `Value`](#a-smaller-value-needs-a-thinner-string) for the version
   that does shrink it.
+
+## What a run costs before it does anything
+
+The protocol's `overhead` row is the measurement that explains the light sections.
+It names a section neither program answers, so each runs its whole program and does
+none of any section's work; what is left is what a run costs before it starts.
+
+| Run | Before |
+| --- | --- |
+| A Tiger run over a compiled program | 52 µs |
+| CPython's `exec` of a compiled code object | 1 µs |
+
+That is where `strings`' 5.6x came from: 200 appends are 3 µs of work, and a 52 µs
+floor is more than fifteen times that. The floor was 93% of `strings`, 60% of
+`loop`, 55% of `methods`, 27% of `lists`, and 20% of `dicts` — five of the eight
+sections were reporting a run's setup rather than the interpreter.
+
+Nearly all of it was `builtins::install`, which rebuilt every built-in, every module
+table, and the `sys.env` snapshot of the whole process environment on every run.
+None of that is program state. What is stateless is now built once per thread and
+copied into a run's scope as an `Rc` clone and a name insert (`builtins::shared`),
+and the process environment is read once per thread (`environment_variables`) with
+each run getting its own copy of the dictionary. The three that do belong to a run —
+`sys`, whose `argv` is the run's, and `random` and `secrets`, whose generators a
+program seeds for itself — are still built per run, and
+`crates/tiger-evaluator/tests/runs.rs` pins what a run may and may not inherit from
+the one before it.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| A run's own setup (`overhead`) | 52 µs | 13 µs |
+| `loop` | 0.086 ms | 0.047 |
+| `lists` | 0.192 | 0.151 |
+| `dicts` | 0.262 | 0.218 |
+| `strings` | 0.056 | 0.016 |
+| `methods` | 0.094 | 0.054 |
+| `all`, the whole workload | 2.027 | 1.974 |
+
+The 13 µs that is left is the three per-run modules, about 110 name inserts, and
+the hundred-or-so-entry `sys.env` dictionary — the last of which a run has to own,
+because a program may write into it. On the CLI's clock that is 13 µs of a five
+millisecond process, which is not what makes a process fast or slow; it is what a
+host that runs many programs pays per program, and it is the floor the protocol's
+light sections are read against.
+
+**The protocol test fails on all eight sections today**, and the floor is no longer
+most of the reason. Take it off both sides, since it is a run's own cost and not
+the section's, and `strings` is 3 µs of work against CPython's 9 — faster — with
+the floor making the ratio 1.56; `loop` is 1.2; `lists`, `dicts`, and `calls` are
+1.5 to 2.1; and `methods` (2.2) and `recursion` (2.9) are calls and the work around
+them, which is where the rest of this page's remaining cost sits.
 
 ## Reading the corpus number
 

@@ -237,6 +237,15 @@ impl Default for RunOptions {
     }
 }
 
+/// A program lowered to the linear engine's instruction list, ready to run.
+///
+/// This is what [`Evaluator::compile`] produces and [`Evaluator::execute_compiled`]
+/// runs: the compile half of a run, kept so a host that runs the same program many
+/// times pays for it once. A benchmark that compares the interpreter against another
+/// engine or language times this and the run, not the parse and the lowering, which
+/// is what makes the comparison one between interpreters rather than compilers.
+pub struct CompiledProgram(Rc<tiger_object::bytecode::Chunk>);
+
 /// The interpreter: host services, execution state, and module cache.
 pub struct Evaluator {
     pub output: Box<dyn Write>,
@@ -328,18 +337,8 @@ impl Evaluator {
     /// The error string carries a positioned diagnostic; the [`Exit`] carries the
     /// status `sys.exit` chose.
     pub fn execute(&mut self, program: &tiger_ast::Program) -> Result<Exit, String> {
-        self.steps = 0;
-        self.depth = 0;
-        self.modules.clear();
-        self.loading.clear();
-        self.import_depth = 0;
-        if !self.source_path.is_empty() {
-            self.loading.push(self.source_path.clone());
-        }
-        let builtins = object::Environment::new(None);
-        builtins::install(&builtins, &self.arguments);
-        let env = object::Environment::new(Some(builtins));
-        env.borrow_mut().source_path = self.source_path.clone();
+        self.begin();
+        let env = self.global_scope();
         // Run the linear engine when the program lowers, and fall back to the
         // tree-walking interpreter otherwise, so any program still runs. A caller
         // can force the tree-walker, which the differential tests use as the
@@ -351,6 +350,58 @@ impl Evaluator {
                 Err(compiler::Unsupported) => self.block(&program.statements, &env).map(|_| ()),
             },
         };
+        self.finish(outcome)
+    }
+
+    /// Lowers a program to the linear engine's instruction list.
+    ///
+    /// This is the compile half of a run, split out for a host that runs the same
+    /// program more than once: [`CompiledProgram`] carries what
+    /// [`Evaluator::execute_compiled`] then runs, so the compile is paid for once.
+    /// `None` means the program uses a construct the compiler does not lower, which
+    /// is the case [`Engine::Auto`] runs on the tree-walker instead.
+    pub fn compile(program: &tiger_ast::Program, source_path: &str) -> Option<CompiledProgram> {
+        compiler::compile(&program.statements, source_path).ok().map(CompiledProgram)
+    }
+
+    /// Runs a program that has already been lowered, without lowering it again.
+    ///
+    /// The linear engine's half of [`Evaluator::execute`], and the one a benchmark
+    /// that times the interpreter rather than the compiler wants: the only work
+    /// left here is the program's own global scope and running its instructions.
+    /// A program that did not lower has no [`CompiledProgram`] to run, so the
+    /// caller falls back to [`Evaluator::execute`] under [`Engine::Tree`].
+    pub fn execute_compiled(&mut self, program: &CompiledProgram) -> Result<Exit, String> {
+        self.begin();
+        let env = self.global_scope();
+        let outcome = self.run_chunk(&program.0, &env).map(|_| ());
+        self.finish(outcome)
+    }
+
+    /// Clears the state a run owns, so a second run starts where a first one did.
+    fn begin(&mut self) {
+        self.steps = 0;
+        self.depth = 0;
+        self.modules.clear();
+        self.loading.clear();
+        self.import_depth = 0;
+        if !self.source_path.is_empty() {
+            self.loading.push(self.source_path.clone());
+        }
+    }
+
+    /// The scope a program's globals are declared in: the built-ins, then a scope
+    /// of its own that remembers the file the program came from.
+    fn global_scope(&self) -> Env {
+        let builtins = object::Environment::new(None);
+        builtins::install(&builtins, &self.arguments);
+        let env = object::Environment::new(Some(builtins));
+        env.borrow_mut().source_path = self.source_path.clone();
+        env
+    }
+
+    /// Turns a run's terminal signal into the result a caller of a run reports.
+    fn finish(&self, outcome: Result<(), Signal>) -> Result<Exit, String> {
         match outcome {
             Ok(()) => Ok(Exit::default()),
             Err(Signal::Runtime { error, .. }) => Err(error.text()),
