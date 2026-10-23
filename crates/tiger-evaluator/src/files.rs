@@ -244,13 +244,31 @@ pub fn parse_file_mode(mode: &str) -> Result<FileMode, String> {
 }
 
 /// Opens a file object using the host filesystem, honoring the mode flags.
+/// Loads a file's bytes, treating a file that is not there as an empty one.
+///
+/// The flag says whether the file was there, which is what `open` needs in order to
+/// tell creating a file from reporting a missing one — and asking the host for that
+/// separately would be a second syscall for an answer the load already gave. A file
+/// that *is* there but cannot be read reports the loader's own message, so a
+/// permission problem is never told as a missing file.
+fn load_or_empty(host: &mut dyn object::Host, name: &str) -> Result<(Vec<u8>, bool), String> {
+    match host.load_file(name) {
+        Ok(data) => Ok((data, true)),
+        Err(message) => {
+            if host.file_exists(name)? {
+                return Err(message);
+            }
+            Ok((Vec::new(), false))
+        }
+    }
+}
+
 pub fn open_file(host: &mut dyn object::Host, name: &str, mode: &str) -> Result<Value, String> {
     let flag = parse_file_mode(mode)?;
-    let exists = host.file_exists(name)?;
+    let (mut data, exists) = load_or_empty(host, name)?;
     if !exists && !flag.create {
         return Err(format!("open {}: file does not exist", name));
     }
-    let mut data = if exists { host.load_file(name)? } else { Vec::new() };
     if flag.truncate {
         data.clear();
     }
@@ -265,6 +283,10 @@ pub fn open_file(host: &mut dyn object::Host, name: &str, mode: &str) -> Result<
         read: flag.read,
         write: flag.write,
         open: true,
+        // A mode that truncates has already changed the file, and a creating mode
+        // that found nothing has to bring the file into being even if nothing is
+        // ever written to it. Every other open leaves the file as it found it.
+        dirty: flag.truncate || !exists,
     }));
     Ok(Value::File(file))
 }
@@ -336,6 +358,7 @@ pub fn write_text(file: &RefCell<FileData>, text: &str) -> Result<usize, String>
     }
     borrowed.data[start..end].copy_from_slice(bytes);
     borrowed.offset = end;
+    borrowed.dirty = true;
     Ok(bytes.len())
 }
 
@@ -406,7 +429,7 @@ pub(crate) fn file_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
             "append_file",
             object::Builtin::new("append_file", |host, arguments, keywords| {
                 let (name, text) = file_text_arguments("append_file", arguments, keywords)?;
-                let mut data = if host.file_exists(&name)? { host.load_file(&name)? } else { Vec::new() };
+                let (mut data, _) = load_or_empty(host, &name)?;
                 data.extend_from_slice(text.as_bytes());
                 host.persist_file(&name, &data)?;
                 Ok(Value::Number(text.len() as f64))
@@ -558,6 +581,8 @@ fn file_method(name: &str, file: Rc<RefCell<FileData>>) -> Rc<object::Builtin> {
                     return Err(format!("flush expects 0 arguments, got {}", arguments.len()));
                 }
                 persist(&file, host)?;
+                // The bytes are on disk now, so a later close has nothing to write.
+                file.borrow_mut().dirty = false;
                 Ok(Value::Null)
             }
             "close" => {
@@ -566,7 +591,11 @@ fn file_method(name: &str, file: Rc<RefCell<FileData>>) -> Rc<object::Builtin> {
                 }
                 let was_open = file.borrow().open;
                 file.borrow_mut().open = false;
-                if was_open {
+                // Only a handle that changed the file writes it back. Closing a
+                // file that was only read must not rewrite it: that spends a
+                // syscall changing nothing and could clobber what another writer
+                // put there in the meantime.
+                if was_open && file.borrow().dirty {
                     persist(&file, host)?;
                 }
                 Ok(Value::Null)
@@ -600,7 +629,7 @@ fn file_integer(value: &Value, label: &str) -> Result<i64, String> {
     let Value::Number(number) = value else {
         return Err(format!("{} must be a safe integer", label));
     };
-    if number.is_nan() || number.is_infinite() || number.trunc() != *number || number.abs() > 9007199254740991.0 {
+    if !number.is_finite() || number.trunc() != *number || number.abs() > 9007199254740991.0 {
         return Err(format!("{} must be a safe integer", label));
     }
     Ok(*number as i64)

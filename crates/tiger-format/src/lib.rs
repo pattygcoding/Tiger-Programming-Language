@@ -101,7 +101,7 @@ pub fn number_g(value: f64) -> String {
     let exponent: i32 = exponent.parse().expect("integer exponent");
     let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
     let mut body;
-    if exponent < -4 || exponent >= 6 {
+    if !(-4..6).contains(&exponent) {
         body = String::new();
         body.push_str(&digits[..1]);
         if digits.len() > 1 {

@@ -7,7 +7,7 @@
 //! directory loader resolves from the program's own name; see `support/toolbox.tg`,
 //! the module `42_module_exports.tg` uses.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tiger_conformance::{normalize, run_in_directory, Files, RunOptions};
 
@@ -22,7 +22,7 @@ fn fixtures(extension: &str) -> Vec<PathBuf> {
     paths
 }
 
-fn stem(path: &PathBuf) -> String {
+fn stem(path: &Path) -> String {
     path.file_stem().map(|name| name.to_string_lossy().to_string()).unwrap_or_default()
 }
 

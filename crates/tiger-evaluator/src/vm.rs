@@ -26,25 +26,109 @@ type Vm = Result<Value, Signal>;
 
 /// Whether two values are the same receiver. Clones of one `Rc` share their
 /// address, so a cache hit means this instruction resolved this very object before.
+///
+/// Every receiver whose members cannot change identity once it exists is listed:
+/// a collection's methods, a module's bindings, and a string's methods are all
+/// fixed, so one shared value's member is the same member every time. A number or
+/// a boolean has no member namespace of its own and is not listed, because a
+/// value like `1` is not a unique object to guard on.
+/// Reads `collection[key]` when it is a list indexed by a non-negative integer in
+/// range, which is the shape nearly every index read has.
+///
+/// `None` means the read needs the full path, with its own key check, its negative
+/// index from the end, and its own diagnostics. Answering the common shape here
+/// costs a borrow and an index rather than a call, a key check, and a second
+/// borrow, and an index read is the operation a loop spends most of its time in.
+/// Appends to a string in place when a fused `Add` targets its own left operand.
+///
+/// `s += text` in a loop is the shape this exists for: without it the whole
+/// accumulator is copied on every iteration, which makes building a string cost the
+/// square of its length. `RcStr::append` decides whether the buffer can really be
+/// reused — a string another binding still holds is copied instead, so the alias keeps
+/// its own text.
+#[inline]
+fn append_in_place(op: Op, targets_left: bool, target: &mut Value, more: &Value) -> bool {
+    // The target's tag is the cheapest test and the one that rules out a numeric
+    // accumulator, which is what most of these instructions carry.
+    if !matches!(target, Value::String(_)) {
+        return false;
+    }
+    if !targets_left || !matches!(op, Op::Add) {
+        return false;
+    }
+    if let (Value::String(text), Value::String(more)) = (target, more) {
+        text.append(more.as_str());
+        return true;
+    }
+    false
+}
+
+#[inline]
+fn fast_index(collection: &Value, key: &Value) -> Option<Value> {
+    let Value::List(elements) = collection else { return None };
+    let Value::Number(index) = key else { return None };
+    let index = *index;
+    if index < 0.0 || index.trunc() != index {
+        return None;
+    }
+    let borrowed = elements.borrow();
+    let index = index as usize;
+    if index >= borrowed.len() {
+        return None;
+    }
+    Some(borrowed[index].clone())
+}
+
+/// Stores `collection[key] = value` when it is a list indexed by a non-negative
+/// integer in range, the shape nearly every index write has.
+///
+/// `false` means the store needs the full path. The element is dropped in place and
+/// the new one cloned into it, which for a number allocates nothing.
+#[inline]
+fn fast_store_index(collection: &Value, key: &Value, value: &Value) -> bool {
+    let Value::List(elements) = collection else { return false };
+    let Value::Number(index) = key else { return false };
+    let index = *index;
+    if index < 0.0 || index.trunc() != index {
+        return false;
+    }
+    let mut borrowed = elements.borrow_mut();
+    let index = index as usize;
+    if index >= borrowed.len() {
+        return false;
+    }
+    borrowed[index] = value.clone();
+    true
+}
+
 fn same_receiver(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::Dict(a), Value::Dict(b)) => Rc::ptr_eq(a, b),
         (Value::Module(a), Value::Module(b)) => Rc::ptr_eq(a, b),
         (Value::Instance(a), Value::Instance(b)) => Rc::ptr_eq(a, b),
+        (Value::List(a), Value::List(b)) => Rc::ptr_eq(a, b),
+        (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
+        (Value::Tuple(a), Value::Tuple(b)) => Rc::ptr_eq(a, b),
         _ => false,
     }
 }
 
 /// Whether a resolved property may be reused for the same receiver.
 ///
-/// A module's bindings and a class's methods are fixed once defined, so those are
-/// remembered. An instance *field* read is mutable state and is never remembered,
-/// and a private method's visibility is checked against the caller — which can
-/// differ between two accesses of one receiver — so neither is.
+/// A module's bindings, a class's methods, and a collection's methods are fixed
+/// once the value exists, so those are remembered — the receiver itself is the
+/// guard, and a hit means the very same receiver came back. An instance *field*
+/// read is mutable state and is never remembered, and a private method's
+/// visibility is checked against the caller — which can differ between two
+/// accesses of one receiver — so neither is.
+///
+/// A string and a tuple are deliberately left out: their members are fixed too,
+/// but a program builds most of them fresh, so remembering one would pay for a
+/// cache write that almost never gets read back.
 fn reusable_property(receiver: &Value, value: &Value) -> bool {
     match (receiver, value) {
         (Value::Dict(_), _) | (Value::Module(_), _) => true,
-        (Value::Instance(_), Value::Builtin(_)) => true,
+        (Value::Instance(_), Value::Builtin(_)) | (Value::List(_), Value::Builtin(_)) | (Value::Set(_), Value::Builtin(_)) => true,
         (Value::Instance(_), Value::BoundMethod(bound)) => {
             bound.method.function.declaration.access.is_empty() || bound.method.function.declaration.access == "public"
         }
@@ -98,7 +182,7 @@ fn fast_binary(op: Op, left: &Value, right: &Value) -> Option<Result<Value, &'st
         _ => return None,
     };
     Some(match computed {
-        Some(value) if value.is_infinite() || value.is_nan() => Err("non-finite numeric result"),
+        Some(value) if !value.is_finite() => Err("non-finite numeric result"),
         Some(value) => Ok(Value::Number(value)),
         _ => return None,
     })
@@ -155,24 +239,52 @@ impl Evaluator {
         // this test is on every instruction.
         let limit = if self.max_steps == 0 { u64::MAX } else { self.max_steps };
         loop {
-            self.steps += 1;
-            if self.steps > limit {
-                return Err(crate::fatal(&chunk.base(pc), "execution step limit exceeded".to_string()));
+            // The step counter exists only to enforce `max_steps`, so a run with no
+            // limit skips the accounting entirely: nothing else reads it, and a
+            // counted-but-unread field would be a store on every instruction.
+            if limit != u64::MAX {
+                self.steps += 1;
+                if self.steps > limit {
+                    return Err(crate::fatal(&chunk.base(pc), "execution step limit exceeded".to_string()));
+                }
             }
             let instr = chunk.code[pc];
+            #[cfg(feature = "profile")]
+            crate::profile::record(instr);
             pc += 1;
             match instr {
                 Instr::Constant(index) => stack.push(chunk.constants[index as usize].clone()),
                 Instr::Null => stack.push(Value::Null),
                 Instr::LoadName(index) => {
-                    let value = object::get(&env, &chunk.names[index as usize])
-                        .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                    // A global or built-in name read is the same read every pass
+                    // through a loop, and resolving it hashes the name at every level
+                    // of the scope chain, so the value it resolved to is remembered
+                    // against the binding epoch — see `name_cache`.
+                    let epoch = object::binding_epoch();
+                    let remembered = {
+                        let cache = chunk.name_cache.borrow();
+                        match cache.get(pc - 1).and_then(|slot| slot.as_ref()) {
+                            Some((scope, at, value)) if *at == epoch && Rc::ptr_eq(scope, &env) => Some(value.clone()),
+                            _ => None,
+                        }
+                    };
+                    let value = match remembered {
+                        Some(value) => value,
+                        None => {
+                            let value = object::get(&env, &chunk.names[index as usize])
+                                .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                            if let Some(slot) = chunk.name_cache.borrow_mut().get_mut(pc - 1) {
+                                *slot = Some((env.clone(), epoch, value.clone()));
+                            }
+                            value
+                        }
+                    };
                     stack.push(value);
                 }
                 // A flat slot belongs to this frame alone, so this is an index into
                 // `locals` with no borrow and no scope to find first.
                 Instr::LoadFlat(slot) => stack.push(locals[slot as usize].clone()),
-                Instr::StoreFlat { name, slot, constant } => {
+                Instr::StoreFlat { name, slot, constant, .. } => {
                     if constant {
                         let name = &chunk.names[name as usize];
                         return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), format!("cannot reassign const {:?}", name)));
@@ -280,6 +392,41 @@ impl Evaluator {
                     let value = stack.last().expect("stack").clone();
                     stack.push(value);
                 }
+                // Resolving a target and reading it are one step, because a compound
+                // assignment and an update both need the target resolved once and
+                // left in place for the store. The validation mirrors the
+                // interpreter's `reference` and `read_target` exactly, so the
+                // diagnostics and their positions match.
+                Instr::ReadIndexTarget => {
+                    let key = stack.pop().expect("stack");
+                    let collection = stack.pop().expect("stack");
+                    let base = chunk.base_at(chunk.position(pc - 1));
+                    let value = match &collection {
+                        Value::List(elements) => {
+                            let index = self.index_at(&base, &key, elements.borrow().len())?;
+                            elements.borrow()[index].clone()
+                        }
+                        Value::Dict(dict) => match dict.borrow().get(&key) {
+                            Ok(Some(value)) => value,
+                            Ok(None) => return Err(runtime(&base, format!("dictionary key not found: {}", object::format(&key)))),
+                            Err(message) => return Err(runtime(&base, message)),
+                        },
+                        other => return Err(runtime(&base, format!("cannot assign an index of {}", other.type_name()))),
+                    };
+                    stack.push(collection);
+                    stack.push(key);
+                    stack.push(value);
+                }
+                Instr::ReadPropertyTarget(index) => {
+                    let receiver = stack.pop().expect("stack");
+                    if !matches!(receiver, Value::Instance(_)) {
+                        let base = chunk.base_at(chunk.position(pc - 1));
+                        return Err(runtime(&base, format!("cannot assign a property of {}", receiver.type_name())));
+                    }
+                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, &env)?;
+                    stack.push(receiver);
+                    stack.push(value);
+                }
                 // Inline the numeric operators the compiler tagged, so an addition
                 // or comparison does not call out to the interpreter.
                 Instr::Binary { op, name } => {
@@ -332,8 +479,25 @@ impl Evaluator {
                 // The `Call` after this one is the one this name was loaded for, so
                 // this only has to put the callee where that call expects to find it.
                 Instr::CallName { name } => {
-                    let value = object::get(&env, &chunk.names[name as usize])
-                        .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                    let epoch = object::binding_epoch();
+                    let remembered = {
+                        let cache = chunk.name_cache.borrow();
+                        match cache.get(pc - 1).and_then(|slot| slot.as_ref()) {
+                            Some((scope, at, value)) if *at == epoch && Rc::ptr_eq(scope, &env) => Some(value.clone()),
+                            _ => None,
+                        }
+                    };
+                    let value = match remembered {
+                        Some(value) => value,
+                        None => {
+                            let value = object::get(&env, &chunk.names[name as usize])
+                                .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                            if let Some(slot) = chunk.name_cache.borrow_mut().get_mut(pc - 1) {
+                                *slot = Some((env.clone(), epoch, value.clone()));
+                            }
+                            value
+                        }
+                    };
                     stack.push(value);
                 }
                 Instr::BinaryConstant { b, op, name } => {
@@ -358,6 +522,45 @@ impl Evaluator {
                 Instr::Jump(target) => pc = target as usize,
                 Instr::JumpIfFalse(target) => {
                     if !object::truthy(&stack.pop().expect("stack")) {
+                        pc = target as usize;
+                    }
+                }
+                // A comparison that only feeds a branch never has to become a `bool`
+                // value, so these skip building it and testing its truthiness. The
+                // fused forms step over the instructions they replaced.
+                Instr::JumpUnless { op, name, target } => {
+                    let right = stack.pop().expect("stack");
+                    let left = stack.pop().expect("stack");
+                    let holds = self.test(&chunk.base_at(chunk.position(pc - 1)), op, &chunk.names[name as usize], &left, &right)?;
+                    // Step over the branch this replaced before taking its target.
+                    pc += 1;
+                    if !holds {
+                        pc = target as usize;
+                    }
+                }
+                Instr::FlatJumpUnlessFlat { a, b, op, name, target } => {
+                    let holds = self.test(
+                        &chunk.base_at(chunk.position(pc - 1)),
+                        op,
+                        &chunk.names[name as usize],
+                        &locals[a as usize],
+                        &locals[b as usize],
+                    )?;
+                    pc += 3;
+                    if !holds {
+                        pc = target as usize;
+                    }
+                }
+                Instr::FlatJumpUnlessConstant { a, b, op, name, target } => {
+                    let holds = self.test(
+                        &chunk.base_at(chunk.position(pc - 1)),
+                        op,
+                        &chunk.names[name as usize],
+                        &locals[a as usize],
+                        &chunk.constants[b as usize],
+                    )?;
+                    pc += 3;
+                    if !holds {
                         pc = target as usize;
                     }
                 }
@@ -409,7 +612,7 @@ impl Evaluator {
                 Instr::Class(index) => {
                     self.define_class_code(&chunk.classes[index as usize], &env)?;
                 }
-                Instr::Call { positional, keywords } => {
+                Instr::Call { positional, keywords, discard } => {
                     let keyword_count = keywords as usize;
                     let argument_count = positional as usize + 2 * keyword_count;
                     let at = stack.len() - argument_count;
@@ -418,6 +621,31 @@ impl Evaluator {
                     // copy. A call that passes keywords materializes those, which is the
                     // only call that allocates anything.
                     let callee = std::mem::replace(&mut stack[at - 1], Value::Null);
+                    // A built-in called with positional arguments is the shape most of
+                    // a standard-library-heavy program's work takes — `len`, `math.max`,
+                    // `str` — so it is answered here rather than through the general
+                    // call path's dispatch. The base a failure would need is built only
+                    // if one happens, because building one clones the shared source name
+                    // and that is a write to a refcount on every call.
+                    if keyword_count == 0 {
+                        if let Value::Builtin(builtin) = &callee {
+                            if !builtin.higher_order && !builtin.consumes_iterables {
+                                let value = (builtin.call)(self, &stack[at..at + positional as usize], &[])
+                                    .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                                stack.truncate(at - 1);
+                                // A call whose value is dropped absorbed the `Pop` that
+                                // would have discarded it, so it steps over that slot as
+                                // well — after the position above is read, because the
+                                // error a call raises is reported where the call is.
+                                if discard {
+                                    pc += 1;
+                                } else {
+                                    stack.push(value);
+                                }
+                                continue;
+                            }
+                        }
+                    }
                     let mut named = if keyword_count == 0 { Vec::new() } else { self.keywords_pool.pop().unwrap_or_default() };
                     if keyword_count > 0 {
                         for pair in stack[at + positional as usize..].chunks(2) {
@@ -425,20 +653,199 @@ impl Evaluator {
                             named.push(Keyword { name: name.to_string(), value: pair[1].clone() });
                         }
                     }
+                    // A user function is the next most common callee after a built-in, and
+                    // it is the one the general path's type dispatch and argument plumbing
+                    // exists for the sake of everything else. Calling it here skips that
+                    // match and the slice it would rebuild.
+                    if keyword_count == 0 {
+                        if let Value::Function(function) = &callee {
+                            let value = self.invoke(
+                                &chunk.base_at(chunk.position(pc - 1)),
+                                function,
+                                &mut stack[at..at + positional as usize],
+                                &[],
+                                None,
+                            )?;
+                            stack.truncate(at - 1);
+                            if discard {
+                                pc += 1;
+                            } else {
+                                stack.push(value);
+                            }
+                            continue;
+                        }
+                    }
+                    // A bound method is the other common callee, and its dispatch is one
+                    // step: the receiver and the method already travel together. Calling
+                    // it here skips the match and the slice it would rebuild.
+                    if let Value::BoundMethod(bound) = &callee {
+                        let value = self.invoke(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            &bound.method.function,
+                            &mut stack[at..at + positional as usize],
+                            &named,
+                            Some((&bound.method, &bound.receiver)),
+                        )?;
+                        stack.truncate(at - 1);
+                        if keyword_count > 0 {
+                            named.clear();
+                            self.keywords_pool.push(named);
+                        }
+                        if !discard {
+                            stack.push(value);
+                        } else {
+                            pc += 1;
+                        }
+                        continue;
+                    }
                     let value =
-                        self.call(&chunk.base_at(chunk.position(pc - 1)), callee, &stack[at..at + positional as usize], &named, &env)?;
+                        self.call(&chunk.base_at(chunk.position(pc - 1)), callee, &mut stack[at..at + positional as usize], &named, &env)?;
                     stack.truncate(at - 1);
                     if keyword_count > 0 {
                         named.clear();
                         self.keywords_pool.push(named);
                     }
-                    stack.push(value);
+                    if !discard {
+                        stack.push(value);
+                    } else {
+                        pc += 1;
+                    }
+                }
+                // A counting loop's step: the update and the back edge in one
+                // dispatch, with the value the update produced discarded.
+                Instr::UpdateFlatJump { name, slot, decrement, target } => {
+                    let previous = match &locals[slot as usize] {
+                        Value::Number(number) => *number,
+                        _ => {
+                            return Err(runtime(
+                                &chunk.base_at(chunk.position(pc - 1)),
+                                format!("{} requires a number", chunk.names[name as usize]),
+                            ))
+                        }
+                    };
+                    let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
+                    if !updated.is_finite() {
+                        return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), "non-finite numeric result".to_string()));
+                    }
+                    locals[slot as usize] = Value::Number(updated);
+                    pc = target as usize;
+                }
+                // An assignment whose value is a computation over flat locals: the
+                // operator and the store in one dispatch, with the result going
+                // straight into its slot instead of through the operand stack.
+                Instr::FlatBinaryFlatStore { a, b, op, name, out } => {
+                    // `s += more` with both sides in the frame's own locals, where the
+                    // accumulator is its own target: grow the string instead of copying
+                    // it whole. `b != out` keeps the two borrows disjoint.
+                    if a == out && b != out && matches!(op, Op::Add) {
+                        let more = locals[b as usize].clone();
+                        if append_in_place(op, true, &mut locals[out as usize], &more) {
+                            pc += 3;
+                            continue;
+                        }
+                    }
+                    let left = &locals[a as usize];
+                    let right = &locals[b as usize];
+                    let value = match fast_binary(op, left, right) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => {
+                            let (left, right) = (left.clone(), right.clone());
+                            self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?
+                        }
+                    };
+                    locals[out as usize] = value;
+                    pc += 3;
+                }
+                Instr::FlatBinaryConstantStore { a, b, op, name, out } => {
+                    // The same, with the right operand a constant: `s += "ab"` in a loop.
+                    if a == out && append_in_place(op, true, &mut locals[out as usize], &chunk.constants[b as usize]) {
+                        pc += 3;
+                        continue;
+                    }
+                    let left = &locals[a as usize];
+                    let right = &chunk.constants[b as usize];
+                    let value = match fast_binary(op, left, right) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => {
+                            let (left, right) = (left.clone(), right.clone());
+                            self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?
+                        }
+                    };
+                    locals[out as usize] = value;
+                    pc += 3;
+                }
+                // The tail of an assignment whose value comes off the operand stack:
+                // the operator and the store in one dispatch, so `total += items[i]`
+                // and `total += f(x)` write their result straight into its slot.
+                Instr::BinaryStore { op, name, out, reuse } => {
+                    let right = stack.pop().expect("stack");
+                    let left = stack.pop().expect("stack");
+                    let value = match (left, right, reuse) {
+                        // `x += items[i]`: the compiler proved the operand wrote none
+                        // of the frame's own slots, so what is on the stack is still the
+                        // value the target holds. Emptying the slot drops that handle,
+                        // which leaves the string with one — and one is what lets it
+                        // grow in place rather than being copied whole.
+                        (Value::String(mut text), Value::String(more), true) if matches!(op, Op::Add) => {
+                            locals[out as usize] = Value::Null;
+                            text.append(more.as_str());
+                            Value::String(text)
+                        }
+                        (left, right, _) => match fast_binary(op, &left, &right) {
+                            Some(Ok(value)) => value,
+                            Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                            None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
+                        },
+                    };
+                    locals[out as usize] = value;
+                    pc += 1;
                 }
                 Instr::GetIndex => {
                     let key = stack.pop().expect("stack");
                     let collection = stack.pop().expect("stack");
-                    let value = self.index_value(&chunk.base_at(chunk.position(pc - 1)), collection, key)?;
+                    let value = match fast_index(&collection, &key) {
+                        Some(value) => value,
+                        None => self.index_value(&chunk.base_at(chunk.position(pc - 1)), collection, key)?,
+                    };
                     stack.push(value);
+                }
+                // A flat index read and write: `items[index]` and `items[index] = n`
+                // with both sides in the frame's own locals, so no operand is pushed
+                // and popped and no operand stack is touched.
+                Instr::FlatIndexFlat { a, b } => {
+                    let value = match fast_index(&locals[a as usize], &locals[b as usize]) {
+                        Some(value) => value,
+                        None => {
+                            let collection = locals[a as usize].clone();
+                            let key = locals[b as usize].clone();
+                            self.index_value(&chunk.base_at(chunk.position(pc - 1)), collection, key)?
+                        }
+                    };
+                    stack.push(value);
+                    pc += 2;
+                }
+                Instr::FlatIndexConstant { a, b } => {
+                    let value = match fast_index(&locals[a as usize], &chunk.constants[b as usize]) {
+                        Some(value) => value,
+                        None => {
+                            let collection = locals[a as usize].clone();
+                            let key = chunk.constants[b as usize].clone();
+                            self.index_value(&chunk.base_at(chunk.position(pc - 1)), collection, key)?
+                        }
+                    };
+                    stack.push(value);
+                    pc += 2;
+                }
+                Instr::FlatStoreIndex { value, collection, key } => {
+                    if !fast_store_index(&locals[collection as usize], &locals[key as usize], &locals[value as usize]) {
+                        let value = locals[value as usize].clone();
+                        let collection = locals[collection as usize].clone();
+                        let key = locals[key as usize].clone();
+                        self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
+                    }
+                    pc += 3;
                 }
                 Instr::GetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
@@ -449,12 +856,84 @@ impl Evaluator {
                     let key = stack.pop().expect("stack");
                     let collection = stack.pop().expect("stack");
                     let value = stack.pop().expect("stack");
-                    self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
+                    if !fast_store_index(&collection, &key, &value) {
+                        self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
+                    }
                 }
                 Instr::SetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
                     let value = stack.pop().expect("stack");
                     self.store_property(chunk, pc - 1, index as usize, receiver, value, &env)?;
+                }
+                // The read-modify-write tails. Each target was resolved and read once,
+                // so these reuse what is already below the value instead of evaluating
+                // the target a second time.
+                Instr::SetIndexKeep => {
+                    let value = stack.pop().expect("stack");
+                    let key = stack.pop().expect("stack");
+                    let collection = stack.pop().expect("stack");
+                    self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
+                }
+                Instr::SetPropertyKeep(index) => {
+                    let value = stack.pop().expect("stack");
+                    let receiver = stack.pop().expect("stack");
+                    self.store_property(chunk, pc - 1, index as usize, receiver, value, &env)?;
+                }
+                Instr::UpdateIndex { name, decrement, prefix } => {
+                    let value = stack.pop().expect("stack");
+                    let key = stack.pop().expect("stack");
+                    let collection = stack.pop().expect("stack");
+                    let base = chunk.base_at(chunk.position(pc - 1));
+                    let Value::Number(previous) = value else {
+                        return Err(runtime(&base, format!("{} requires a number", chunk.names[name as usize])));
+                    };
+                    let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
+                    if !updated.is_finite() {
+                        return Err(runtime(&base, "non-finite numeric result".to_string()));
+                    }
+                    self.set_index(&base, collection, key, Value::Number(updated))?;
+                    stack.push(Value::Number(if prefix { updated } else { previous }));
+                }
+                Instr::UpdateProperty { property, name, decrement, prefix } => {
+                    let value = stack.pop().expect("stack");
+                    let receiver = stack.pop().expect("stack");
+                    let base = chunk.base_at(chunk.position(pc - 1));
+                    let Value::Number(previous) = value else {
+                        return Err(runtime(&base, format!("{} requires a number", chunk.names[name as usize])));
+                    };
+                    let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
+                    if !updated.is_finite() {
+                        return Err(runtime(&base, "non-finite numeric result".to_string()));
+                    }
+                    self.store_property(chunk, pc - 1, property as usize, receiver, Value::Number(updated), &env)?;
+                    stack.push(Value::Number(if prefix { updated } else { previous }));
+                }
+                // The flat form of an update, which is what a counting loop's
+                // counter uses. The order is the interpreter's: read, require a
+                // number, compute, require a finite result, then write — so a write
+                // to a `const` is refused only after the value has been checked.
+                Instr::UpdateFlat { name, slot, constant, decrement, prefix } => {
+                    let previous = match &locals[slot as usize] {
+                        Value::Number(number) => *number,
+                        _ => {
+                            return Err(runtime(
+                                &chunk.base_at(chunk.position(pc - 1)),
+                                format!("{} requires a number", chunk.names[name as usize]),
+                            ))
+                        }
+                    };
+                    let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
+                    if !updated.is_finite() {
+                        return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), "non-finite numeric result".to_string()));
+                    }
+                    if constant {
+                        return Err(runtime(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            format!("cannot reassign const {:?}", chunk.names[name as usize]),
+                        ));
+                    }
+                    locals[slot as usize] = Value::Number(updated);
+                    stack.push(Value::Number(if prefix { updated } else { previous }));
                 }
                 Instr::UpdateName { name, decrement, prefix } => {
                     let value =
@@ -485,7 +964,7 @@ impl Evaluator {
                     let value = match previous {
                         Some(previous) => {
                             let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
-                            if updated.is_infinite() || updated.is_nan() {
+                            if !updated.is_finite() {
                                 return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), "non-finite numeric result".to_string()));
                             }
                             let stored = scope.borrow_mut().bindings.set_at(slot, Value::Number(updated));
@@ -602,12 +1081,38 @@ impl Evaluator {
     /// Resolves `receiver.name` for one `GetProperty` instruction, remembering the
     /// answer for when the same instruction next sees the same receiver.
     ///
+    /// Decides `left <op> right` exactly as the interpreter's operator decides it,
+    /// without building the `bool` value a branch would then have to test.
+    ///
+    /// The numeric operators are inlined; anything else goes through
+    /// [`Evaluator::binary`], so a fused comparison and an unfused one agree on
+    /// every operand pair, errors included.
+    fn test(&mut self, base: &tiger_ast::Base, op: Op, name: &str, left: &Value, right: &Value) -> Result<bool, Signal> {
+        match fast_binary(op, left, right) {
+            Some(Ok(value)) => Ok(object::truthy(&value)),
+            Some(Err(message)) => Err(runtime(base, message.to_string())),
+            None => {
+                let value = self.binary(base, name, left.clone(), right.clone())?;
+                Ok(object::truthy(&value))
+            }
+        }
+    }
+
     /// This is a monomorphic inline cache, and it is worth it because a property
     /// access is a name match plus — for every receiver but an instance field — a
     /// freshly built method object. A loop over one receiver, which is the common
     /// shape, pays neither after its first pass.
     fn cached_property(&mut self, chunk: &Rc<Chunk>, pc: usize, name: usize, receiver: &Value, env: &Env) -> Vm {
         let name = &chunk.names[name];
+        // Only a receiver whose members are stable and whose identity is
+        // meaningful is worth a cache slot. A string, a tuple, or a scalar has no
+        // member of its own that could be remembered — its methods are rebuilt
+        // per access — so those take the interpreter's own path with no cache
+        // lookup at all, which is what keeps a method-heavy program from paying
+        // for a slot it can never fill.
+        if !matches!(receiver, Value::Dict(_) | Value::Module(_) | Value::Instance(_) | Value::List(_) | Value::Set(_)) {
+            return self.property(&chunk.base_at(chunk.position(pc)), receiver, name, env);
+        }
         {
             let cache = chunk.property_cache.borrow();
             match cache.get(pc).and_then(|hit| hit.as_ref()) {

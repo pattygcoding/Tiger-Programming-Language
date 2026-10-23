@@ -53,7 +53,7 @@ The underlying Wasm build command is:
 cargo build -p tiger-wasm --release --target wasm32-unknown-unknown
 ```
 
-The release profile strips symbols, and if Binaryen's `wasm-opt` is on `PATH`, `cargo run -p tiger-web` also runs `wasm-opt -Oz --converge`. The browser build keeps `regex` and the host clock out, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 844 KB but about 263 KB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
+The release profile strips symbols, and if Binaryen's `wasm-opt` is on `PATH`, `cargo run -p tiger-web` also runs `wasm-opt -Oz --converge`. The browser build keeps `regex` and the host clock out, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 915 KB but about 287 KB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
 
 For static deployment, publish the contents of `web/` along with an `examples/` subdirectory containing the Tiger examples and a `portfolio-features/` subdirectory for the Portfolio menu entries. Serve over HTTP(S), not `file://`, and send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so `input()` can wait for a line. `tigerRun(source, filename)` returns `{output, error}` inside the Wasm worker; output streams as it prints, and `input()` waits for a line typed into the output pane. Generated Wasm is ignored by Git.
 
@@ -148,6 +148,12 @@ cargo test -p tiger-conformance --test benchmarks -- --nocapture
 
 `make benchmarks` runs the same checks; `cargo test` includes them too, along with execution checks for every example and portfolio-feature program. See [benchmarks/README.md](benchmarks/README.md) for coverage and filtering commands.
 
+For timings, `make timing` reports each program in process, with no
+process startup in the numbers, and `make compare` times a paired
+Tiger/Python workload on identical work. See the
+[performance guide](docs/performance.md) for the two engines, what the
+compiler recognizes, and how a change is measured.
+
 ## Layout
 
 ```text
@@ -166,6 +172,7 @@ web/                       Browser editor, worker, and runtime glue
 examples/                  Runnable .tg programs
 docs/                      Tutorial and language reference with tested examples
 benchmarks/                100-200-line reference-output regression programs
+benchmarks/python/         Paired Tiger/Python workload and its comparison runner
 
 ```
 

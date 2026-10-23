@@ -206,7 +206,7 @@ pub fn random_module() -> Rc<Module> {
         let Value::Number(number) = &arguments[0] else {
             return Err(format!("random.seed expects a number, got {}", arguments[0].type_name()));
         };
-        if number.is_nan() || number.is_infinite() {
+        if !number.is_finite() {
             return Err(format!("random.seed expects a number, got {}", arguments[0].type_name()));
         }
         let mut value = *number as i64 as u64;
@@ -654,7 +654,7 @@ fn write_json(out: &mut String, value: &Value, seen: &mut Vec<usize>) -> Result<
         Value::Null => out.push_str("null"),
         Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
         Value::Number(number) => {
-            if number.is_nan() || number.is_infinite() {
+            if !number.is_finite() {
                 return Err("json.stringify cannot serialize a non-finite number".to_string());
             }
             out.push_str(&tiger_format::number(*number));

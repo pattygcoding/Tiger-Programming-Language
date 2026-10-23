@@ -4,7 +4,7 @@ ifeq ($(OS),Windows_NT)
 EXE := .exe
 endif
 
-.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi
+.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi timing compare
 
 build:
 	$(CARGO) build --release
@@ -18,6 +18,16 @@ test:
 
 benchmarks:
 	$(CARGO) test -p tiger-conformance --test benchmarks -- --nocapture
+
+# Times every benchmark program in process, with no process startup in the
+# numbers. TIGER_ENGINE=tree runs the same programs on the tree-walker.
+timing:
+	$(CARGO) test -p tiger-conformance --test timing --release -- --ignored --nocapture
+
+# Times a paired Tiger/Python workload on identical work and reports the ratio.
+compare:
+	$(CARGO) build --release
+	python benchmarks/python/compare.py
 
 fmt:
 	$(CARGO) fmt --check

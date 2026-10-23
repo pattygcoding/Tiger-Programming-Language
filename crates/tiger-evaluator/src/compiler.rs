@@ -7,13 +7,96 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use tiger_ast::{Base, Block, ClassDecl, ComprehensionBody, Expr, FunctionDecl, LiteralValue, Stmt};
+use tiger_ast::{Base, Block, ClassDecl, ComprehensionBody, ComprehensionClause, Expr, FunctionDecl, LiteralValue, Stmt};
 use tiger_object::bytecode::{
     CallLayout, CatchProto, Chunk, ClassProto, CompProto, FunctionProto, GenProto, Instr, Op, SliceProto, TryProto,
 };
 use tiger_object::Value;
 
 use crate::declares_in;
+
+/// Folds a binary operation whose two operands are both literals, so a constant
+/// expression is computed once, when the program is compiled, instead of on every
+/// evaluation.
+///
+/// `None` means the operation is not folded — an operand that is not a literal, or
+/// a result the runtime would reject — and the engine evaluates it as usual. That
+/// is what keeps a folded program's diagnostics identical to an unfiltered one's:
+/// `1 / 0` is left alone so the runtime still raises `division by zero`, and an
+/// overflowing product is left alone so the runtime still raises
+/// `non-finite numeric result`.
+fn fold_binary(operator: &str, left: &Expr, right: &Expr) -> Option<Value> {
+    let (Expr::Literal { value: left, .. }, Expr::Literal { value: right, .. }) = (left, right) else {
+        return None;
+    };
+    match (left, right) {
+        (LiteralValue::Number(a), LiteralValue::Number(b)) => {
+            let (a, b) = (*a, *b);
+            // A comparison on two literal numbers is exact whatever they are, so it
+            // folds without a finiteness guard; an arithmetic result has to stay
+            // finite or the runtime would have raised.
+            let computed = match operator {
+                "+" => a + b,
+                "-" => a - b,
+                "*" => a * b,
+                "/" if b != 0.0 => a / b,
+                "div" if b != 0.0 => (a / b).floor(),
+                "%" if b != 0.0 => {
+                    let mut remainder = a % b;
+                    if remainder != 0.0 && (remainder < 0.0) != (b < 0.0) {
+                        remainder += b;
+                    }
+                    remainder
+                }
+                "**" => a.powf(b),
+                "<" => return Some(Value::Bool(a < b)),
+                "<=" => return Some(Value::Bool(a <= b)),
+                ">" => return Some(Value::Bool(a > b)),
+                ">=" => return Some(Value::Bool(a >= b)),
+                "==" => return Some(Value::Bool(a == b)),
+                "!=" => return Some(Value::Bool(a != b)),
+                _ => return None,
+            };
+            if a.is_finite() && b.is_finite() && computed.is_finite() {
+                Some(Value::Number(computed))
+            } else {
+                None
+            }
+        }
+        (LiteralValue::String(a), LiteralValue::String(b)) => match operator {
+            "+" => Some(Value::string(&format!("{}{}", a, b))),
+            "==" => Some(Value::Bool(a == b)),
+            "!=" => Some(Value::Bool(a != b)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Folds a unary operator on a literal operand, with the same finiteness rule as
+/// [`fold_binary`].
+fn fold_unary(operator: &str, right: &Expr) -> Option<Value> {
+    let Expr::Literal { value: LiteralValue::Number(number), .. } = right else {
+        return None;
+    };
+    let computed = match operator {
+        "-" => -*number,
+        "+" => *number,
+        "~" => {
+            if !number.is_finite() || number.trunc() != *number {
+                return None;
+            }
+            let truncated = *number as i64;
+            !truncated as f64
+        }
+        _ => return None,
+    };
+    if computed.is_finite() {
+        Some(Value::Number(computed))
+    } else {
+        None
+    }
+}
 
 /// The names a method body's frame scope starts with: the engine binds both
 /// before any parameter, so its parameters begin at slot 2.
@@ -279,9 +362,16 @@ impl Compiler {
     /// Emits the store for a name, with the same resolution [`Compiler::emit_load`]
     /// uses.
     fn emit_store(&mut self, name: &str, base: &Base) {
+        self.emit_store_reusable(name, base, false)
+    }
+
+    /// The same, with `reuse` set when the value being stored was computed from this
+    /// slot's own value and the operand could not have written it. That is what lets a
+    /// string grow in place rather than being copied whole; see `BinaryStore`.
+    fn emit_store_reusable(&mut self, name: &str, base: &Base, reuse: bool) {
         let index = self.name(name);
         match self.resolve(name) {
-            Some(Local::Flat { slot, constant }) => self.emit(Instr::StoreFlat { name: index, slot, constant }, base),
+            Some(Local::Flat { slot, constant }) => self.emit(Instr::StoreFlat { name: index, slot, constant, reuse }, base),
             Some(Local::Env { hops, slot }) => self.emit(Instr::StoreLocal { name: index, hops, slot }, base),
             None => self.emit(Instr::StoreName(index), base),
         }
@@ -391,34 +481,115 @@ impl Compiler {
         let mut index = 0;
         while index < self.code.len() {
             let room = self.code.len() - index;
+            // Each fused instruction takes the position of the operation it
+            // performs, not of the load it replaced, so a diagnostic raised by that
+            // operation points at the operator exactly where the interpreter's does.
+            // A group's own slots stay where they were, so nothing moves.
+            if room >= 4 && !targets[index + 1] && !targets[index + 2] && !targets[index + 3] {
+                let fused = match (&self.code[index], &self.code[index + 1], &self.code[index + 2], &self.code[index + 3]) {
+                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
+                        Some((Instr::FlatJumpUnlessFlat { a: *a, b: *b, op: *op, name: *name, target: *target }, index + 2))
+                    }
+                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
+                        Some((Instr::FlatJumpUnlessConstant { a: *a, b: *b, op: *op, name: *name, target: *target }, index + 2))
+                    }
+                    // `items[i] = value` with all three in the frame's own locals.
+                    (Instr::LoadFlat(value), Instr::LoadFlat(collection), Instr::LoadFlat(key), Instr::SetIndex) => {
+                        Some((Instr::FlatStoreIndex { value: *value, collection: *collection, key: *key }, index + 3))
+                    }
+                    // An assignment whose value is a computation over flat locals:
+                    // `total = total + value`, and `total = total + 1`. A store into
+                    // a `const` is left alone, so the unfused form still raises the
+                    // error for it.
+                    (
+                        Instr::LoadFlat(a),
+                        Instr::LoadFlat(b),
+                        Instr::Binary { op, name },
+                        Instr::StoreFlat { slot, constant: false, .. },
+                    ) => Some((Instr::FlatBinaryFlatStore { a: *a, b: *b, op: *op, name: *name, out: *slot }, index + 2)),
+                    (
+                        Instr::LoadFlat(a),
+                        Instr::Constant(b),
+                        Instr::Binary { op, name },
+                        Instr::StoreFlat { slot, constant: false, .. },
+                    ) => Some((Instr::FlatBinaryConstantStore { a: *a, b: *b, op: *op, name: *name, out: *slot }, index + 2)),
+                    _ => None,
+                };
+                if let Some((fused, position)) = fused {
+                    self.code[index] = fused;
+                    self.positions[index] = self.positions[position];
+                    index += 4;
+                    continue;
+                }
+            }
             if room >= 3 && !targets[index + 1] && !targets[index + 2] {
                 let fused = match (&self.code[index], &self.code[index + 1], &self.code[index + 2]) {
                     (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name }) => {
-                        Some(Instr::FlatBinaryFlat { a: *a, b: *b, op: *op, name: *name })
+                        Some((Instr::FlatBinaryFlat { a: *a, b: *b, op: *op, name: *name }, index + 2))
                     }
                     (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name }) => {
-                        Some(Instr::FlatBinaryConstant { a: *a, b: *b, op: *op, name: *name })
+                        Some((Instr::FlatBinaryConstant { a: *a, b: *b, op: *op, name: *name }, index + 2))
+                    }
+                    // `items[index]` and `items[0]`, with the collection in the
+                    // frame's own locals.
+                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::GetIndex) => Some((Instr::FlatIndexFlat { a: *a, b: *b }, index + 2)),
+                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::GetIndex) => {
+                        Some((Instr::FlatIndexConstant { a: *a, b: *b }, index + 2))
+                    }
+                    // A counting loop's step: the update, the discard of its value,
+                    // and the back edge, in one instruction. A `const` target is left
+                    // alone so the unfused form still raises the error for it.
+                    (Instr::UpdateFlat { name, slot, constant: false, decrement, .. }, Instr::Pop, Instr::Jump(target)) => {
+                        Some((Instr::UpdateFlatJump { name: *name, slot: *slot, decrement: *decrement, target: *target }, index))
                     }
                     _ => None,
                 };
-                if let Some(fused) = fused {
+                if let Some((fused, position)) = fused {
                     self.code[index] = fused;
+                    self.positions[index] = self.positions[position];
                     index += 3;
                     continue;
                 }
             }
             if room >= 2 && !targets[index + 1] {
                 let fused = match (&self.code[index], &self.code[index + 1]) {
-                    (Instr::Constant(b), Instr::Binary { op, name }) => Some(Instr::BinaryConstant { b: *b, op: *op, name: *name }),
-                    (Instr::LoadFlat(a), Instr::GetProperty(name)) => {
-                        Some(Instr::FlatProperty { value: *a, name: *name, cache: (index + 1) as u32 })
+                    (Instr::Constant(b), Instr::Binary { op, name }) => {
+                        Some((Instr::BinaryConstant { b: *b, op: *op, name: *name }, index + 1, 2))
                     }
-                    (Instr::LoadName(name), Instr::Call { .. }) => Some(Instr::CallName { name: *name }),
+                    (Instr::LoadFlat(a), Instr::GetProperty(name)) => {
+                        Some((Instr::FlatProperty { value: *a, name: *name, cache: (index + 1) as u32 }, index + 1, 2))
+                    }
+                    // `CallName` is the name load itself, so it keeps the name's
+                    // position: an undefined name is reported where the name is, not
+                    // where the call that consumes it begins. It renames the load and
+                    // leaves the `Call` where it stands, so the pass can still see what
+                    // follows the call.
+                    (Instr::LoadName(name), Instr::Call { .. }) => Some((Instr::CallName { name: *name }, index, 1)),
+                    // A call whose value is dropped — `items.append(x);`, `print(y);`.
+                    // The result is never pushed, and the `Pop` that would have discarded
+                    // it goes away with it. `Pop` reports nothing, so the fused
+                    // instruction can keep the call's position.
+                    (Instr::Call { positional, keywords, discard: false }, Instr::Pop) => {
+                        Some((Instr::Call { positional: *positional, keywords: *keywords, discard: true }, index, 2))
+                    }
+                    // A comparison whose only consumer is the branch: the operand
+                    // stack is left alone and the truthiness test is skipped.
+                    (Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
+                        Some((Instr::JumpUnless { op: *op, name: *name, target: *target }, index, 2))
+                    }
+                    // The tail of an assignment whose value comes off the operand
+                    // stack: the operator and the store in one dispatch, with the
+                    // result going straight into its slot. The both-flat forms are
+                    // longer, so they have already been tried and lost by here.
+                    (Instr::Binary { op, name }, Instr::StoreFlat { slot, constant: false, reuse, .. }) => {
+                        Some((Instr::BinaryStore { op: *op, name: *name, out: *slot, reuse: *reuse }, index, 2))
+                    }
                     _ => None,
                 };
-                if let Some(fused) = fused {
+                if let Some((fused, position, advance)) = fused {
                     self.code[index] = fused;
-                    index += 2;
+                    self.positions[index] = self.positions[position];
+                    index += advance;
                     continue;
                 }
             }
@@ -439,6 +610,7 @@ impl Compiler {
         };
         Rc::new(Chunk {
             property_cache: std::cell::RefCell::new(vec![None; slots]),
+            name_cache: std::cell::RefCell::new(vec![None; slots]),
             code: self.code,
             constants: self.constants,
             names: self.names,
@@ -496,6 +668,13 @@ impl Compiler {
                     let end = self.here();
                     self.patch(jump, end);
                 } else {
+                    // A constant expression is computed here, once, instead of on
+                    // every evaluation.
+                    if let Some(folded) = fold_binary(operator, left, right) {
+                        let index = self.constant(folded);
+                        self.emit(Instr::Constant(index), base);
+                        return Ok(());
+                    }
                     self.expression(left)?;
                     self.expression(right)?;
                     let index = self.name(operator);
@@ -504,6 +683,11 @@ impl Compiler {
                 }
             }
             Expr::Unary { base, operator, right } => {
+                if let Some(folded) = fold_unary(operator, right) {
+                    let index = self.constant(folded);
+                    self.emit(Instr::Constant(index), base);
+                    return Ok(());
+                }
                 self.expression(right)?;
                 let index = self.name(operator);
                 self.emit(Instr::Unary(index), base);
@@ -566,7 +750,7 @@ impl Compiler {
                     self.emit(Instr::Constant(name), base);
                     self.expression(&entry.value)?;
                 }
-                self.emit(Instr::Call { positional: arguments.len() as u32, keywords: keywords.len() as u32 }, base);
+                self.emit(Instr::Call { positional: arguments.len() as u32, keywords: keywords.len() as u32, discard: false }, base);
             }
             _ => return self.expression_tail(expression),
         }
@@ -611,16 +795,41 @@ impl Compiler {
                 self.emit(Instr::GetProperty(index), base);
             }
             Expr::Update { base, target, operator, prefix } => {
-                let Expr::Identifier { name, .. } = &**target else { return Err(Unsupported) };
-                let index = self.name(name);
                 let decrement = operator == "--";
-                // An update target is never flat — the analysis keeps it in the
-                // environment — so only the environment slot case applies here.
-                match self.resolve(name) {
-                    Some(Local::Env { hops, slot }) => {
-                        self.emit(Instr::UpdateLocal { name: index, hops, slot, decrement, prefix: *prefix }, base)
+                // The operator's own spelling is what the "requires a number"
+                // diagnostic quotes, so an index or property update carries it too.
+                let op_index = self.name(operator);
+                match &**target {
+                    Expr::Identifier { name, .. } => {
+                        let index = self.name(name);
+                        // A counter that reaches no nested function lives in the
+                        // frame's own locals, so its update is a plain slot write.
+                        match self.resolve(name) {
+                            Some(Local::Flat { slot, constant }) => {
+                                self.emit(Instr::UpdateFlat { name: index, slot, constant, decrement, prefix: *prefix }, base)
+                            }
+                            Some(Local::Env { hops, slot }) => {
+                                self.emit(Instr::UpdateLocal { name: index, hops, slot, decrement, prefix: *prefix }, base)
+                            }
+                            None => self.emit(Instr::UpdateName { name: index, decrement, prefix: *prefix }, base),
+                        }
                     }
-                    _ => self.emit(Instr::UpdateName { name: index, decrement, prefix: *prefix }, base),
+                    // An index or property target is resolved once and updated in
+                    // place, so `items[i]++` reads and writes one element and the
+                    // target's own expressions run once, as the interpreter does.
+                    Expr::Index { base: target_base, collection, key } => {
+                        self.expression(collection)?;
+                        self.expression(key)?;
+                        self.emit(Instr::ReadIndexTarget, target_base);
+                        self.emit(Instr::UpdateIndex { name: op_index, decrement, prefix: *prefix }, base);
+                    }
+                    Expr::Property { base: target_base, receiver, name } => {
+                        self.expression(receiver)?;
+                        let property = self.name(name);
+                        self.emit(Instr::ReadPropertyTarget(property), target_base);
+                        self.emit(Instr::UpdateProperty { property, name: op_index, decrement, prefix: *prefix }, base);
+                    }
+                    _ => return Err(Unsupported),
                 }
             }
             Expr::FormattedString { base, parts } => {
@@ -759,8 +968,8 @@ impl Compiler {
                 for branch in branches {
                     self.expression(&branch.condition)?;
                     let to_next = self.here();
-                    self.emit(Instr::JumpIfFalse(0), &branch.condition.base());
-                    self.branch_body(&branch.body, &branch.condition.base())?;
+                    self.emit(Instr::JumpIfFalse(0), branch.condition.base());
+                    self.branch_body(&branch.body, branch.condition.base())?;
                     ends.push(self.here());
                     self.emit(Instr::Jump(0), base);
                     let next = self.here();
@@ -1062,14 +1271,56 @@ impl Compiler {
             return Ok(());
         }
         if operator != "=" {
-            let Expr::Identifier { name, .. } = target else { return Err(Unsupported) };
-            self.emit_load(name, base);
-            self.expression(value)?;
             let trimmed = operator.trim_end_matches('=');
             let index_of_op = self.name(trimmed);
             let op = operator_code(trimmed);
-            self.emit(Instr::Binary { op, name: index_of_op }, base);
-            self.emit_store(name, base);
+            match target {
+                Expr::Identifier { name, .. } => {
+                    self.emit_load(name, base);
+                    let operand_start = self.code.len();
+                    self.expression(value)?;
+                    // `x += items[i]`: when the operand wrote none of the frame's own
+                    // slots, the value the load pushed is still the one in the target,
+                    // so the store can take it back by value and let a string grow in
+                    // place instead of being copied whole. The scan is what makes that
+                    // sound — see `BinaryStore`'s `reuse` in the VM — and it is
+                    // conservative: any slot write in the operand disables it.
+                    let wrote_flat = self.code[operand_start..].iter().any(|instruction| {
+                        matches!(
+                            instruction,
+                            Instr::StoreFlat { .. }
+                                | Instr::DefineFlat { .. }
+                                | Instr::UpdateFlat { .. }
+                                | Instr::UpdateFlatJump { .. }
+                                | Instr::FlatBinaryFlatStore { .. }
+                                | Instr::FlatBinaryConstantStore { .. }
+                                | Instr::BinaryStore { .. }
+                        )
+                    });
+                    self.emit(Instr::Binary { op, name: index_of_op }, base);
+                    self.emit_store_reusable(name, base, !wrote_flat);
+                }
+                // A property or index target is resolved once and read, then the
+                // right-hand side is evaluated, combined, and stored back into the
+                // same place — the order the interpreter's compound assignment uses.
+                Expr::Property { base: target, receiver, name } => {
+                    self.expression(receiver)?;
+                    let index = self.name(name);
+                    self.emit(Instr::ReadPropertyTarget(index), target);
+                    self.expression(value)?;
+                    self.emit(Instr::Binary { op, name: index_of_op }, base);
+                    self.emit(Instr::SetPropertyKeep(index), target);
+                }
+                Expr::Index { base: target, collection, key } => {
+                    self.expression(collection)?;
+                    self.expression(key)?;
+                    self.emit(Instr::ReadIndexTarget, target);
+                    self.expression(value)?;
+                    self.emit(Instr::Binary { op, name: index_of_op }, base);
+                    self.emit(Instr::SetIndexKeep, target);
+                }
+                _ => return Err(Unsupported),
+            }
             return Ok(());
         }
         match target {
@@ -1124,6 +1375,10 @@ fn jump_target(instruction: &Instr) -> Option<u32> {
         | Instr::JumpIfFalseOrPop(target)
         | Instr::JumpIfTrueOrPop(target)
         | Instr::IterNext(target) => Some(*target),
+        Instr::JumpUnless { target, .. } | Instr::FlatJumpUnlessFlat { target, .. } | Instr::FlatJumpUnlessConstant { target, .. } => {
+            Some(*target)
+        }
+        Instr::UpdateFlatJump { target, .. } => Some(*target),
         _ => None,
     }
 }
@@ -1268,6 +1523,46 @@ fn scan_class(declaration: &ClassDecl, out: &mut HashSet<String>) {
     }
 }
 
+/// Scans `expression` and then forgets the names the enclosing construct binds.
+///
+/// A comprehension's own variables are bound in the scope it opens, so a reference
+/// to one of them never reaches the enclosing scope and must not force a same-named
+/// variable *there* into the environment. `bound` is the set of names bound so far,
+/// and a name this scan was the only one to add is dropped again — while a name an
+/// earlier part of the program genuinely captured stays captured.
+fn scan_shadowed(expression: &Expr, out: &mut HashSet<String>, bound: &HashSet<String>) {
+    if bound.is_empty() {
+        scan_expr(expression, true, out);
+        return;
+    }
+    let before: HashSet<String> = out.clone();
+    scan_expr(expression, true, out);
+    for name in bound {
+        if !before.contains(name) {
+            out.remove(name);
+        }
+    }
+}
+
+/// Scans a comprehension's or generator's clauses, returning the names they bind.
+///
+/// A clause's iterable runs before that clause binds its name and after the earlier
+/// clauses have bound theirs, so the set grows as the clauses are scanned. Scanning
+/// in that order is what keeps `[x for x in a if y > 0 for y in b]` sound: the
+/// filter's `y` is read before the second clause binds it, so it is an outer
+/// reference and stays captured.
+fn scan_clauses(clauses: &[ComprehensionClause], out: &mut HashSet<String>) -> HashSet<String> {
+    let mut bound: HashSet<String> = HashSet::new();
+    for clause in clauses {
+        scan_shadowed(&clause.iterable, out, &bound);
+        bound.insert(clause.name.clone());
+        for filter in &clause.filters {
+            scan_shadowed(filter, out, &bound);
+        }
+    }
+    bound
+}
+
 fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
     match expression {
         Expr::Literal { .. } => {}
@@ -1302,9 +1597,10 @@ fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
             }
         }
         Expr::Unary { right, .. } => scan_expr(right, inside, out),
-        // An update target stays in the environment: the engine has an update for
-        // an environment slot but not yet for a flat one.
-        Expr::Update { target, .. } => scan_expr(target, true, out),
+        // An update target may stay flat: the engine has an update for a flat slot,
+        // and the analysis marks the name captured only when a nested function
+        // actually reaches it — which is when the environment has to carry it.
+        Expr::Update { target, .. } => scan_expr(target, inside, out),
         Expr::Binary { left, right, .. } => {
             scan_expr(left, inside, out);
             scan_expr(right, inside, out);
@@ -1334,31 +1630,24 @@ fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
             }
         }
         Expr::Comprehension { body, clauses, .. } => {
+            // The clauses are scanned before the element, because the element runs
+            // with every clause's variable already bound.
+            let bound = scan_clauses(clauses, out);
             match body {
-                ComprehensionBody::List(element) => scan_expr(element, true, out),
+                ComprehensionBody::List(element) => scan_shadowed(element, out, &bound),
                 ComprehensionBody::Dict(pair) => {
-                    scan_expr(&pair.key, true, out);
-                    scan_expr(&pair.value, true, out);
-                }
-            }
-            for clause in clauses {
-                scan_expr(&clause.iterable, true, out);
-                for filter in &clause.filters {
-                    scan_expr(filter, true, out);
+                    scan_shadowed(&pair.key, out, &bound);
+                    scan_shadowed(&pair.value, out, &bound);
                 }
             }
         }
         Expr::Generator { body, clauses, .. } => {
             // A generator body and its clause expressions run later, in the scope
             // the generator captured, so any name they mention has to stay
-            // reachable through the environment rather than a flat slot.
-            scan_expr(body, true, out);
-            for clause in clauses {
-                scan_expr(&clause.iterable, true, out);
-                for filter in &clause.filters {
-                    scan_expr(filter, true, out);
-                }
-            }
+            // reachable through the environment rather than a flat slot — except the
+            // generator's own variables, which its own scope carries.
+            let bound = scan_clauses(clauses, out);
+            scan_shadowed(body, out, &bound);
         }
         Expr::Dict { pairs, .. } => {
             for pair in pairs {

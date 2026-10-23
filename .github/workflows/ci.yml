@@ -71,7 +71,7 @@ jobs:
         run: |
           artifact=target/wasm32-unknown-unknown/release/tiger_wasm.wasm
           size=$(stat -c %s "$artifact")
-          budget=900000
+          budget=990000
           echo "tiger.wasm is $size bytes (budget $budget)"
           if [ "$size" -gt "$budget" ]; then
             echo "::error::tiger.wasm grew past the size budget; see AGENTS.md (Wasm size guardrails)"

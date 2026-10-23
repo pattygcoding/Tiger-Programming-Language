@@ -64,7 +64,7 @@ fn range_builtin() -> Rc<object::Builtin> {
             let Value::Number(number) = argument else {
                 return Err("range arguments must be safe integers (absolute value <= 9007199254740991)".to_string());
             };
-            if number.is_nan() || number.is_infinite() || number.trunc() != *number || number.abs() > 9007199254740991.0 {
+            if !number.is_finite() || number.trunc() != *number || number.abs() > 9007199254740991.0 {
                 return Err("range arguments must be safe integers (absolute value <= 9007199254740991)".to_string());
             }
             values.push(*number as i64);
@@ -323,18 +323,15 @@ fn split_graphemes(text: &str) -> Vec<String> {
     let mut current: Vec<char> = Vec::new();
     let mut join = false;
     for ch in text.chars() {
-        let separate = if current.is_empty() {
-            false
-        } else if join {
-            join = false;
-            false
-        } else if extends_grapheme(ch) {
-            false
-        } else if is_regional_indicator(ch) && current.len() == 1 && is_regional_indicator(current[0]) {
-            false
-        } else {
-            !(ch == '\n' && *current.last().unwrap() == '\r')
-        };
+        // A cluster continues when this character joins the one before it: the
+        // previous iteration asked for a join, or this is a combining mark, or this
+        // is the second half of a regional-indicator pair. Anything else starts a new
+        // cluster, unless it is the `\n` of a `\r\n` pair.
+        let joins = current.is_empty()
+            || std::mem::take(&mut join)
+            || extends_grapheme(ch)
+            || (is_regional_indicator(ch) && current.len() == 1 && is_regional_indicator(current[0]));
+        let separate = if joins { false } else { !(ch == '\n' && *current.last().unwrap() == '\r') };
         if separate {
             clusters.push(current.iter().collect());
             current.clear();
@@ -404,7 +401,7 @@ fn aggregate_builtins() -> Vec<(&'static str, Rc<object::Builtin>)> {
                     };
                     total += number;
                 }
-                if total.is_infinite() || total.is_nan() {
+                if !total.is_finite() {
                     return Err("non-finite numeric result".to_string());
                 }
                 Ok(Value::Number(total))

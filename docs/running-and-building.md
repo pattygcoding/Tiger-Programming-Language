@@ -97,8 +97,10 @@ in-memory filesystem, is available.
 
 The runtime stays small because of the release profile and the module split:
 
-- `[profile.release]` sets `opt-level = 3` and `strip = "symbols"`, which drops
-  the symbol table and debug data.
+- `[profile.release]` sets `opt-level = 3`, `lto = "fat"`, and
+  `codegen-units = 1`, and strips the symbol table and debug data with
+  `strip = "symbols"`. Link-time optimization and a single codegen unit trade a
+  longer build for a faster binary, and they also make `tiger.wasm` smaller.
 - `regex`, the host clock, and the host entropy source live behind a
   `#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]` split with stubs
   that report the documented error, so neither the `regex` crate, `SystemTime`,
@@ -111,7 +113,7 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 844 KB, about 263 KB with gzip, and smaller still
+The stripped binary is about 915 KB, about 287 KB with gzip, and smaller still
 with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable
 gzip or Brotli for the `application/wasm` content type. The local `cargo run -p
 tiger-web` server does not compress.
@@ -170,11 +172,15 @@ there is no API for persisting Tiger bindings across separate executions.
 
 A program runs on the compiled engine when it lowers, and falls back to the
 tree-walking interpreter for the few constructs the compiler does not cover yet:
-destructuring, spread calls, an index or property update such as `x[i]++`, and a
-`break` or `continue` that would leave a `try`. `try`/`catch`/`finally`,
-`switch`/`match`, and slices are all compiled, including a `return` from any block
-of a `try`, which unwinds through the `finally` on its way out of the enclosing
-function.
+destructuring, spread calls, and a `break` or `continue` that would leave a `try`.
+The fallback is per program, so one such construct anywhere puts the whole program
+on the tree-walker. A compound assignment or an update through an index or a
+property — `x[i] += 1`, `x[i]++`, `this.count -= 1` — is compiled, and resolves its
+target once so the two engines agree on evaluation order and on the position of
+every diagnostic. `try`/`catch`/`finally`, `switch`/`match`, slices, and constant
+folding are all compiled, including a `return` from any block of a `try`, which
+unwinds through the `finally` on its way out of the enclosing function. See the
+[performance guide](performance.md) for what else the compiler recognizes.
 `tiger_evaluator::run_with_options` pins both the engine and the step limit, which
 is how the differential test runs every fixture on both engines and checks that
 they agree. `Engine::Tree` forces the tree-walker, and `max_steps` counts
@@ -214,6 +220,13 @@ interpreter instead of the compiled engine, which is how the compiled engine's
 share of a workload is measured without a profiler, and `TIGER_SHOW_OUTPUT=1`
 keeps the program's own output for a program that times itself.
 
+`make compare` times a paired Tiger/Python workload on identical work and reports
+the ratio, subtracting each language's process-startup floor so the numbers
+compare the interpreters. The two programs print the same checksum, and the runner
+refuses to report a time if they ever disagree. See the
+[performance guide](performance.md) and
+[benchmarks/python/README.md](../benchmarks/python/README.md).
+
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty-three 100-200-line benchmark programs
 against fixed output files, the 176 documentation examples, every example and
@@ -225,8 +238,9 @@ the output shown in Markdown, and the benchmark suite checks the programs agains
 their `.txt` files; neither is a performance threshold test. The standalone
 integration tests build and execute real executables.
 
-`make build`, `make run`, `make test`, `make benchmarks`, `make wasm`,
-`make wasm-check`, `make startup`, `make web`, and `make wasi` wrap the commands
+`make build`, `make run`, `make test`, `make benchmarks`, `make timing`,
+`make compare`, `make wasm`, `make wasm-check`, `make startup`, `make web`, and
+`make wasi` wrap the commands
 above. `make startup` boots the served playground over HTTP with Node and runs a
 program on it, which is the same path a browser takes.
 

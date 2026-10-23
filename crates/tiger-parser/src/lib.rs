@@ -20,8 +20,7 @@ pub fn parse(source: &str) -> Result<Program, String> {
 pub fn parse_source(source: &str, filename: &str) -> Result<Program, String> {
     let tokens = lexer::scan_named(source, filename)?;
     let mut parser = Parser {
-        tokens,
-        pos: 0,
+        tokens: tokens.into_iter(),
         function_depth: 0,
         loop_depth: 0,
         switch_depth: 0,
@@ -40,8 +39,13 @@ pub fn parse_source(source: &str, filename: &str) -> Result<Program, String> {
 }
 
 struct Parser {
-    tokens: Vec<Token>,
-    pos: usize,
+    /// The tokens still to come, consumed from the front.
+    ///
+    /// A parser only ever moves forward, so the list is drained rather than
+    /// indexed: taking a token hands it over — text and all — instead of copying it
+    /// and leaving the copy behind. `as_slice` still gives the lookahead a
+    /// two-character operator or a `name in` header needs.
+    tokens: std::vec::IntoIter<Token>,
     function_depth: usize,
     loop_depth: usize,
     switch_depth: usize,
@@ -63,19 +67,30 @@ type ForClauses = (Option<Box<Stmt>>, Option<Expr>, Option<Box<Stmt>>);
 
 impl Parser {
     fn current(&self) -> &Token {
-        &self.tokens[self.pos]
+        self.tokens.as_slice().first().expect("the token list ends with an end-of-input token")
+    }
+
+    /// The token `offset` places ahead of the current one, or `None` past the end.
+    fn peek(&self, offset: usize) -> Option<&Token> {
+        self.tokens.as_slice().get(offset)
     }
 
     fn at(&self, kind: lexer::Kind) -> bool {
         self.current().kind == kind
     }
 
+    /// Consumes the current token and hands it over.
+    ///
+    /// The token is *moved* out rather than copied: an identifier, a number, or a
+    /// string carries its text, and a copy would duplicate it — one `String` left in
+    /// the token list, one moved into the tree.
     fn take(&mut self) -> Token {
-        let token = self.tokens[self.pos].clone();
-        if token.kind != lexer::EOF {
-            self.pos += 1;
+        if self.at(lexer::EOF) {
+            // The end of the input is not consumed, and more than one caller may
+            // look at it, so it is copied rather than moved.
+            return self.current().clone();
         }
-        token
+        self.tokens.next().expect("the current token is not consumed yet")
     }
 
     fn take_if(&mut self, kind: lexer::Kind) -> bool {
@@ -97,12 +112,11 @@ impl Parser {
     /// `this.value` and the built-in `regex.match` keep working even though
     /// `this` and `match` are reserved words.
     fn member_name(&mut self) -> Result<Token, String> {
-        let token = self.current().clone();
-        if self.at(lexer::IDENT) || lexer::KEYWORDS.contains(&token.kind) {
-            self.take();
-            return Ok(token);
+        if !self.at(lexer::IDENT) && !lexer::is_keyword(self.current().kind) {
+            let token = self.current();
+            return Err(token.errorf(&format!("expected a member name after '.', found {:?}", token.kind)));
         }
-        Err(token.errorf(&format!("expected a member name after '.', found {:?}", token.kind)))
+        Ok(self.take())
     }
 
     fn enter(&mut self) -> Result<(), String> {
@@ -115,13 +129,13 @@ impl Parser {
 
     /// Reports whether the parser is at `name:` followed by a loop keyword.
     fn labeled_loop(&self) -> bool {
-        if self.pos + 2 >= self.tokens.len() {
+        let (Some(first), Some(colon), Some(keyword)) = (self.peek(0), self.peek(1), self.peek(2)) else {
+            return false;
+        };
+        if first.kind != lexer::IDENT || colon.kind != ":" {
             return false;
         }
-        if self.tokens[self.pos].kind != lexer::IDENT || self.tokens[self.pos + 1].kind != ":" {
-            return false;
-        }
-        matches!(self.tokens[self.pos + 2].kind, "for" | "while" | "do")
+        matches!(keyword.kind, "for" | "while" | "do")
     }
 
     fn has_label(&self, name: &str) -> bool {
@@ -261,10 +275,10 @@ impl Parser {
     }
 
     fn expect_word(&mut self, word: &str) -> Result<Token, String> {
-        if !self.take_word(word) {
+        if !self.at_word(word) {
             return Err(self.current().errorf(&format!("expected {:?}", word)));
         }
-        Ok(self.tokens[self.pos - 1].clone())
+        Ok(self.take())
     }
 
     fn statement(&mut self) -> Result<Stmt, String> {
@@ -592,7 +606,14 @@ impl Parser {
             let operator = self.take();
             self.assignment_target(&value)?;
             let right = self.expression(0)?;
-            return Ok(Stmt::Assign { base, target: value, value: right, operator: operator.text, constant: false, declaration: false });
+            return Ok(Stmt::Assign {
+                base,
+                target: value,
+                value: right,
+                operator: operator.spelling().to_string(),
+                constant: false,
+                declaration: false,
+            });
         }
         Ok(Stmt::Expression { base, value })
     }
@@ -643,7 +664,7 @@ impl Parser {
     /// The `for name in iterable` header, or `None` when the loop uses the
     /// three-clause form instead.
     fn for_iterable(&mut self) -> Result<Option<(String, Expr)>, String> {
-        let iterates = self.at(lexer::IDENT) && self.tokens.get(self.pos + 1).map(|token| token.kind) == Some("in");
+        let iterates = self.at(lexer::IDENT) && self.peek(1).map(|token| token.kind) == Some("in");
         if !iterates {
             return Ok(None);
         }
@@ -660,8 +681,8 @@ impl Parser {
         let closer = if parenthesized { ")" } else { "{" };
         // C-style headers often name a type; Tiger has no type annotations.
         if self.at(lexer::IDENT)
-            && self.tokens.get(self.pos + 1).map(|token| token.kind) == Some(lexer::IDENT)
-            && self.tokens.get(self.pos + 2).map(|token| token.kind) == Some("=")
+            && self.peek(1).map(|token| token.kind) == Some(lexer::IDENT)
+            && self.peek(2).map(|token| token.kind) == Some("=")
         {
             return Err(self.current().errorf(&format!(
                 "{} looks like a type name; Tiger has no type annotations, so declare the loop variable with var",
@@ -856,19 +877,21 @@ impl Parser {
                 left = Expr::Literal { base: base.clone(), value: LiteralValue::Number(value) };
             }
             lexer::STRING => {
-                left = Expr::Literal { base: base.clone(), value: LiteralValue::String(token.text.clone()) };
+                left = Expr::Literal { base: base.clone(), value: LiteralValue::String(token.text) };
             }
             lexer::FSTRING => {
                 let mut parts = Vec::new();
-                for part in &token.parts {
+                // The token is owned here, so each part and its text are moved into
+                // the tree rather than copied.
+                for part in token.parts {
                     if part.kind == lexer::STRING {
-                        parts.push(Expr::Literal { base: Base::from_token(part), value: LiteralValue::String(part.text.clone()) });
+                        parts.push(Expr::Literal { base: Base::from_token(&part), value: LiteralValue::String(part.text) });
                         continue;
                     }
-                    let (expression_tokens, spec) = split_format_spec(&part.parts);
+                    let part_base = Base::from_token(&part);
+                    let (expression_tokens, spec) = split_format_spec(part.parts);
                     let mut nested = Parser {
-                        tokens: expression_tokens,
-                        pos: 0,
+                        tokens: expression_tokens.into_iter(),
                         function_depth: 0,
                         loop_depth: 0,
                         switch_depth: 0,
@@ -882,7 +905,7 @@ impl Parser {
                     };
                     let value = nested.expression(0)?;
                     nested.expect(lexer::EOF)?;
-                    parts.push(Expr::Interpolation { base: Base::from_token(part), value: Box::new(value), spec });
+                    parts.push(Expr::Interpolation { base: part_base, value: Box::new(value), spec });
                 }
                 left = Expr::FormattedString { base: base.clone(), parts };
             }
@@ -915,14 +938,14 @@ impl Parser {
             "-" | "+" | "~" | "not" | "!" => {
                 // `!` is `not` under another spelling, including its precedence.
                 let binding = if token.kind == "not" || token.kind == "!" { 2 } else { 10 };
-                let operator = if token.kind == "!" { "not".to_string() } else { token.text.clone() };
+                let operator = if token.kind == "!" { "not".to_string() } else { token.spelling().to_string() };
                 let right = self.expression(binding)?;
                 left = Expr::Unary { base: base.clone(), operator, right: Box::new(right) };
             }
             "++" | "--" => {
                 let target = self.expression(11)?;
                 self.assignment_target(&target)?;
-                left = Expr::Update { base: base.clone(), target: Box::new(target), operator: token.text.clone(), prefix: true };
+                left = Expr::Update { base: base.clone(), target: Box::new(target), operator: token.spelling().to_string(), prefix: true };
             }
             "(" => {
                 // `()` is the empty tuple, `(value)` is a parenthesized
@@ -1050,7 +1073,12 @@ impl Parser {
             match operator.kind {
                 "++" | "--" => {
                     self.assignment_target(&left)?;
-                    left = Expr::Update { base: base.clone(), target: Box::new(left), operator: operator.text.clone(), prefix: false };
+                    left = Expr::Update {
+                        base: base.clone(),
+                        target: Box::new(left),
+                        operator: operator.spelling().to_string(),
+                        prefix: false,
+                    };
                 }
                 "." => {
                     let member = self.member_name()?;
@@ -1074,7 +1102,7 @@ impl Parser {
                     };
                 }
                 _ => {
-                    let mut text = operator.text.clone();
+                    let mut text = operator.spelling().to_string();
                     if text == "&&" || text == "||" {
                         text = if text == "&&" { "and".to_string() } else { "or".to_string() };
                     }
@@ -1118,7 +1146,7 @@ impl Parser {
                     }
                     let value = self.expression(0)?;
                     arguments.push(Argument { value, spread: true });
-                } else if self.at(lexer::IDENT) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == "=" {
+                } else if self.at(lexer::IDENT) && self.peek(1).map(|token| token.kind) == Some("=") {
                     seen_keyword = true;
                     let name = self.take();
                     self.take();
@@ -1185,27 +1213,52 @@ impl Parser {
 
 /// Splits the expression tokens of an f-string field from a trailing `:spec`
 /// that sits at bracket depth zero.
-fn split_format_spec(tokens: &[Token]) -> (Vec<Token>, String) {
+///
+/// The field's tokens are moved in rather than borrowed, because the nested parser
+/// takes ownership of them: copying them would duplicate the text of every
+/// identifier in every f-string field.
+fn split_format_spec(mut tokens: Vec<Token>) -> (Vec<Token>, String) {
     let mut depth = 0i32;
-    for (index, token) in tokens.iter().enumerate() {
-        match token.kind {
+    for index in 0..tokens.len() {
+        let kind = tokens[index].kind;
+        match kind {
             "(" | "[" | "{" => depth += 1,
             ")" | "]" | "}" => depth -= 1,
             ":" => {
                 if depth != 0 {
                     continue;
                 }
-                let spec: String = tokens[index + 1..].iter().map(|piece| piece.text.as_str()).collect();
-                let mut expression: Vec<Token> = tokens[..index].to_vec();
-                let mut eof = Token::new(lexer::EOF, token.line, token.column);
-                eof.source = token.source.clone();
-                expression.push(eof);
-                return (expression, spec);
+                let spec: String = tokens[index + 1..].iter().map(|piece| piece.spelling()).collect();
+                let separator = tokens[index].clone();
+                tokens.truncate(index);
+                let mut eof = Token::new(lexer::EOF, separator.line, separator.column);
+                eof.source = separator.source;
+                tokens.push(eof);
+                return (tokens, spec);
             }
             _ => {}
         }
     }
-    (tokens.to_vec(), String::new())
+    (tokens, String::new())
+}
+
+fn precedence(kind: lexer::Kind) -> i32 {
+    match kind {
+        "or" | "||" => 1,
+        "if" => 1,
+        "and" | "&&" => 2,
+        "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" => 3,
+        "|" => 4,
+        "^" => 5,
+        "&" => 6,
+        "<<" | ">>" => 7,
+        "+" | "-" => 8,
+        "*" | "/" | "%" | "div" => 9,
+        "**" => 11,
+        "(" | "[" | "." => 12,
+        "++" | "--" => 13,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
@@ -1218,6 +1271,52 @@ mod tests {
 
     fn parse_err(source: &str) -> String {
         parse(source).expect_err("expected a syntax error")
+    }
+
+    /// The lookahead and back-reference paths the token handling goes through.
+    ///
+    /// A parser consumes its tokens rather than indexing them, so a case that reads
+    /// ahead — a member name, a labeled loop, a keyword argument, a type-name hint —
+    /// is what would break if a token were handed over too early.
+    #[test]
+    fn reads_ahead_the_way_the_token_handling_expects() {
+        // A member name may be a keyword, and anything else after a `.` is an error
+        // that names what it found.
+        parse_ok("class Box { var v = 1; Box() {} function get() { return this.v; } }");
+        parse_ok("const a = [1]; print(a.size());");
+        let error = parse_err("const a = [1]; print(a.1);");
+        assert!(error.contains("expected a member name after '.'"), "{}", error);
+
+        // An f-string field, with and without a trailing format spec: the spec is
+        // split off the field's own tokens.
+        parse_ok("const x = 2; print(f\"{x}\", f\"{x:.1f}\", f\"a{x}b\", f\"{x + 1}\");");
+
+        // A labeled loop reads three tokens ahead.
+        parse_ok("outer: for (var i = 0; i < 2; i++) { break outer; }");
+
+        // A keyword argument reads one token ahead.
+        parse_ok("function f(a, b) { return a; } print(f(1, b=2));");
+
+        // The three-clause header's type-name hint reads two tokens ahead.
+        let error = parse_err("for (int i = 0; i < 2; i++) {}");
+        assert!(error.contains("looks like a type name"), "{}", error);
+    }
+
+    /// A token's text moves into the tree, so what the tree holds is what the source
+    /// spelled — including a keyword used as a member name and a string with escapes.
+    #[test]
+    fn keeps_the_text_of_the_tokens_it_consumes() {
+        let program = parse_ok("const greeting = \"hi\\n\"; const n = 12.5; print(greeting, n);");
+        let Stmt::Assign { value, .. } = &program.statements[0] else { panic!("assign") };
+        let Expr::Literal { value: LiteralValue::String(text), .. } = value else { panic!("string") };
+        assert_eq!(text, "hi\n");
+        let Stmt::Assign { value, .. } = &program.statements[1] else { panic!("assign") };
+        let Expr::Literal { value: LiteralValue::Number(number), .. } = value else { panic!("number") };
+        assert_eq!(*number, 12.5);
+        let Stmt::Expression { value, .. } = &program.statements[2] else { panic!("call") };
+        let Expr::Call { function, .. } = value else { panic!("call") };
+        let Expr::Identifier { name, .. } = &**function else { panic!("callee") };
+        assert_eq!(name, "print");
     }
 
     #[test]
@@ -1509,24 +1608,5 @@ mod tests {
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].0, "a.tg");
         assert_eq!(found[1].0, "b.tg");
-    }
-}
-
-fn precedence(kind: lexer::Kind) -> i32 {
-    match kind {
-        "or" | "||" => 1,
-        "if" => 1,
-        "and" | "&&" => 2,
-        "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" => 3,
-        "|" => 4,
-        "^" => 5,
-        "&" => 6,
-        "<<" | ">>" => 7,
-        "+" | "-" => 8,
-        "*" | "/" | "%" | "div" => 9,
-        "**" => 11,
-        "(" | "[" | "." => 12,
-        "++" | "--" => 13,
-        _ => 0,
     }
 }

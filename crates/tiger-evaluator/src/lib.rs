@@ -19,6 +19,9 @@ mod compiler;
 mod files;
 mod methods;
 mod modules;
+
+#[cfg(feature = "profile")]
+pub mod profile;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 mod regex_engine;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -126,7 +129,7 @@ fn fatal(base: &Base, message: String) -> Signal {
 /// Wraps a numeric result, rejecting a non-finite value the way the interpreter
 /// does, so the arithmetic fast path stays a single call.
 fn finite_number(base: &Base, value: f64) -> Eval {
-    if value.is_infinite() || value.is_nan() {
+    if !value.is_finite() {
         return Err(runtime(base, "non-finite numeric result".to_string()));
     }
     Ok(Value::Number(value))
@@ -863,7 +866,7 @@ impl Evaluator {
                         _ => return Err(runtime(base, format!("{} requires a number", operator))),
                     };
                     let updated = if operator == "--" { previous - 1.0 } else { previous + 1.0 };
-                    if updated.is_infinite() || updated.is_nan() {
+                    if !updated.is_finite() {
                         return Err(runtime(base, "non-finite numeric result".to_string()));
                     }
                     object::assign(env, name, Value::Number(updated)).map_err(|message| runtime(base, message))?;
@@ -875,7 +878,7 @@ impl Evaluator {
                     _ => return Err(runtime(base, format!("{} requires a number", operator))),
                 };
                 let updated = if operator == "--" { previous - 1.0 } else { previous + 1.0 };
-                if updated.is_infinite() || updated.is_nan() {
+                if !updated.is_finite() {
                     return Err(runtime(base, "non-finite numeric result".to_string()));
                 }
                 self.write_target(&reference, Value::Number(updated), env)?;
@@ -956,7 +959,7 @@ impl Evaluator {
                     for (index, argument) in arguments.iter().enumerate() {
                         buffer[index] = self.expression(&argument.value, env)?;
                     }
-                    return self.call(base, function, &buffer[..arguments.len()], &[], env);
+                    return self.call(base, function, &mut buffer[..arguments.len()], &[], env);
                 }
                 let mut positional = Vec::with_capacity(arguments.len());
                 for argument in arguments {
@@ -1012,7 +1015,7 @@ impl Evaluator {
                         }
                     }
                 }
-                self.call(base, function, &positional, &named, env)
+                self.call(base, function, &mut positional, &named, env)
             }
         }
     }
@@ -1156,7 +1159,7 @@ impl Evaluator {
             },
             object::IteratorKind::Map { source, function, env } => match self.iterator_next(base, &source)? {
                 Some(element) => {
-                    let mapped = self.call(base, function.clone(), &[element], &[], &env)?;
+                    let mapped = self.call(base, function.clone(), &mut [element.clone()], &[], &env)?;
                     (Ok(Some(mapped)), object::IteratorKind::Map { source, function, env })
                 }
                 None => (Ok(None), object::IteratorKind::Done),
@@ -1165,7 +1168,7 @@ impl Evaluator {
                 let kept = loop {
                     match self.iterator_next(base, &source)? {
                         Some(element) => {
-                            if object::truthy(&self.call(base, function.clone(), std::slice::from_ref(&element), &[], &env)?) {
+                            if object::truthy(&self.call(base, function.clone(), std::slice::from_mut(&mut element.clone()), &[], &env)?) {
                                 break Some(element);
                             }
                         }
@@ -1467,7 +1470,7 @@ impl Evaluator {
 
     fn bitwise_integer(&mut self, base: &Base, value: f64) -> Result<i64, Signal> {
         const LIMIT: f64 = 9223372036854775808.0;
-        if value.is_nan() || value.is_infinite() || value < -LIMIT || value >= LIMIT {
+        if !value.is_finite() || value < -LIMIT || value >= LIMIT {
             return Err(runtime(base, "bitwise operands must be within the 64-bit integer range".to_string()));
         }
         Ok(value as i64)
@@ -1493,7 +1496,7 @@ fn slice_indices(start: i64, stop: i64, step: i64) -> Vec<i64> {
 }
 
 impl Evaluator {
-    fn call(&mut self, base: &Base, function: Value, arguments: &[Value], keywords: &[Keyword], env: &Env) -> Eval {
+    fn call(&mut self, base: &Base, function: Value, arguments: &mut [Value], keywords: &[Keyword], env: &Env) -> Eval {
         match function {
             Value::Builtin(builtin) => {
                 if builtin.higher_order {
@@ -1593,12 +1596,38 @@ fn missing_required(declaration: &tiger_ast::FunctionDecl, index: usize) -> bool
     false
 }
 
+/// What a caller passed: the positional arguments and the keyword arguments. They
+/// always travel together, and together they are what a callee binds.
+///
+/// The positional slice is mutable because binding *moves* each argument out of the
+/// operand stack into the frame: the caller's copy is dead the moment the call is
+/// made, so cloning it and then dropping the original is work with nothing to show.
+struct Args<'a> {
+    positional: &'a mut [Value],
+    keywords: &'a [Keyword],
+}
+
+impl<'a> Args<'a> {
+    fn new(positional: &'a mut [Value], keywords: &'a [Keyword]) -> Args<'a> {
+        Args { positional, keywords }
+    }
+}
+
+/// How many flat locals a call keeps on its own activation instead of taking a pooled
+/// vector. A frame with more than this takes the pool.
+const INLINE_LOCALS: usize = 8;
+
+/// The locals a call may reuse: the layout the compiler worked out for the call site,
+/// and the frame itself when the site is a flat one. Both are `None` for a call the
+/// compiler did not specialize, and the two always arrive together.
+type Frame<'a> = Option<(&'a CallLayout, Option<&'a mut [Value]>)>;
+
 impl Evaluator {
     fn invoke(
         &mut self,
         base: &Base,
         function: &Rc<object::FunctionValue>,
-        arguments: &[Value],
+        arguments: &mut [Value],
         keywords: &[Keyword],
         bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
     ) -> Eval {
@@ -1626,13 +1655,13 @@ impl Evaluator {
         // resolves above the frame is a free name that walks the environment chain,
         // so skipping an empty frame leaves every slot-based access where the
         // compiler placed it.
-        let frame_needed = function.code.as_ref().map_or(true, |code| code.frame_needed);
+        let frame_needed = function.code.as_ref().is_none_or(|code| code.frame_needed);
         // A function whose frame is skipped runs in the environment it captured, so
         // its call needs no scope of its own — and no clone of the one it has.
         let pooled = if frame_needed { Some(self.acquire_scope(function.env.clone())) } else { None };
         let scope: &Env = pooled.as_ref().unwrap_or(&function.env);
         let result = match &function.code {
-            Some(code) => self.run_compiled(base, function, arguments, keywords, bound, scope, code),
+            Some(code) => self.run_compiled(base, function, Args::new(arguments, keywords), bound, scope, code),
             None => self.run_call(base, function, arguments, keywords, bound, scope),
         };
         if let Some(scope) = pooled {
@@ -1651,12 +1680,12 @@ impl Evaluator {
         &mut self,
         base: &Base,
         function: &Rc<object::FunctionValue>,
-        arguments: &[Value],
-        keywords: &[Keyword],
+        args: Args<'_>,
         bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
         scope: &Env,
         code: &Rc<tiger_object::bytecode::Chunk>,
     ) -> Eval {
+        let Args { positional: arguments, keywords } = args;
         self.depth += 1;
         if self.depth >= 512 {
             self.depth -= 1;
@@ -1665,21 +1694,22 @@ impl Evaluator {
         // The frame's flat locals are the call's too: a parameter the compiler gave
         // a flat slot is written straight into it, so the body never looks a
         // parameter up in an environment.
-        // A frame whose flat locals fit in a small fixed array keeps them on this
-        // activation's own stack, so binding and running it touch no pool at all.
-        // A deeper frame takes the pooled vector instead.
-        let mut inline = [const { Value::Null }; 8];
-        if code.flat_count <= inline.len() {
+        if code.flat_count <= INLINE_LOCALS {
+            // A frame whose flat locals fit in a small fixed array keeps them on this
+            // activation's own stack, so binding and running it touch no pool at all.
+            // The array is built inside the branch, because a call that takes the
+            // pooled path below would otherwise pay to initialize it for nothing.
+            let mut inline = [const { Value::Null }; INLINE_LOCALS];
             let locals = &mut inline[..code.flat_count];
             let result = self
-                .bind_call(base, function, arguments, keywords, bound, scope, Some(&code.call_layout), Some(locals))
+                .bind_call(base, function, Args::new(arguments, keywords), bound, scope, Some((&code.call_layout, Some(locals))))
                 .and_then(|()| self.run_frame(code, scope, locals));
             self.depth -= 1;
             return result;
         }
         let mut locals = self.take_locals(code.flat_count);
         let result = self
-            .bind_call(base, function, arguments, keywords, bound, scope, Some(&code.call_layout), Some(&mut locals[..]))
+            .bind_call(base, function, Args::new(arguments, keywords), bound, scope, Some((&code.call_layout, Some(&mut locals[..]))))
             .and_then(|()| self.run_chunk_with(code, scope, locals));
         self.depth -= 1;
         result
@@ -1695,13 +1725,16 @@ impl Evaluator {
         &mut self,
         base: &Base,
         function: &Rc<object::FunctionValue>,
-        arguments: &[Value],
-        keywords: &[Keyword],
+        args: Args<'_>,
         bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
         scope: &Env,
-        layout: Option<&CallLayout>,
-        mut locals: Option<&mut [Value]>,
+        frame: Frame<'_>,
     ) -> Result<(), Signal> {
+        let Args { positional: arguments, keywords } = args;
+        let (layout, mut locals) = match frame {
+            Some((layout, locals)) => (Some(layout), locals),
+            None => (None, None),
+        };
         let declaration = &function.declaration;
         let parameters = &declaration.parameters;
         let fixed = parameters.len();
@@ -1724,7 +1757,10 @@ impl Evaluator {
                         locals[layout.this.expect("checked") as usize] = Value::Instance(bound.1.clone());
                     }
                     for (index, slot) in layout.parameters.iter().enumerate() {
-                        locals[slot.expect("checked") as usize] = arguments[index].clone();
+                        // The argument moves into the frame: the caller's copy on the
+                        // operand stack is dropped when the call returns, so cloning it
+                        // would be a copy that is thrown away.
+                        locals[slot.expect("checked") as usize] = std::mem::replace(&mut arguments[index], Value::Null);
                     }
                     return Ok(());
                 }
@@ -1749,7 +1785,7 @@ impl Evaluator {
             bind(layout.and_then(|layout| layout.this), "this", Some(&self.this_name), Value::Instance(bound.1.clone()))?;
             // The tree-walking engine has no layout and always binds `super`, since
             // it resolves the name at run time.
-            if layout.map_or(true, |layout| layout.super_used) {
+            if layout.is_none_or(|layout| layout.super_used) {
                 bind(
                     layout.and_then(|layout| layout.super_),
                     "super",
@@ -1846,12 +1882,12 @@ impl Evaluator {
         &mut self,
         base: &Base,
         function: &Rc<object::FunctionValue>,
-        arguments: &[Value],
+        arguments: &mut [Value],
         keywords: &[Keyword],
         bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
         scope: &Env,
     ) -> Eval {
-        self.bind_call(base, function, arguments, keywords, bound, scope, None, None)?;
+        self.bind_call(base, function, Args::new(arguments, keywords), bound, scope, None)?;
         if let Some(flow) = self.block(&function.declaration.body, scope)? {
             return Ok(flow.value);
         }
@@ -1864,7 +1900,7 @@ impl Evaluator {
         class: &Rc<object::Class>,
         constructor: Option<&Rc<object::Method>>,
         instance: &Rc<object::Instance>,
-        arguments: &[Value],
+        arguments: &mut [Value],
         keywords: &[Keyword],
     ) -> Result<(), Signal> {
         let Some(constructor) = constructor else {
@@ -2284,7 +2320,7 @@ impl Evaluator {
             Some(key) => {
                 let mut keys = Vec::with_capacity(items.len());
                 for item in items {
-                    keys.push(self.call(base, key.clone(), &[item.clone()], &[], env)?);
+                    keys.push(self.call(base, key.clone(), std::slice::from_mut(&mut item.clone()), &[], env)?);
                 }
                 Ok(keys)
             }
@@ -2515,14 +2551,22 @@ impl Evaluator {
                 }
                 other => return Err(runtime(base, format!("unknown operator {}", other))),
             };
-            if result.is_infinite() || result.is_nan() {
+            if !result.is_finite() {
                 return Err(runtime(base, "non-finite numeric result".to_string()));
             }
             return Ok(Value::Number(result));
         }
         if let (Value::String(first), Value::String(second)) = (&left, &right) {
             match operator {
-                "+" => return Ok(Value::string(&format!("{}{}", first, second))),
+                // Sized once and filled, rather than built by `format!` and then
+                // copied into a shared string: a concatenation allocates once.
+                //
+                "+" => {
+                    let mut joined = String::with_capacity(first.len() + second.len());
+                    joined.push_str(first);
+                    joined.push_str(second);
+                    return Ok(Value::string(&joined));
+                }
                 "<" => return Ok(Value::Bool(first < second)),
                 "<=" => return Ok(Value::Bool(first <= second)),
                 ">" => return Ok(Value::Bool(first > second)),
@@ -2647,7 +2691,7 @@ impl Evaluator {
             _ => return Err(runtime(base, format!("{} requires a number", if decrement { "--" } else { "++" }))),
         };
         let updated = if decrement { previous - 1.0 } else { previous + 1.0 };
-        if updated.is_infinite() || updated.is_nan() {
+        if !updated.is_finite() {
             return Err(runtime(base, "non-finite numeric result".to_string()));
         }
         object::assign(env, name, Value::Number(updated)).map_err(|message| runtime(base, message))?;
@@ -2717,7 +2761,7 @@ fn pad_text(text: &str, align: u8, pad: char, width: usize) -> String {
     if width <= length {
         return text.to_string();
     }
-    let fill: String = std::iter::repeat(pad).take(width - length).collect();
+    let fill: String = std::iter::repeat_n(pad, width - length).collect();
     match align {
         b'>' => {
             if pad == '0' && !text.is_empty() && (text.starts_with('-') || text.starts_with('+')) {
@@ -2729,8 +2773,8 @@ fn pad_text(text: &str, align: u8, pad: char, width: usize) -> String {
         b'^' => {
             let left = (width - length) / 2;
             let right = width - length - left;
-            let left_fill: String = std::iter::repeat(pad).take(left).collect();
-            let right_fill: String = std::iter::repeat(pad).take(right).collect();
+            let left_fill: String = std::iter::repeat_n(pad, left).collect();
+            let right_fill: String = std::iter::repeat_n(pad, right).collect();
             format!("{}{}{}", left_fill, text, right_fill)
         }
         _ => format!("{}{}", text, fill),
@@ -2898,6 +2942,58 @@ mod tests {
         evaluator.execute(&program)?;
         let bytes = buffer.borrow().clone();
         Ok(String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    /// Prints the instruction list a program compiles to.
+    ///
+    /// The shape of that list is what the engine's cost is made of, so a fusion
+    /// that stops matching is a performance change with no failing test; this makes
+    /// it visible. Run with `--ignored --nocapture`:
+    ///
+    /// ```sh
+    /// cargo test -p tiger-evaluator --lib -- --ignored --nocapture disassembles
+    /// ```
+    #[test]
+    #[ignore = "prints a disassembly; run explicitly with --ignored --nocapture"]
+    fn disassembles_the_hot_shapes() {
+        println!(
+            "sizes: Value {} Option<Value> {} Instr {} Token {} Expr {} Stmt {}",
+            std::mem::size_of::<Value>(),
+            std::mem::size_of::<Option<Value>>(),
+            std::mem::size_of::<tiger_object::bytecode::Instr>(),
+            std::mem::size_of::<tiger_lexer::Token>(),
+            std::mem::size_of::<tiger_ast::Expr>(),
+            std::mem::size_of::<tiger_ast::Stmt>(),
+        );
+        println!(
+            "       Signal {} Eval {} RuntimeError {} Keyword {} Base {}",
+            std::mem::size_of::<Signal>(),
+            std::mem::size_of::<Eval>(),
+            std::mem::size_of::<tiger_object::RuntimeError>(),
+            std::mem::size_of::<tiger_object::Keyword>(),
+            std::mem::size_of::<tiger_ast::Base>(),
+        );
+        for (name, source) in [
+            ("loop/count", "var s = 0;\nfor (var i = 0; i < 200000; ++i) { s += 1; }\nprint(s);"),
+            ("list/read", "const a = [1, 2, 3];\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += a[i]; }\nprint(s);"),
+            ("list/write", "const a = [1, 2, 3];\nfor (var i = 0; i < 3; ++i) { a[i] = i; }\nprint(a);"),
+            ("string/concat", "var s = \"\";\nfor (var i = 0; i < 3; ++i) { s += \"ab\"; }\nprint(len(s));"),
+            ("list/append", "const d = {\"a\": 1};\nvar ks = d.keys();\nks += [\"b\"];\nprint(d.keys(), ks);"),
+            ("index/accumulate", "const d = {\"x\": 1, \"y\": 2};\nvar sum = 0;\nfor k in d.keys() { sum += d[k]; }\nprint(sum);"),
+            ("call", "function f(v) { return v; }\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += f(1); }\nprint(s);"),
+            ("field", "class B { var v = 1; B() {} }\nconst b = B();\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += b.v; }\nprint(s);"),
+            ("dict", "const d = {};\nfor (var i = 0; i < 3; ++i) { d[\"k\" + str(i)] = i; }\nprint(len(d));"),
+        ] {
+            let program = tiger_parser::parse(source).expect("the fixture must parse");
+            let Ok(chunk) = compiler::compile(&program.statements, "") else {
+                println!("== {} (does not lower)", name);
+                continue;
+            };
+            println!("== {} ({} instructions)", name, chunk.code.len());
+            for (index, instr) in chunk.code.iter().enumerate() {
+                println!("  {:>3}  {:?}", index, instr);
+            }
+        }
     }
 
     #[test]

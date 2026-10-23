@@ -115,8 +115,8 @@ cargo run -p tiger-web -- -build-only
 
 This builds `crates/tiger-wasm` for `wasm32-unknown-unknown` and writes
 `web/tiger.wasm`, which [tiger.js](tiger.js) instantiates directly — there is no
-`wasm_exec.js` and no bindgen step. The stripped runtime is about 844 KB (about
-263 KB with gzip). If Binaryen's `wasm-opt` is on `PATH`, the build also runs
+`wasm_exec.js` and no bindgen step. The stripped runtime is about 915 KB (about
+287 KB with gzip). If Binaryen's `wasm-opt` is on `PATH`, the build also runs
 `wasm-opt -Oz --converge`. Deploy the web assets, including `highlight.mjs` and
 `tiger.js`, and serve the repository's examples under `/examples/`. Alternatively,
 start the included server:

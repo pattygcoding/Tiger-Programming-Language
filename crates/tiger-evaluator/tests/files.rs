@@ -156,12 +156,42 @@ fn file_errors_are_catchable() {
 }
 
 #[test]
+fn closing_only_writes_back_what_changed() {
+    // A handle that only read the file must not write it back, but every open that
+    // *has* changed the file must still land that change when it closes: a
+    // truncating mode with nothing written to it, and a creating mode that found
+    // no file at all, both have to reach the disk.
+    let source = "const PATH = \"data.txt\";\n\
+        write_file(PATH, \"abc\");\n\
+        open(PATH, \"w\").close();\n\
+        print(len(read_file(PATH)));\n\
+        write_file(PATH, \"abc\");\n\
+        open(PATH, \"r+\").close();\n\
+        print(read_file(PATH), end=\"\");\n\
+        open(\"fresh.txt\", \"a\").close();\n\
+        print(file_exists(\"fresh.txt\"));\n\
+        write_file(PATH, \"a\");\n\
+        const appender = open(PATH, \"a+\");\n\
+        appender.write(\"b\");\n\
+        appender.close();\n\
+        print(read_file(PATH), end=\"\");\n\
+        const flushed = open(PATH, \"w\");\n\
+        flushed.write(\"x\");\n\
+        flushed.flush();\n\
+        flushed.close();\n\
+        print(read_file(PATH), end=\"\");\n";
+    let expected = "0\nabctrue\nabx";
+    assert_eq!(run_memory(source).expect("close semantics"), expected);
+}
+
+#[test]
 fn host_filesystem() {
     // No filesystem is supplied, so the built-ins reach the host disk.
     let directory = std::env::temp_dir().join(format!("tiger-files-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
     std::fs::create_dir_all(&directory).expect("temporary directory");
     let path = directory.join("report.txt");
+    let path_literal = format!("{:?}", path.to_string_lossy());
     let source = format!(
         "const PATH = {};\n\
          print(write_file(PATH, \"first\\n\"));\n\
@@ -169,7 +199,7 @@ fn host_filesystem() {
          print(read_file(PATH), end=\"\");\n\
          remove_file(PATH);\n\
          print(file_exists(PATH));\n",
-        format!("{:?}", path.to_string_lossy())
+        path_literal
     );
     let text = common::run(&source).expect("host filesystem");
     assert_eq!(text, "6\n7\nfirst\nsecond\nfalse\n");

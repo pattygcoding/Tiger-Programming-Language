@@ -29,6 +29,12 @@ pub fn normalize(text: &str) -> String {
 /// Collects written bytes so a caller can compare them.
 pub struct Shared(pub Rc<RefCell<Vec<u8>>>);
 
+impl Default for Shared {
+    fn default() -> Shared {
+        Shared::new()
+    }
+}
+
 impl Shared {
     pub fn new() -> Shared {
         Shared(Rc::new(RefCell::new(Vec::new())))

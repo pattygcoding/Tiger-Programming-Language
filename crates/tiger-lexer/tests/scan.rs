@@ -61,6 +61,87 @@ fn scans_compound_assignments() {
 }
 
 #[test]
+fn a_punctuation_token_spells_its_kind_and_builds_no_text() {
+    // A punctuation mark's kind is its spelling, so the lexer never allocates a
+    // `String` for one. `spelling` reads the kind back.
+    let tokens = scan("a + b == c;").expect("scan");
+    let spelled: Vec<(&str, &str, bool)> = tokens.iter().map(|token| (token.kind, token.spelling(), token.text.is_empty())).collect();
+    assert_eq!(
+        spelled,
+        vec![
+            (IDENT, "a", false),
+            ("+", "+", true),
+            (IDENT, "b", false),
+            ("==", "==", true),
+            (IDENT, "c", false),
+            (";", ";", true),
+            (EOF, "", true),
+        ]
+    );
+}
+
+#[test]
+fn every_two_character_operator_scans_as_one_token() {
+    for (source, kind) in [
+        ("a == b", "=="),
+        ("a != b", "!="),
+        ("a <= b", "<="),
+        ("a >= b", ">="),
+        ("a << b", "<<"),
+        ("a >> b", ">>"),
+        ("a ++", "++"),
+        ("a --", "--"),
+        ("a += b", "+="),
+        ("a -= b", "-="),
+        ("a *= b", "*="),
+        ("a %= b", "%="),
+        ("a && b", "&&"),
+        ("a || b", "||"),
+        ("a ** b", "**"),
+    ] {
+        let tokens = scan(source).expect("scan");
+        let found = tokens.iter().find(|token| token.kind == kind).unwrap_or_else(|| panic!("{:?} did not scan {:?}", source, kind));
+        assert_eq!(found.spelling(), kind);
+        assert!(found.text.is_empty(), "{:?} built a text for {:?}", source, kind);
+    }
+    // A single character that could start a pair still scans as one token.
+    for (source, kind) in [("a = b", "="), ("a < b", "<"), ("a > b", ">"), ("a % b", "%"), ("a & b", "&"), ("a | b", "|")] {
+        let tokens = scan(source).expect("scan");
+        assert!(tokens.iter().any(|token| token.kind == kind), "{:?} did not scan {:?}", source, kind);
+    }
+}
+
+#[test]
+fn a_keyword_and_a_string_spell_what_they_say() {
+    let tokens = scan("const name = \"\"; const other = 'x';").expect("scan");
+    assert_eq!((tokens[0].kind, tokens[0].spelling()), ("const", "const"));
+    assert_eq!(tokens[1].spelling(), "name");
+    assert_eq!(tokens[3].kind, STRING);
+    // An empty string still spells itself, which is why `spelling` reads the kind
+    // only for a token that has no text of its own.
+    assert_eq!(tokens[3].spelling(), "");
+    assert_eq!(tokens[8].spelling(), "x");
+}
+
+#[test]
+fn identifiers_may_be_unicode() {
+    // The ASCII-first test in the identifier scan must not stop a non-ASCII letter
+    // from continuing one.
+    let tokens = scan("const café = 1; const naïve = café + 1;").expect("scan");
+    assert_eq!(tokens[1].spelling(), "café");
+    assert_eq!(tokens[6].spelling(), "naïve");
+    assert_eq!(tokens[8].spelling(), "café");
+    assert_eq!(tokens[1].kind, IDENT);
+    // A digit and an underscore continue an identifier, and a non-ASCII digit does
+    // too — while it cannot start one, because a leading digit is a number.
+    let tokens = scan("const a_1 = 2; const a٣ = 4;").expect("scan");
+    assert_eq!(tokens[1].spelling(), "a_1");
+    assert_eq!(tokens[6].spelling(), "a٣");
+    let error = scan("const ٣ = 4;").unwrap_err();
+    assert!(error.contains("unexpected character"), "a leading non-ASCII digit is not an identifier: {}", error);
+}
+
+#[test]
 fn scans_star_and_double_star() {
     assert_eq!(
         kinds("function f(*rest, **options) { return rest * 2 * options; }"),

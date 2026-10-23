@@ -88,7 +88,7 @@ pub fn run_input_failing(source: &str) -> Result<String, String> {
     struct Broken;
     impl std::io::Read for Broken {
         fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "broken stdin"))
+            Err(std::io::Error::other("broken stdin"))
         }
     }
     let source = source.to_string();
@@ -129,7 +129,7 @@ pub fn run_failing_output(source: &str) -> Result<String, String> {
     struct Broken;
     impl Write for Broken {
         fn write(&mut self, _data: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "output closed"))
+            Err(std::io::Error::other("output closed"))
         }
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())

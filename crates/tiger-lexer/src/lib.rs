@@ -59,6 +59,15 @@ pub const KEYWORDS: &[&str] = &[
     "as",
 ];
 
+/// Whether `kind` is a reserved word.
+///
+/// It reads the same table `keyword_kind` does, so the two cannot disagree, and a
+/// match beats the linear scan of [`KEYWORDS`] that a member name would otherwise
+/// pay for every access.
+pub fn is_keyword(kind: Kind) -> bool {
+    keyword_kind(kind).is_some()
+}
+
 /// Maps an identifier's text to its keyword kind, or `None` when it is not a
 /// reserved word. A `match` on the text beats a linear scan of `KEYWORDS`.
 fn keyword_kind(text: &str) -> Option<Kind> {
@@ -120,6 +129,19 @@ impl Token {
         Token { kind, text: String::new(), line, column, parts: Vec::new(), source: Rc::from("") }
     }
 
+    /// How the token was spelled in the source.
+    ///
+    /// A token that carries text of its own — an identifier, a number, a string, a
+    /// formatted string, an interpolation — answers with that. Everything else is a
+    /// keyword or a punctuation mark, whose kind *is* its spelling, so the lexer
+    /// never builds a `String` for one.
+    pub fn spelling(&self) -> &str {
+        match self.kind {
+            IDENT | NUMBER | STRING | FSTRING | INTERPOLATION | EOF => &self.text,
+            kind => kind,
+        }
+    }
+
     /// Renders the token position as `source:line:column`, or `line:column`
     /// when the token has no source name.
     pub fn location(&self) -> String {
@@ -178,7 +200,10 @@ impl Scanner {
     }
 
     fn tokens(&mut self, interpolation: bool, depth: usize) -> Result<Vec<Token>, String> {
-        let mut tokens: Vec<Token> = Vec::new();
+        // A token averages a few characters, and the vector is sized once rather
+        // than grown: a program's token list is thousands of entries, and doubling
+        // from empty copies the whole of it several times on the way.
+        let mut tokens: Vec<Token> = Vec::with_capacity(if interpolation { 8 } else { self.source.len() / 4 });
         let mut braces: i32 = 0;
         while self.pos < self.source.len() {
             let current = self.peek(0);
@@ -222,8 +247,8 @@ impl Scanner {
                 'r' | 'R' if self.peek(1) == '"' || self.peek(1) == '\'' => {
                     token = self.raw_string(token)?;
                 }
-                c if c.is_alphabetic() || c == '_' => {
-                    while self.peek(0).is_alphabetic() || self.peek(0).is_numeric() || self.peek(0) == '_' {
+                c if is_identifier_start(c) => {
+                    while is_identifier_continue(self.peek(0)) {
                         self.advance();
                     }
                     token.text = self.source[start..self.pos].iter().copied().collect();
@@ -259,7 +284,7 @@ impl Scanner {
                 }
                 '"' | '\'' => {
                     let quote = self.advance();
-                    let mut value: Vec<char> = Vec::new();
+                    let mut value = String::new();
                     while self.pos < self.source.len() && self.peek(0) != quote {
                         let mut ch = self.advance();
                         if ch == '\n' || ch == '\r' {
@@ -275,45 +300,25 @@ impl Scanner {
                     }
                     self.advance();
                     token.kind = STRING;
-                    token.text = value.into_iter().collect();
+                    token.text = value;
                 }
                 _ => {
                     self.advance();
-                    token.text = current.to_string();
-                    match current {
-                        '=' | '!' | '<' | '>' => {
-                            if self.peek(0) == '=' {
-                                token.text.push(self.advance());
-                            } else if (current == '<' || current == '>') && self.peek(0) == current {
-                                token.text.push(self.advance());
-                            }
-                        }
-                        '+' | '-' => {
-                            if self.peek(0) == current || self.peek(0) == '=' {
-                                token.text.push(self.advance());
-                            }
-                        }
-                        '*' => {
-                            if self.peek(0) == '*' || self.peek(0) == '=' {
-                                token.text.push(self.advance());
-                            }
-                        }
-                        '%' => {
-                            if self.peek(0) == '=' {
-                                token.text.push(self.advance());
-                            }
-                        }
-                        '&' | '|' => {
-                            if self.peek(0) == current {
-                                token.text.push(self.advance());
-                            }
-                        }
-                        '/' | '(' | ')' | '[' | ']' | '{' | '}' | ':' | ',' | ';' | '.' | '^' | '~' => {}
-                        _ => {
-                            return Err(token.errorf(&format!("unexpected character {:?}", current)));
-                        }
-                    }
-                    token.kind = operator_kind(&token.text)?;
+                    // Which pairs spell one operator, taken from the same table
+                    // `operator_kind_of` reads, so the two cannot disagree.
+                    let doubled = match current {
+                        '=' | '!' | '%' => self.peek(0) == '=',
+                        '<' | '>' | '+' | '-' | '*' => self.peek(0) == current || self.peek(0) == '=',
+                        '&' | '|' => self.peek(0) == current,
+                        '/' | '(' | ')' | '[' | ']' | '{' | '}' | ':' | ',' | ';' | '.' | '^' | '~' => false,
+                        _ => return Err(token.errorf(&format!("unexpected character {:?}", current))),
+                    };
+                    let second = if doubled { Some(self.advance()) } else { None };
+                    // The token's kind is its spelling, so no text is built for it.
+                    let Some(kind) = operator_kind_of(current, second) else {
+                        return Err(token.errorf(&format!("unexpected character {:?}", current)));
+                    };
+                    token.kind = kind;
                     if current == '{' {
                         braces += 1;
                     }
@@ -442,47 +447,66 @@ fn hex_value(ch: char) -> i32 {
     }
 }
 
-fn operator_kind(text: &str) -> Result<Kind, String> {
-    Ok(match text {
-        "=" => "=",
-        "==" => "==",
-        "!=" => "!=",
-        "!" => "!",
-        "<" => "<",
-        "<=" => "<=",
-        ">" => ">",
-        ">=" => ">=",
-        "<<" => "<<",
-        ">>" => ">>",
-        "+" => "+",
-        "++" => "++",
-        "+=" => "+=",
-        "-" => "-",
-        "--" => "--",
-        "-=" => "-=",
-        "*" => "*",
-        "**" => "**",
-        "*=" => "*=",
-        "%" => "%",
-        "%=" => "%=",
-        "&&" => "&&",
-        "||" => "||",
-        "&" => "&",
-        "|" => "|",
-        "/" => "/",
-        "(" => "(",
-        ")" => ")",
-        "[" => "[",
-        "]" => "]",
-        "{" => "{",
-        "}" => "}",
-        ":" => ":",
-        "," => ",",
-        ";" => ";",
-        "." => ".",
-        "^" => "^",
-        "~" => "~",
-        _ => return Err(format!("unexpected operator {:?}", text)),
+/// Whether `c` can start an identifier.
+///
+/// An ASCII letter or an underscore is the whole answer for almost every character
+/// in a program, so it is tested first and the Unicode tables are consulted only for
+/// a character outside ASCII — which keeps a scan of ASCII source out of them.
+fn is_identifier_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_' || (!c.is_ascii() && c.is_alphabetic())
+}
+
+/// Whether `c` can continue an identifier, on the same ASCII-first rule.
+fn is_identifier_continue(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || (!c.is_ascii() && (c.is_alphabetic() || c.is_numeric()))
+}
+
+/// The kind of a punctuation token, from its first character and the second one it
+/// consumed, or `None` when the pair spells no operator.
+///
+/// A punctuation token's kind *is* its spelling, so the lexer never builds a
+/// `String` for one: `+` is the kind `"+"`, and a `Token::spelling` reads it back.
+fn operator_kind_of(first: char, second: Option<char>) -> Option<Kind> {
+    Some(match (first, second) {
+        ('=', None) => "=",
+        ('=', Some('=')) => "==",
+        ('!', None) => "!",
+        ('!', Some('=')) => "!=",
+        ('<', None) => "<",
+        ('<', Some('=')) => "<=",
+        ('<', Some('<')) => "<<",
+        ('>', None) => ">",
+        ('>', Some('=')) => ">=",
+        ('>', Some('>')) => ">>",
+        ('+', None) => "+",
+        ('+', Some('+')) => "++",
+        ('+', Some('=')) => "+=",
+        ('-', None) => "-",
+        ('-', Some('-')) => "--",
+        ('-', Some('=')) => "-=",
+        ('*', None) => "*",
+        ('*', Some('*')) => "**",
+        ('*', Some('=')) => "*=",
+        ('%', None) => "%",
+        ('%', Some('=')) => "%=",
+        ('&', None) => "&",
+        ('&', Some('&')) => "&&",
+        ('|', None) => "|",
+        ('|', Some('|')) => "||",
+        ('/', None) => "/",
+        ('(', None) => "(",
+        (')', None) => ")",
+        ('[', None) => "[",
+        (']', None) => "]",
+        ('{', None) => "{",
+        ('}', None) => "}",
+        (':', None) => ":",
+        (',', None) => ",",
+        (';', None) => ";",
+        ('.', None) => ".",
+        ('^', None) => "^",
+        ('~', None) => "~",
+        _ => return None,
     })
 }
 

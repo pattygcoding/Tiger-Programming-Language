@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::Value;
+use crate::{Env, Value};
 
 /// A binary operator the engine can take a fast path on. `Other` falls back to
 /// the general operator.
@@ -65,7 +65,7 @@ pub enum Instr {
     /// Pop a value into flat slot `slot`. `constant` is the binding's, which the
     /// compiler knows, so a write to a flat `const` is refused without a flag to
     /// read at run time.
-    StoreFlat { name: u32, slot: u32, constant: bool },
+    StoreFlat { name: u32, slot: u32, constant: bool, reuse: bool },
     /// Pop a value and declare it as `chunk.names[i]` in the current scope.
     DefineName { name: u32, constant: bool },
     /// Pop a value and declare it at `slot` in the current scope.
@@ -81,6 +81,20 @@ pub enum Instr {
     Pop,
     /// Duplicate the top of the stack.
     Dup,
+    /// Resolve an index target, read it, and leave it below the value read.
+    ///
+    /// Pops `[collection, key]` and pushes `[collection, key, value]`. It validates
+    /// exactly as the interpreter's assignment target does — the collection must be
+    /// a list or a dictionary, and a list's index must be in range — so a compound
+    /// assignment or an update reports the same diagnostic, at the same position, as
+    /// the interpreter. Leaving the collection and key in place is what lets the
+    /// store that follows reuse them instead of evaluating the target twice.
+    ReadIndexTarget,
+    /// Resolve a property target, read it, and leave it below the value read.
+    ///
+    /// Pops `[receiver]` and pushes `[receiver, value]`, rejecting a receiver that
+    /// is not an instance exactly as the interpreter's assignment target does.
+    ReadPropertyTarget(u32),
     /// Pop two values and push `left <op> right`. `op` selects an inlined fast
     /// path; `chunk.names[i]` is the operator for the fallback and diagnostics.
     Binary { op: Op, name: u32 },
@@ -120,6 +134,24 @@ pub enum Instr {
     Jump(u32),
     /// Pop a value and jump to `target` when it is falsy.
     JumpIfFalse(u32),
+    /// Pop two values and jump to `target` when `left <op> right` is falsy.
+    ///
+    /// The fused form of `Binary { op, name }` and `JumpIfFalse`. A comparison
+    /// whose result feeds only a branch — a loop condition, or an `if` header —
+    /// never needs to become a `bool` value, so this skips building it and testing
+    /// its truthiness.
+    JumpUnless { op: Op, name: u32, target: u32 },
+    /// Compare flat slots `a` and `b` and jump to `target` when the test is falsy.
+    ///
+    /// The fused form of `LoadFlat(a)`, `LoadFlat(b)`, `Binary { op, name }`, and
+    /// `JumpIfFalse`: a counting loop's condition in one dispatch, with the operand
+    /// stack untouched.
+    FlatJumpUnlessFlat { a: u32, b: u32, op: Op, name: u32, target: u32 },
+    /// Compare flat slot `a` with constant `b` and jump to `target` when falsy.
+    ///
+    /// The fused form of `LoadFlat(a)`, `Constant(b)`, `Binary { op, name }`, and
+    /// `JumpIfFalse`, which is a loop against a literal bound.
+    FlatJumpUnlessConstant { a: u32, b: u32, op: Op, name: u32, target: u32 },
     /// For `and`: jump (leaving the value) when falsy, otherwise pop and continue.
     JumpIfFalseOrPop(u32),
     /// For `or`: jump (leaving the value) when truthy, otherwise pop and continue.
@@ -141,19 +173,95 @@ pub enum Instr {
     /// Define `chunk.classes[i]`, registering its compiled method bodies.
     Class(u32),
     /// Call a callable: the stack holds `[callee, positional.., name, value, ..]`.
-    Call { positional: u32, keywords: u32 },
+    Call { positional: u32, keywords: u32, discard: bool },
     /// Pop a key and a collection, then push the indexed element.
     GetIndex,
+    /// Increment or decrement the value in flat slot `slot`, then jump to `target`.
+    ///
+    /// The fused form of `UpdateFlat`, `Pop`, and `Jump`, which is what a `for`
+    /// header's `++index` lowers to: the update's value is discarded, so this is a
+    /// counting loop's whole step in one dispatch. A write to a `const` is left to
+    /// the unfused form, which raises the error.
+    UpdateFlatJump { name: u32, slot: u32, decrement: bool, target: u32 },
+    /// Store `locals[out] = locals[a] <op> locals[b]`, computing an operator whose
+    /// operands are both flat locals.
+    ///
+    /// The fused form of two loads, `Binary`, and `StoreFlat` — an assignment such as
+    /// `total = total + value`. A store into a `const` is left to the unfused form.
+    FlatBinaryFlatStore { a: u32, b: u32, op: Op, name: u32, out: u32 },
+    /// Store `locals[out] = locals[a] <op> constants[b]`, computing an operator whose
+    /// right operand is a constant.
+    ///
+    /// The fused form of a load, `Constant`, `Binary`, and `StoreFlat` — an
+    /// assignment such as `total = total + 1`.
+    FlatBinaryConstantStore { a: u32, b: u32, op: Op, name: u32, out: u32 },
+    /// Store `locals[out] = a <op> b` for two operands taken from the value stack.
+    ///
+    /// The fused form of `Binary` and `StoreFlat` — the tail of any assignment whose
+    /// value is computed from a call, an index, or a property, which is the one shape
+    /// the both-flat forms above cannot reach. A store into a `const` is left to the
+    /// unfused form, which raises the error.
+    BinaryStore { op: Op, name: u32, out: u32, reuse: bool },
+    /// Push `locals[a][locals[b]]`, reading an index whose collection and key are
+    /// both flat locals.
+    ///
+    /// The fused form of `LoadFlat(a)`, `LoadFlat(b)`, and `GetIndex`, which is what
+    /// `items[index]` lowers to: one dispatch instead of three, and the operand stack
+    /// is untouched.
+    FlatIndexFlat { a: u32, b: u32 },
+    /// Push `locals[a][constants[b]]`, reading an index whose key is a constant.
+    ///
+    /// The fused form of `LoadFlat(a)`, `Constant(b)`, and `GetIndex`, which is what
+    /// `items[0]` lowers to.
+    FlatIndexConstant { a: u32, b: u32 },
+    /// Store `locals[collection][locals[key]] = locals[value]`, writing an index
+    /// whose value, collection, and key are all flat locals.
+    ///
+    /// The fused form of three loads and `SetIndex`, which is what `items[i] = n`
+    /// lowers to.
+    FlatStoreIndex { value: u32, collection: u32, key: u32 },
     /// Pop a receiver, then push its named member.
     GetProperty(u32),
     /// Pop a value, a key, and a collection, then store `collection[key] = value`.
     SetIndex,
     /// Pop a value and a receiver, then store the named member.
     SetProperty(u32),
+    /// Pop a value, a key, and a collection, then store `collection[key] = value`,
+    /// where the collection and key are already below the value.
+    ///
+    /// The tail of a read-modify-write: the target was resolved once and read, so
+    /// `[collection, key, result]` is already on the stack and this consumes it
+    /// without evaluating the target again.
+    SetIndexKeep,
+    /// Pop a value and a receiver, then store the named member, where the receiver
+    /// is already below the value.
+    ///
+    /// The property counterpart of [`Instr::SetIndexKeep`].
+    SetPropertyKeep(u32),
+    /// Increment or decrement `collection[key]` in place, pushing it per `prefix`.
+    ///
+    /// Pops `[collection, key, value]`, requires a number, stores `value ± 1` back
+    /// into the same place, and pushes the updated or the previous value. Resolving
+    /// the target once is what makes `items[i]++` a single read and write, exactly
+    /// as the interpreter's update target does it.
+    UpdateIndex { name: u32, decrement: bool, prefix: bool },
+    /// Increment or decrement `receiver.name` in place, pushing it per `prefix`.
+    ///
+    /// The property counterpart of [`Instr::UpdateIndex`]. `property` names the
+    /// member to write back and `name` is the operator's spelling, which the
+    /// "requires a number" diagnostic quotes exactly as the interpreter does.
+    UpdateProperty { property: u32, name: u32, decrement: bool, prefix: bool },
     /// Increment or decrement the named variable, pushing it per `prefix`.
     UpdateName { name: u32, decrement: bool, prefix: bool },
     /// Increment or decrement the variable in slot `slot`, `hops` scopes up.
     UpdateLocal { name: u32, hops: u32, slot: u32, decrement: bool, prefix: bool },
+    /// Increment or decrement the value in flat slot `slot`.
+    ///
+    /// A counting loop's counter is the name this matters for: a `for` header's
+    /// `++index` reaches no nested function, so it lives in the frame's own locals
+    /// and its update needs no scope to find first. `constant` is the binding's, so
+    /// a write to a flat `const` is refused without reading a flag at run time.
+    UpdateFlat { name: u32, slot: u32, constant: bool, decrement: bool, prefix: bool },
     /// Pop a value and push its f-string field rendered with `chunk.names[i]`.
     ApplyFormat(u32),
     /// Pop a value and push `format(value)`.
@@ -317,6 +425,19 @@ pub struct Chunk {
     /// mistaken for a different object that later reuses that address. The engine
     /// fills and reads it; the compiler only makes room.
     pub property_cache: RefCell<Vec<Option<CachedProperty>>>,
+    /// One remembered name read per instruction: the environment it resolved in,
+    /// the value it resolved to, and the binding epoch it resolved at.
+    ///
+    /// A name read in a loop resolves the same way every pass, and resolving one
+    /// walks the scope chain — a hash of the name at every level. Two things make
+    /// remembering it sound, and both are needed. The environment is part of the
+    /// key because a chunk is not tied to one environment: three closures built in
+    /// a loop share a chunk and each carries its own, so the same instruction runs
+    /// against a different scope chain per closure. The epoch is what covers the
+    /// rest: a hit is only used while no binding anywhere has been written since
+    /// the slot was filled, so a `var` that shadows the name, or a scope that
+    /// starts holding one, cannot be missed.
+    pub name_cache: RefCell<Vec<Option<(Env, u64, Value)>>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
     /// The source name every position in this chunk belongs to.

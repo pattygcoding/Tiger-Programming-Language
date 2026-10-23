@@ -720,13 +720,13 @@ fn is_prime64(n: u64) -> bool {
         return false;
     }
     for base in PRIME_BASES {
-        if n % base == 0 {
+        if n.is_multiple_of(base) {
             return n == base;
         }
     }
     let mut d = n - 1;
     let mut rounds = 0;
-    while d % 2 == 0 {
+    while d.is_multiple_of(2) {
         d /= 2;
         rounds += 1;
     }

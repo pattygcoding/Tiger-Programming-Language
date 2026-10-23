@@ -1,0 +1,105 @@
+// A fixed interpreter workload, paired with `workload.py`.
+//
+// It exercises the paths a dynamic language spends its time in — a counting
+// loop, list indexing and in-place stores, dictionary insert and lookup, string
+// building, method calls, and recursion — and prints a single integer checksum.
+// The Python translation prints the same checksum, so the two can be compared on
+// time without comparing number formatting.
+//
+// `sys.argv[1]` selects one section by name, which is how `compare.py` reports
+// where the time goes; the default runs them all. Run both with `compare.py`.
+
+const SIZE = 600;
+const ROUNDS = 40;
+const CALLS = 50000;
+
+const requested = sys.argv[1] if len(sys.argv) > 1 else "all";
+
+function wants(name) {
+    return requested == "all" or requested == name;
+}
+
+function fib(n) {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+var checksum = 0;
+
+// A counting loop: the fused comparison and branch.
+if wants("loop") {
+    for (var i = 0; i < SIZE; ++i) {
+        checksum = checksum + i * 3 % 7;
+    }
+}
+
+// List building, indexing, in-place stores, and a summing pass.
+if wants("lists") {
+    const items = [i * i % 97 for i in range(SIZE)];
+    for (var i = 0; i < SIZE; ++i) {
+        items[i] = items[i] + 1;
+    }
+    var total = 0;
+    for (var i = 0; i < SIZE; ++i) {
+        total += items[i];
+    }
+    checksum += total;
+}
+
+// Dictionary insert, membership, and a read-modify-write.
+if wants("dicts") {
+    const counts = {};
+    for (var i = 0; i < SIZE; ++i) {
+        const key = "k" + str(i % 50);
+        if key in counts {
+            counts[key] += 1;
+        } else {
+            counts[key] = 1;
+        }
+    }
+    for (var i = 0; i < 50; ++i) {
+        checksum += counts["k" + str(i)];
+    }
+}
+
+// String building.
+if wants("strings") {
+    var text = "";
+    for (var i = 0; i < 200; ++i) {
+        text += "ab";
+    }
+    checksum += len(text);
+}
+
+// Method calls on strings.
+if wants("methods") {
+    const words = ["alpha", "beta", "gamma", "delta"];
+    for (var round = 0; round < ROUNDS; ++round) {
+        for (var i = 0; i < len(words); ++i) {
+            checksum += len(words[i].upper());
+        }
+    }
+}
+
+// Recursion.
+if wants("recursion") {
+    checksum += fib(20);
+}
+
+// Plain function calls: an empty body, called in a loop, which isolates the
+// cost of a call from the work it does. It is a probe rather than part of the
+// whole workload, so `all` skips it.
+function nothing(value) {
+    return value;
+}
+
+if requested == "calls" {
+    for (var i = 0; i < CALLS; ++i) {
+        checksum += nothing(1);
+    }
+}
+
+print(checksum);
+

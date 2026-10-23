@@ -89,7 +89,7 @@ an error.
 | `write(text)` | Writes a string and returns the number of bytes written |
 | `writelines(list)` | Writes each string in a list |
 | `flush()` | Flushes buffered data to the host file |
-| `close()` | Closes the stream; further use is an error |
+| `close()` | Closes the stream, writing back any change it made; further use is an error |
 | `seek(offset, origin?)` | Moves the position and returns it |
 | `tell()` | Returns the current byte position |
 | `closed` | `true` after `close()` |
@@ -99,6 +99,29 @@ an error.
 `seek` accepts an origin of `0` (start, the default), `1` (current), or `2`
 (end). Positions are byte offsets. Read methods refuse a stream opened without
 read access, and `write` refuses a stream opened without write access.
+
+Writes reach the host when the stream is flushed, and again when it is closed. A
+stream that only read the file has nothing to write back, so closing it leaves
+the file exactly as it was: a reader never risks clobbering a file it opened. A
+stream opened in a truncating mode (`"w"`, `"w+"`) has already changed the file,
+so its close lands that truncation even when nothing was written to it.
+
+```tg
+write_file("notes.txt", "first\n");
+const reader = open("notes.txt", "r");
+print(reader.readline(), end="");
+reader.close();
+const appender = open("notes.txt", "a");
+appender.write("second\n");
+appender.close();
+print(read_file("notes.txt"), end="");
+```
+
+```text
+first
+first
+second
+```
 
 ```tg
 write_file("notes.txt", "alpha\nbeta\ngamma\n");

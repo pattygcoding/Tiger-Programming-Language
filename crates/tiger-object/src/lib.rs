@@ -6,11 +6,16 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tiger_ast::{FieldDecl, FunctionDecl};
 
 pub mod bytecode;
+mod rcstr;
+
+pub use rcstr::RcStr;
 
 /// One evaluated keyword argument, in call order.
 #[derive(Clone)]
@@ -23,13 +28,13 @@ pub struct Keyword {
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
-    String(Rc<str>),
+    String(RcStr),
     Bool(bool),
     Null,
     List(Rc<RefCell<Vec<Value>>>),
     /// A fixed-length, immutable group: `(1, 2)`. Shared like a string, because
     /// nothing can mutate it in place.
-    Tuple(Rc<[Value]>),
+    Tuple(Rc<Vec<Value>>),
     /// An insertion-ordered set of hashable scalars: `{1, 2}`.
     Set(Rc<RefCell<Set>>),
     Dict(Rc<RefCell<Dict>>),
@@ -74,7 +79,7 @@ impl Value {
     }
 
     pub fn string(text: &str) -> Value {
-        Value::String(Rc::from(text))
+        Value::String(RcStr::new(text))
     }
 
     pub fn list(elements: Vec<Value>) -> Value {
@@ -82,7 +87,7 @@ impl Value {
     }
 
     pub fn tuple(elements: Vec<Value>) -> Value {
-        Value::Tuple(Rc::from(elements))
+        Value::Tuple(Rc::new(elements))
     }
 
     pub fn set(elements: Vec<Value>) -> Result<Value, String> {
@@ -126,7 +131,7 @@ impl Value {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Key {
     Number(u64),
-    String(Rc<str>),
+    String(RcStr),
     Bool(bool),
 }
 
@@ -147,7 +152,7 @@ pub fn element_key(value: &Value) -> Result<Key, String> {
 fn key_for(value: &Value, role: &str, non_finite: &str) -> Result<Key, String> {
     match value {
         Value::Number(number) => {
-            if number.is_nan() || number.is_infinite() {
+            if !number.is_finite() {
                 return Err(non_finite.to_string());
             }
             let normalized = if *number == 0.0 { 0.0 } else { *number };
@@ -322,11 +327,67 @@ pub struct Binding {
 #[derive(Default)]
 pub struct Bindings {
     entries: Vec<(Rc<str>, Binding)>,
-    index: Option<HashMap<Rc<str>, usize>>,
+    index: Option<HashMap<Rc<str>, usize, BuildHasherDefault<NameHasher>>>,
 }
 
 /// The number of bindings at which a scope gains a hash index.
 const BINDINGS_INDEX_THRESHOLD: usize = 8;
+
+/// A count of every write to any binding, anywhere.
+///
+/// A global name read may be remembered against this count, and remembering one is
+/// only sound while no binding has changed since: a later `var` can shadow the name
+/// the read resolved to, and a scope can be entered that holds one. Bumping this in
+/// the two places a binding is written — the scope's own insert and its mutable
+/// accessor, which every definition and assignment goes through — gives the cache a
+/// guard that no write can forget. An over-eager bump costs a cache refill; a missed
+/// one would be a wrong answer.
+static BINDING_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// The current binding epoch; see [`BINDING_EPOCH`].
+#[inline]
+pub fn binding_epoch() -> u64 {
+    BINDING_EPOCH.load(Ordering::Relaxed)
+}
+
+/// A fast hasher for the names in a lexical scope.
+///
+/// A scope's names are the program's own identifiers, not data a caller supplies,
+/// so the flooding resistance a randomized hasher buys is not needed here — while
+/// its cost is paid on every global and built-in reference, because those resolve
+/// through a scope with enough names to have been indexed. The mixing is FxHash's:
+/// a rotate, an xor, and a multiply per word.
+///
+/// Dictionary and set keys keep the standard hasher: those are program data, and
+/// a program that indexes untrusted input should not be floodable.
+#[derive(Default)]
+pub struct NameHasher(u64);
+
+/// FxHash's 64-bit constant.
+const NAME_HASH_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
+impl Hasher for NameHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut state = self.0;
+        for chunk in bytes.chunks(8) {
+            let mut word = 0u64;
+            for (index, byte) in chunk.iter().enumerate() {
+                word |= u64::from(*byte) << (index * 8);
+            }
+            state = (state.rotate_left(5) ^ word).wrapping_mul(NAME_HASH_SEED);
+        }
+        // The length term keeps a name from colliding with its own extension.
+        self.0 = (state.rotate_left(5) ^ bytes.len() as u64).wrapping_mul(NAME_HASH_SEED);
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.write(&[value]);
+    }
+}
 
 impl Bindings {
     #[inline]
@@ -350,7 +411,10 @@ impl Bindings {
     #[inline]
     fn get_mut(&mut self, name: &str) -> Option<&mut Binding> {
         match self.position(name) {
-            Some(position) => Some(&mut self.entries[position].1),
+            Some(position) => {
+                BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
+                Some(&mut self.entries[position].1)
+            }
             None => None,
         }
     }
@@ -387,6 +451,7 @@ impl Bindings {
     /// makes and without looking the name up.
     #[inline]
     pub fn set_at(&mut self, slot: usize, value: Value) -> Result<(), String> {
+        BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
         let entry = &mut self.entries[slot];
         if entry.1.constant {
             return Err(format!("cannot reassign const {:?}", &*entry.0));
@@ -402,6 +467,7 @@ impl Bindings {
     /// Inserts a binding whose name is already a shared `Rc<str>`, so a repeated
     /// call with the same parameter name allocates nothing for the key.
     fn insert_shared(&mut self, key: Rc<str>, binding: Binding) {
+        BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
         let position = self.entries.len();
         self.entries.push((key.clone(), binding));
         match &mut self.index {
@@ -410,7 +476,7 @@ impl Bindings {
             }
             None => {
                 if self.entries.len() > BINDINGS_INDEX_THRESHOLD {
-                    let mut index = HashMap::with_capacity(self.entries.len());
+                    let mut index = HashMap::with_capacity_and_hasher(self.entries.len(), BuildHasherDefault::<NameHasher>::default());
                     for (position, (key, _)) in self.entries.iter().enumerate() {
                         index.insert(key.clone(), position);
                     }
@@ -423,6 +489,12 @@ impl Bindings {
     /// Empties the scope, keeping the backing storage so a reused scope does
     /// not allocate again.
     pub fn clear(&mut self) {
+        // A scope that is emptied can take bindings a remembered name read
+        // resolved through, so the epoch moves here too. It is a coarse guard — a
+        // released scope invalidates every remembered read, not only the ones that
+        // went through it — but a scope is released once per call and per statement
+        // block, not once per loop pass.
+        BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
         self.entries.clear();
         self.index = None;
     }
@@ -613,7 +685,7 @@ impl Class {
     pub fn find_field(self: &Rc<Class>, name: &str) -> Option<Rc<Field>> {
         let mut current = Some(self.clone());
         while let Some(class) = current {
-            let found = class.fields.borrow().iter().find(|field| field.declaration.name == name).map(|field| field.clone());
+            let found = class.fields.borrow().iter().find(|field| field.declaration.name == name).cloned();
             if found.is_some() {
                 return found;
             }
@@ -816,6 +888,11 @@ pub struct FileData {
     pub read: bool,
     pub write: bool,
     pub open: bool,
+    /// Whether this handle has changed the file it names. A handle that only read
+    /// never has, and closing it must not write the bytes back: that would be a
+    /// syscall spent changing nothing, and it could clobber what another writer
+    /// put there in the meantime.
+    pub dirty: bool,
 }
 
 /// Formats a value for `print`, `str()`, and diagnostics.
@@ -987,6 +1064,15 @@ pub fn truthy(value: &Value) -> bool {
 
 /// Structural equality with cycle detection, mirroring `object.Equal`.
 pub fn equal(left: &Value, right: &Value) -> bool {
+    // The scalar cases are what a comparison usually hits, and none of them can
+    // cycle, so they are decided before a cycle guard is even set up.
+    match (left, right) {
+        (Value::Number(first), Value::Number(second)) => return first == second,
+        (Value::String(first), Value::String(second)) => return first == second,
+        (Value::Bool(first), Value::Bool(second)) => return first == second,
+        (Value::Null, Value::Null) => return true,
+        _ => {}
+    }
     equal_inner(left, right, &mut Vec::new())
 }
 
@@ -1078,6 +1164,55 @@ mod tests {
 
     fn text(value: &Value) -> String {
         format(value)
+    }
+
+    #[test]
+    fn the_scope_name_hasher_separates_names() {
+        use std::hash::Hash;
+
+        let hash_of = |name: &str| {
+            let mut hasher = NameHasher::default();
+            name.hash(&mut hasher);
+            hasher.finish()
+        };
+        // Equal names hash equal, which is what a lookup relies on.
+        assert_eq!(hash_of("count"), hash_of("count"));
+        assert_eq!(hash_of(""), hash_of(""));
+        // A name is not confused with a different one, with its own extension, or
+        // with a rearrangement of its bytes.
+        assert_ne!(hash_of("count"), hash_of("counts"));
+        assert_ne!(hash_of("count"), hash_of("contu"));
+        assert_ne!(hash_of("a"), hash_of("b"));
+        assert_ne!(hash_of(""), hash_of("a"));
+        // Names longer than one word still separate.
+        assert_ne!(hash_of("a_very_long_identifier_name"), hash_of("a_very_long_identifier_namf"));
+    }
+
+    #[test]
+    fn a_scope_past_the_threshold_still_resolves_every_name() {
+        // Past `BINDINGS_INDEX_THRESHOLD` a scope gains a hash index, so the
+        // indexed path is the one that has to agree with the linear scan.
+        let env = Environment::new(None);
+        let names: Vec<String> = (0..24).map(|index| format!("name{}", index)).collect();
+        for (index, name) in names.iter().enumerate() {
+            define(&env, name, number(index as f64), false).expect("define");
+        }
+        assert!(env.borrow().bindings.index.is_some(), "the scope must have been indexed");
+        for (index, name) in names.iter().enumerate() {
+            match get(&env, name) {
+                Ok(Value::Number(value)) => assert_eq!(value, index as f64, "{}", name),
+                other => panic!("{} resolved to {:?}", name, other.is_ok()),
+            }
+        }
+        // A name that is not there stays undefined rather than resolving to a
+        // neighbour.
+        assert!(get(&env, "name99").is_err());
+        assert!(get(&env, "nam").is_err());
+        // A shadowing declaration in an inner scope still wins over the index.
+        let inner = Environment::new(Some(env.clone()));
+        define(&inner, "name3", number(-1.0), false).expect("define");
+        assert_eq!(get(&inner, "name3").map(|value| text(&value)).unwrap(), "-1");
+        assert_eq!(get(&env, "name3").map(|value| text(&value)).unwrap(), "3");
     }
 
     #[test]

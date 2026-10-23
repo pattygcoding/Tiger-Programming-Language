@@ -29,6 +29,7 @@ Begin with [Getting Started](getting-started.md), then follow the lessons below 
 - [Files](file-io.md): open modes, file-object methods, errors, and the filesystem on each target.
 - [Editor Highlighting](syntax-highlighting.md): keywords, operators, literals, semantic categories, and editor checks.
 - [Runtime and Errors](runtime-and-errors.md): diagnostics, evaluation limits, and unsupported features.
+- [Performance](performance.md): the two engines, what the compiler recognizes, and how to measure a change.
 - [Room for Improvement](room-for-improvement.md): known gaps between Tiger and general-purpose languages, with workarounds and suggested directions.
 - [Running and Building](running-and-building.md): CLI, standalone executables, browser Wasm, WASI, and embedding.
 

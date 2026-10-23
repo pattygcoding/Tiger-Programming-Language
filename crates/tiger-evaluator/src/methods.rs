@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use tiger_object as object;
-use tiger_object::{Keyword, Value};
+use tiger_object::{Keyword, RcStr, Value};
 
 /// Errors unless the call has no arguments.
 pub(crate) fn no_arguments(name: &str, arguments: &[Value], keywords: &[Keyword]) -> Result<(), String> {
@@ -25,7 +25,7 @@ fn string_argument(name: &str, role: &str, value: &Value) -> Result<String, Stri
 }
 
 /// Builds the string member method named `name`, or `None`.
-pub(crate) fn string_method(name: &str, receiver: Rc<str>) -> Option<Value> {
+pub(crate) fn string_method(name: &str, receiver: RcStr) -> Option<Value> {
     match name {
         "upper" => Some(transform(name, receiver, |text| text.to_uppercase())),
         "lower" => Some(transform(name, receiver, |text| text.to_lowercase())),
@@ -41,7 +41,7 @@ pub(crate) fn string_method(name: &str, receiver: Rc<str>) -> Option<Value> {
     }
 }
 
-fn transform(name: &str, receiver: Rc<str>, apply: fn(&str) -> String) -> Value {
+fn transform(name: &str, receiver: RcStr, apply: fn(&str) -> String) -> Value {
     let label = name.to_string();
     Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
         no_arguments(&label, arguments, keywords)?;
@@ -51,7 +51,7 @@ fn transform(name: &str, receiver: Rc<str>, apply: fn(&str) -> String) -> Value 
 
 /// Mirrors Python's `str.split`: no argument folds whitespace runs; an explicit
 /// separator splits exactly and keeps empty fields.
-fn split_method(receiver: Rc<str>) -> Value {
+fn split_method(receiver: RcStr) -> Value {
     Value::Builtin(object::Builtin::new("split", move |_host, arguments, keywords| {
         if !keywords.is_empty() {
             return Err("split does not accept keyword arguments".to_string());
@@ -71,7 +71,7 @@ fn split_method(receiver: Rc<str>) -> Value {
     }))
 }
 
-fn replace_method(receiver: Rc<str>) -> Value {
+fn replace_method(receiver: RcStr) -> Value {
     Value::Builtin(object::Builtin::new("replace", move |_host, arguments, keywords| {
         if !keywords.is_empty() {
             return Err("replace does not accept keyword arguments".to_string());
@@ -85,7 +85,7 @@ fn replace_method(receiver: Rc<str>) -> Value {
     }))
 }
 
-fn affix_method(name: &str, role: &str, receiver: Rc<str>, predicate: fn(&str, &str) -> bool) -> Value {
+fn affix_method(name: &str, role: &str, receiver: RcStr, predicate: fn(&str, &str) -> bool) -> Value {
     let label = name.to_string();
     let role = role.to_string();
     Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
@@ -101,7 +101,7 @@ fn affix_method(name: &str, role: &str, receiver: Rc<str>, predicate: fn(&str, &
 }
 
 /// Returns the code-point index of the first occurrence, or -1.
-fn find_method(receiver: Rc<str>) -> Value {
+fn find_method(receiver: RcStr) -> Value {
     Value::Builtin(object::Builtin::new("find", move |_host, arguments, keywords| {
         if !keywords.is_empty() {
             return Err("find does not accept keyword arguments".to_string());
@@ -120,7 +120,7 @@ fn find_method(receiver: Rc<str>) -> Value {
 const MAX_PAD_WIDTH: f64 = 1_000_000.0;
 
 /// Implements `padStart`/`padEnd(width, fill=" ")`; fill must be one code point.
-fn pad_method(name: &str, receiver: Rc<str>, start: bool) -> Value {
+fn pad_method(name: &str, receiver: RcStr, start: bool) -> Value {
     let label = name.to_string();
     Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
         if !keywords.is_empty() {
@@ -154,7 +154,7 @@ fn pad_width(name: &str, value: &Value) -> Result<usize, String> {
     let Value::Number(number) = value else {
         return Err(format!("{} width must be an integer", name));
     };
-    if number.is_nan() || number.is_infinite() || number.trunc() != *number {
+    if !number.is_finite() || number.trunc() != *number {
         return Err(format!("{} width must be an integer", name));
     }
     if *number < 0.0 {
@@ -334,7 +334,7 @@ fn integer_value(name: &str, role: &str, value: &Value) -> Result<f64, String> {
     let Value::Number(number) = value else {
         return Err(format!("{} {} must be an integer", name, role));
     };
-    if number.is_nan() || number.is_infinite() || number.trunc() != *number {
+    if !number.is_finite() || number.trunc() != *number {
         return Err(format!("{} {} must be an integer", name, role));
     }
     Ok(*number)
