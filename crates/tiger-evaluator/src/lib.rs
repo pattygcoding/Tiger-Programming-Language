@@ -1700,14 +1700,38 @@ impl<'a> Args<'a> {
     }
 }
 
-/// How many flat locals a call keeps on its own activation instead of taking a pooled
-/// vector. A frame with more than this takes the pool.
-const INLINE_LOCALS: usize = 4;
+/// How many flat locals a function's frame may hold and still take the flat call path
+/// — the shape the engine enters without re-entering itself.
+///
+/// The compiler folds this into [`Chunk::flat_callable`](tiger_object::bytecode::Chunk),
+/// so the bound is decided once, where the declaration is lowered, rather than tested
+/// at every call.
+const FLAT_LOCALS: usize = 4;
 
 /// The locals a call may reuse: the layout the compiler worked out for the call site,
 /// and the frame itself when the site is a flat one. Both are `None` for a call the
 /// compiler did not specialize, and the two always arrive together.
 type Frame<'a> = Option<(&'a CallLayout, Option<&'a mut [Value]>)>;
+
+/// A compiled frame a call has prepared but not entered.
+///
+/// This is everything a call does before its body runs: the arity check, the call's own
+/// scope, the frame's flat locals, and the binding of `this`, `super`, the parameters,
+/// the variadic list, the keywords, and the defaults. Keeping it apart from running the
+/// body is what lets the instruction loop enter the frame itself instead of re-entering
+/// the engine through `run_frame` — and one implementation serving both is what keeps a
+/// parked call and an `invoke`d one from drifting apart in what they check or report.
+pub(crate) struct Prepared<'a> {
+    /// The body to run.
+    pub(crate) code: &'a Rc<tiger_object::bytecode::Chunk>,
+    /// The environment the body runs in: the call's own scope when the frame needs one,
+    /// and the environment the function captured when it does not.
+    pub(crate) env: Env,
+    /// The frame's flat locals, with the arguments already bound.
+    pub(crate) locals: Vec<Value>,
+    /// The call's own scope, when it took one, for the frame's return to release.
+    pub(crate) scope: Option<Env>,
+}
 
 impl Evaluator {
     fn invoke(
@@ -1718,6 +1742,48 @@ impl Evaluator {
         keywords: &[Keyword],
         bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
     ) -> Eval {
+        let Some(prepared) = self.prepare_frame(base, function, arguments, keywords, bound)? else {
+            // A function that was never lowered has no instructions to run, so the
+            // tree-walking engine runs its body. Its frame is always a scope of its own:
+            // the compiler proved nothing about a body it did not see.
+            let scope = self.acquire_scope(function.env.clone());
+            let result = self.run_call(base, function, arguments, keywords, bound, &scope);
+            self.release_scope(scope);
+            // A `return` inside a `try` leaves its sub-chunk as a `Signal::Return` and
+            // unwinds to here, which is the function boundary: it becomes the result.
+            return match result {
+                Err(Signal::Return(value)) => Ok(value),
+                other => other,
+            };
+        };
+        let Prepared { code, env, locals, scope } = prepared;
+        let result = self.run_frame(code, &env, locals);
+        if let Some(scope) = scope {
+            self.release_scope(scope);
+        }
+        self.depth -= 1;
+        // A `return` inside a `try` leaves its sub-chunk as a `Signal::Return` and
+        // unwinds to here, which is the function boundary: it becomes the result.
+        match result {
+            Err(Signal::Return(value)) => Ok(value),
+            other => other,
+        }
+    }
+
+    /// Checks a call's arity, takes the scope its frame needs, and binds the arguments
+    /// into a frame the caller can then run — here, or in the instruction loop.
+    ///
+    /// `None` means the function has no compiled body, which is the shape the
+    /// tree-walking engine runs: the arity has been checked, and no depth has been
+    /// counted and no scope taken.
+    pub(crate) fn prepare_frame<'a>(
+        &mut self,
+        base: &Base,
+        function: &'a Rc<object::FunctionValue>,
+        arguments: &mut [Value],
+        keywords: &[Keyword],
+        bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
+    ) -> Result<Option<Prepared<'a>>, Signal> {
         let declaration = &function.declaration;
         let parameters = &declaration.parameters;
         let fixed = parameters.len();
@@ -1732,6 +1798,7 @@ impl Evaluator {
         {
             return Err(runtime(base, format!("{} expects {} arguments, got {}", label, fixed, arguments.len())));
         }
+        let Some(code) = &function.code else { return Ok(None) };
         // A call scope is pooled and reused when the call does not capture it, so
         // a recursive or repeated call does not allocate a scope and its bindings
         // each time.
@@ -1742,64 +1809,34 @@ impl Evaluator {
         // resolves above the frame is a free name that walks the environment chain,
         // so skipping an empty frame leaves every slot-based access where the
         // compiler placed it.
-        let frame_needed = function.code.as_ref().is_none_or(|code| code.frame_needed);
-        // A function whose frame is skipped runs in the environment it captured, so
-        // its call needs no scope of its own — and no clone of the one it has.
-        let pooled = if frame_needed { Some(self.acquire_scope(function.env.clone())) } else { None };
-        let scope: &Env = pooled.as_ref().unwrap_or(&function.env);
-        let result = match &function.code {
-            Some(code) => self.run_compiled(base, function, Args::new(arguments, keywords), bound, scope, code),
-            None => self.run_call(base, function, arguments, keywords, bound, scope),
+        let scope = if code.frame_needed { Some(self.acquire_scope(function.env.clone())) } else { None };
+        let env = match &scope {
+            Some(scope) => scope.clone(),
+            None => function.env.clone(),
         };
-        if let Some(scope) = pooled {
-            self.release_scope(scope);
-        }
-        // A `return` inside a `try` leaves its sub-chunk as a `Signal::Return` and
-        // unwinds to here, which is the function boundary: it becomes the result.
-        match result {
-            Err(Signal::Return(value)) => Ok(value),
-            other => other,
-        }
-    }
-
-    /// Binds a call's arguments and runs the body with the linear engine.
-    fn run_compiled(
-        &mut self,
-        base: &Base,
-        function: &Rc<object::FunctionValue>,
-        args: Args<'_>,
-        bound: Option<(&Rc<object::Method>, &Rc<object::Instance>)>,
-        scope: &Env,
-        code: &Rc<tiger_object::bytecode::Chunk>,
-    ) -> Eval {
-        let Args { positional: arguments, keywords } = args;
         self.depth += 1;
         if self.depth >= 512 {
             self.depth -= 1;
+            if let Some(scope) = scope {
+                self.release_scope(scope);
+            }
             return Err(fatal(base, "maximum evaluation depth exceeded".to_string()));
         }
-        // The frame's flat locals are the call's too: a parameter the compiler gave
-        // a flat slot is written straight into it, so the body never looks a
-        // parameter up in an environment.
-        if code.flat_count <= INLINE_LOCALS {
-            // A frame whose flat locals fit in a small fixed array keeps them on this
-            // activation's own stack, so binding and running it touch no pool at all.
-            // The array is built inside the branch, because a call that takes the
-            // pooled path below would otherwise pay to initialize it for nothing.
-            let mut inline = [const { Value::Null }; INLINE_LOCALS];
-            let locals = &mut inline[..code.flat_count];
-            let result = self
-                .bind_call(base, function, Args::new(arguments, keywords), bound, scope, Some((&code.call_layout, Some(locals))))
-                .and_then(|()| self.run_frame(code, scope, locals));
-            self.depth -= 1;
-            return result;
-        }
+        // The frame's flat locals come from the pool, so a call allocates nothing once
+        // the pool is warm. They are the call's, too: a parameter the compiler gave a
+        // flat slot is written straight into it, so the body never looks a parameter up
+        // in an environment.
         let mut locals = self.take_locals(code.flat_count);
-        let result = self
-            .bind_call(base, function, Args::new(arguments, keywords), bound, scope, Some((&code.call_layout, Some(&mut locals[..]))))
-            .and_then(|()| self.run_chunk_with(code, scope, locals));
-        self.depth -= 1;
-        result
+        let binding =
+            self.bind_call(base, function, Args::new(arguments, keywords), bound, &env, Some((&code.call_layout, Some(&mut locals[..]))));
+        if let Err(signal) = binding {
+            self.depth -= 1;
+            if let Some(scope) = scope {
+                self.release_scope(scope);
+            }
+            return Err(signal);
+        }
+        Ok(Some(Prepared { code, env, locals, scope }))
     }
 
     /// Binds the call's `this`/`super`, parameters, keywords, and defaults in

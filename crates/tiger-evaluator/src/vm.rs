@@ -197,6 +197,43 @@ impl<'a> CallSite<'a> {
     }
 }
 
+/// One frame a call parked inside the instruction loop.
+///
+/// A plain function call does not re-enter the loop. It saves the running frame
+/// here and installs the callee's state in the loop's own variables. What is saved
+/// is only what the caller needs when it resumes: where it was, what its operands
+/// were resting on, where its result is to land, its flat locals, its environment,
+/// and how tall its scopes and iterators were. Everything else the loop reads on the
+/// instruction path — the chunk, the program counter, the operand stack — stays in a
+/// variable of the loop and is never routed through this struct, which is the
+/// difference between a frame stack that pays for itself and one that does not.
+struct Parked {
+    /// The chunk the caller was running.
+    chunk: Rc<Chunk>,
+    /// The instruction the caller resumes at: the one after its call, or after the
+    /// `Pop` that a discarded result had fused into it.
+    pc: usize,
+    /// The caller's operand base on the shared value stack.
+    base: usize,
+    /// How tall the caller's scopes were when it was entered. A frame releases
+    /// everything above its own mark, so a call's scopes are its own to unwind.
+    scope_mark: usize,
+    /// The same for the caller's iterators, which a `for` loop pushes and a return
+    /// leaves behind.
+    iter_mark: usize,
+    /// Whether the callee's result is dropped rather than left on the stack.
+    discard: bool,
+    /// The caller's flat locals, which the frame leaves with.
+    locals: Vec<Value>,
+    /// The caller's environment.
+    env: Env,
+    /// A scope the callee's frame took for its own call, for the frame's return to
+    /// release. A plain function whose body needs no scope has none; a method, or a
+    /// function that captured a name, has the scope `bind_call` bound `this`, the
+    /// parameters, and the keywords into.
+    scope: Option<Env>,
+}
+
 /// The inline numeric path for a binary operator the compiler tagged.
 ///
 /// `None` means the two values are not both numbers, or the operator keeps its
@@ -234,36 +271,57 @@ impl Evaluator {
     /// Runs a compiled chunk to completion, returning its value.
     pub(crate) fn run_chunk(&mut self, chunk: &Rc<Chunk>, env: &Env) -> Vm {
         let locals = self.take_locals(chunk.flat_count);
-        self.run_chunk_with(chunk, env, locals)
+        self.run_frame(chunk, env, locals)
     }
 
-    /// Takes a frame's flat locals from the pool, sized and cleared, so a call that
-    /// declares locals allocates nothing once the pool is warm.
+    /// Takes a frame's flat locals from the pool.
+    ///
+    /// Every vector in the pool is at least as long as the largest frame that has used
+    /// it and holds nothing but `Null`, so a frame that fits an existing one costs a
+    /// pop and nothing else — no clearing pass and no re-initialization. The frame
+    /// writes the slots it uses, and [`Evaluator::release_locals`] empties them again
+    /// on the way out. That is what keeps a pooled frame as cheap to enter as the
+    /// fixed array it replaced, which is what a call with a frame of its own — a
+    /// method, or a call that passes keywords — is measured on.
     pub(crate) fn take_locals(&mut self, count: usize) -> Vec<Value> {
-        let mut locals = self.locals_pool.pop().unwrap_or_default();
-        locals.clear();
-        locals.resize(count, Value::Null);
-        locals
+        match self.locals_pool.pop() {
+            Some(mut locals) => {
+                if locals.len() < count {
+                    locals.resize(count, Value::Null);
+                }
+                locals
+            }
+            None => vec![Value::Null; count],
+        }
     }
 
-    /// Runs a chunk with the frame's flat locals already prepared, which is how a
-    /// call binds its flat parameters before the body starts.
-    pub(crate) fn run_chunk_with(&mut self, chunk: &Rc<Chunk>, env: &Env, mut locals: Vec<Value>) -> Vm {
-        let result = self.run_frame(chunk, env, &mut locals);
-        locals.clear();
+    /// Empties a frame's locals and returns them to the pool.
+    ///
+    /// Writing `Null` over every slot is what releases the values the frame left
+    /// there. Doing it slot by slot, rather than with a `clear` followed by a
+    /// `resize`, is what leaves the pool's invariant — every pooled vector all
+    /// `Null` — standing without a second pass to rebuild it.
+    pub(crate) fn release_locals(&mut self, mut locals: Vec<Value>) {
+        locals.fill(Value::Null);
         self.locals_pool.push(locals);
-        result
     }
 
-    /// Runs a chunk in a frame whose flat locals belong to the caller, so a frame
-    /// small enough for the caller's own stack never touches the locals pool.
+    /// Runs a chunk in a frame of its own, which is how a chunk that is not a plain
+    /// function call — a script, a try body, a `finally`, a method still on the
+    /// general call path — gets a frame.
     ///
     /// This is the one call on the hot path that crosses a module boundary, so it
-    /// asks to be inlined; the loop it runs cannot be, being re-entered by calls.
+    /// asks to be inlined.
     #[inline]
-    pub(crate) fn run_frame(&mut self, chunk: &Rc<Chunk>, env: &Env, locals: &mut [Value]) -> Vm {
+    pub(crate) fn run_frame(&mut self, chunk: &Rc<Chunk>, env: &Env, locals: Vec<Value>) -> Vm {
+        // The depth a plain function call inside the loop adds is undone by the
+        // `Return` that leaves its frame. An error that unwinds the whole loop leaves
+        // those frames standing, so the count is restored here: a caught error must
+        // not leave the recursion limit raised for the rest of the run.
+        let entry = self.depth;
         let mut stack = self.stack_pool.pop().unwrap_or_default();
         let result = self.run_loop(chunk, env, &mut stack, locals);
+        self.depth = entry;
         stack.clear();
         self.stack_pool.push(stack);
         result
@@ -282,6 +340,12 @@ impl Evaluator {
     /// locals and holds the depth limit; `bind_call`, which reads the declaration's variadic,
     /// keyword, and default parameters only to find that none apply; and `run_frame`, which
     /// pools the operand stack. What is left here is the depth limit and the binding itself.
+    ///
+    /// A call reached from an instruction does not come here: `Instr::Call` enters a
+    /// frame of this shape by parking one inside the loop, which is what keeps a
+    /// plain call from re-entering the engine. This is the path the same call takes
+    /// when it arrives through a member that resolved to a function, or through the
+    /// general call path, where the callee has to be established first.
     ///
     /// A method never takes this path: a method's frame is never skipped, because its call sets
     /// the class context its body checks visibility against, so `frame_needed` is always true.
@@ -303,8 +367,7 @@ impl Evaluator {
         }
         // A frame whose flat locals fit a small fixed array keeps them on this activation's own
         // stack, as `run_compiled` does it, so a call allocates nothing.
-        let mut inline = [const { Value::Null }; crate::INLINE_LOCALS];
-        let locals = &mut inline[..code.flat_count];
+        let mut locals = self.take_locals(code.flat_count);
         for (index, slot) in layout.parameters.iter().enumerate() {
             // The argument moves into the frame: the caller's copy on the operand stack is
             // dropped when the call returns, so cloning it would be a copy thrown away.
@@ -321,13 +384,32 @@ impl Evaluator {
         }
     }
 
-    /// The instruction loop; `stack` is pooled by the caller so a call does not
-    /// allocate a value stack.
-    fn run_loop(&mut self, chunk: &Rc<Chunk>, env: &Env, stack: &mut Vec<Value>, locals: &mut [Value]) -> Vm {
-        let root = env;
+    /// The instruction loop; `stack` and `locals` are pooled by the caller so a call
+    /// allocates neither.
+    ///
+    /// A call to a plain function does not re-enter this loop. It parks the running
+    /// frame in `frames`, loads the callee's state into this function's own variables,
+    /// and carries on, and `Instr::Return` puts back what it parked. The state the
+    /// dispatch path reads — the chunk, the program counter, the operand stack, the
+    /// frame's locals — is therefore still a variable of this loop rather than a field
+    /// of a frame, so only a call pays anything for the flattening.
+    ///
+    /// One value stack serves every frame in the loop, so a frame's operands start at
+    /// `base` and a return truncates back to it instead of swapping a buffer in.
+    fn run_loop(&mut self, chunk: &Rc<Chunk>, env: &Env, stack: &mut Vec<Value>, mut locals: Vec<Value>) -> Vm {
+        // The running frame's state, which is exactly what a call parks and a return
+        // restores.
+        let mut chunk = chunk.clone();
         let mut env = env.clone();
         let mut scopes: Vec<Env> = Vec::new();
         let mut iters: Vec<IterState> = Vec::new();
+        let mut frames: Vec<Parked> = Vec::new();
+        // `base` is where this frame's operands start on the shared stack; the two
+        // marks are how tall the scopes and iterators were when the frame was entered,
+        // so a return unwinds exactly what this frame pushed and no more.
+        let mut base = 0usize;
+        let mut scope_mark = 0usize;
+        let mut iter_mark = 0usize;
         let mut pc = 0usize;
         // The limit is read once, because it cannot change while a chunk runs and
         // this test is on every instruction.
@@ -520,7 +602,7 @@ impl Evaluator {
                         let base = chunk.base_at(chunk.position(pc - 1));
                         return Err(runtime(&base, format!("cannot assign a property of {}", receiver.type_name())));
                     }
-                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, chunk.position(pc - 1), &env)?;
+                    let value = self.cached_property(&chunk, pc - 1, index as usize, &receiver, chunk.position(pc - 1), &env)?;
                     stack.push(receiver);
                     stack.push(value);
                 }
@@ -570,7 +652,7 @@ impl Evaluator {
                 // slot is the one the `GetProperty` it replaced would have used.
                 Instr::FlatProperty { value, name, cache } => {
                     let slot = cache as usize;
-                    let value = self.cached_property(chunk, slot, name as usize, &locals[value as usize], chunk.position(slot), &env)?;
+                    let value = self.cached_property(&chunk, slot, name as usize, &locals[value as usize], chunk.position(slot), &env)?;
                     stack.push(value);
                     pc += 1;
                 }
@@ -744,33 +826,130 @@ impl Evaluator {
                         // and argument plumbing exists for the sake of everything else.
                         // Calling it here skips that match and the slice it would
                         // rebuild — and, for a function whose parameters are all flat
-                        // slots and whose body needs no scope, the three activations
-                        // between this instruction and the body as well.
+                        // slots and whose body needs no scope, the frame it runs in as
+                        // well: that shape is entered by parking this frame inside the
+                        // loop instead of re-entering it, which is what takes the call
+                        // off the Rust stack entirely.
                         if let Value::Function(function) = &callee {
-                            let value = match self.call_flat_function(
-                                &chunk.base_at(chunk.position(pc - 1)),
-                                function,
-                                &mut stack[at..at + positional as usize],
-                            )? {
-                                Some(value) => value,
-                                None => self.invoke(
+                            // The shape the compiler proved about the declaration: every
+                            // parameter in a flat slot, nothing variadic, no keywords,
+                            // no `super`, and a body that needs no scope of its own.
+                            // The arity the general path checks cannot be wrong for it,
+                            // because the compiler gave every parameter a slot and a
+                            // call of it passes one argument per parameter — which is
+                            // what the count is compared against here.
+                            let flat = match &function.code {
+                                Some(code) if code.flat_callable && positional as usize == code.call_layout.parameters.len() => Some(code),
+                                _ => None,
+                            };
+                            if let Some(code) = flat {
+                                self.depth += 1;
+                                if self.depth >= 512 {
+                                    self.depth -= 1;
+                                    let base = chunk.base_at(chunk.position(pc - 1));
+                                    return Err(crate::fatal(&base, "maximum evaluation depth exceeded".to_string()));
+                                }
+                                let mut bound = self.take_locals(code.flat_count);
+                                for (index, slot) in code.call_layout.parameters.iter().enumerate() {
+                                    // The argument moves into the frame, exactly as it
+                                    // does below: the caller's copy is dropped by the
+                                    // truncate that follows, so cloning it would be a
+                                    // copy thrown away.
+                                    bound[slot.expect("a flat parameter has a slot") as usize] =
+                                        std::mem::replace(&mut stack[at + index], Value::Null);
+                                }
+                                // The callee's operands take the stack over from here,
+                                // so the caller's arguments go; the frame's own base is
+                                // where they were, and the result lands one slot below
+                                // it, which is where the callee was.
+                                stack.truncate(at);
+                                frames.push(Parked {
+                                    chunk: std::mem::replace(&mut chunk, code.clone()),
+                                    // A call whose value is dropped had a `Pop` fused
+                                    // out of it, and that instruction is still in the
+                                    // code for the loop to step over — which is what the
+                                    // general path's own `pc += 1` does for the same
+                                    // reason.
+                                    pc: if discard { pc + 1 } else { pc },
+                                    base,
+                                    scope_mark,
+                                    iter_mark,
+                                    discard,
+                                    locals: std::mem::replace(&mut locals, bound),
+                                    env: std::mem::replace(&mut env, function.env.clone()),
+                                    scope: None,
+                                });
+                                scope_mark = scopes.len();
+                                iter_mark = iters.len();
+                                base = at;
+                                pc = 0;
+                                continue;
+                            }
+                            // Everything else a compiled function can be is entered below,
+                            // by the preparation `invoke` itself uses, because it may need
+                            // a scope of its own or may be passing keywords. A function
+                            // with no chunk at all is the tree-walker's and has no frame to
+                            // enter.
+                            if function.code.is_none() {
+                                let value = self.invoke(
                                     &chunk.base_at(chunk.position(pc - 1)),
                                     function,
                                     &mut stack[at..at + positional as usize],
                                     &[],
                                     None,
-                                )?,
-                            };
-                            stack.truncate(at - 1);
-                            if discard {
-                                pc += 1;
-                            } else {
-                                stack.push(value);
+                                )?;
+                                stack.truncate(at - 1);
+                                if discard {
+                                    pc += 1;
+                                } else {
+                                    stack.push(value);
+                                }
+                                continue;
                             }
+                        }
+                    }
+                    // Everything else with a compiled body is entered by parking this
+                    // frame above the one `prepare_frame` builds: a function whose body
+                    // needs a scope of its own because it captured a name, one with more
+                    // flat slots than a frame carries, a call that passes keywords, and a
+                    // bound method, which is a method with its receiver already in hand.
+                    // A function the tree-walker runs has no frame to enter and falls
+                    // through to the path that runs it.
+                    let target = match &callee {
+                        Value::Function(function) if function.code.is_some() => Some((function, None)),
+                        Value::BoundMethod(bound) if bound.method.function.code.is_some() => {
+                            Some((&bound.method.function, Some((&bound.method, &bound.receiver))))
+                        }
+                        _ => None,
+                    };
+                    if let Some((function, bound)) = target {
+                        let site = CallSite::new(&chunk, pc - 1, stack, positional, keywords);
+                        let named = self.take_keywords(&site, stack);
+                        let prepared = self.prepare_frame(&site.base(), function, &mut stack[at..at + positional as usize], &named, bound);
+                        if keyword_count > 0 {
+                            self.recycle_keywords(named);
+                        }
+                        if let Some(prepared) = prepared? {
+                            stack.truncate(at);
+                            frames.push(Parked {
+                                chunk: std::mem::replace(&mut chunk, prepared.code.clone()),
+                                pc: if discard { pc + 1 } else { pc },
+                                base,
+                                scope_mark,
+                                iter_mark,
+                                discard,
+                                locals: std::mem::replace(&mut locals, prepared.locals),
+                                env: std::mem::replace(&mut env, prepared.env),
+                                scope: prepared.scope,
+                            });
+                            scope_mark = scopes.len();
+                            iter_mark = iters.len();
+                            base = at;
+                            pc = 0;
                             continue;
                         }
                     }
-                    let call = CallSite::new(chunk, pc - 1, stack, positional, keywords);
+                    let call = CallSite::new(&chunk, pc - 1, stack, positional, keywords);
                     let value = self.finish_call(&call, callee, stack, &env)?;
                     stack.truncate(at - 1);
                     if discard {
@@ -787,7 +966,56 @@ impl Evaluator {
                     let argument_count = positional as usize + 2 * keyword_count;
                     let at = stack.len() - argument_count;
                     let receiver = std::mem::replace(&mut stack[at - 1], Value::Null);
-                    let call = CallSite::new(chunk, pc - 1, stack, positional, keywords);
+                    // A class method is entered as a frame of its own, the way a plain
+                    // call is. The member is resolved here, which is what `call_method`
+                    // would do next anyway, and the frame is prepared by the code
+                    // `invoke` uses — so a plain call, a call through a member that
+                    // resolved to a function, and a method call all bind their arguments
+                    // in one place. The length spellings `call_method` answers before it
+                    // can never match an instance, so resolving the method first cannot
+                    // move another answer past this one.
+                    let method = match &receiver {
+                        Value::Instance(target) => {
+                            let label = chunk.names[name as usize].clone();
+                            self.method_of(&chunk, pc - 1, &label, chunk.member(member), target, &env)?
+                        }
+                        _ => None,
+                    };
+                    if let Some(method) = method {
+                        let Value::Instance(target) = &receiver else { unreachable!("a method is found on an instance") };
+                        let site = CallSite::new(&chunk, pc - 1, stack, positional, keywords);
+                        let named = self.take_keywords(&site, stack);
+                        let prepared = self.prepare_frame(
+                            &site.base(),
+                            &method.function,
+                            &mut stack[at..at + positional as usize],
+                            &named,
+                            Some((&method, target)),
+                        );
+                        if keyword_count > 0 {
+                            self.recycle_keywords(named);
+                        }
+                        if let Some(prepared) = prepared? {
+                            stack.truncate(at);
+                            frames.push(Parked {
+                                chunk: std::mem::replace(&mut chunk, prepared.code.clone()),
+                                pc: if discard { pc + 1 } else { pc },
+                                base,
+                                scope_mark,
+                                iter_mark,
+                                discard,
+                                locals: std::mem::replace(&mut locals, prepared.locals),
+                                env: std::mem::replace(&mut env, prepared.env),
+                                scope: prepared.scope,
+                            });
+                            scope_mark = scopes.len();
+                            iter_mark = iters.len();
+                            base = at;
+                            pc = 0;
+                            continue;
+                        }
+                    }
+                    let call = CallSite::new(&chunk, pc - 1, stack, positional, keywords);
                     let value = self.call_method(call, name as usize, member, receiver, stack, &env)?;
                     stack.truncate(at - 1);
                     if discard {
@@ -934,7 +1162,7 @@ impl Evaluator {
                 }
                 Instr::GetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
-                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, chunk.position(pc - 1), &env)?;
+                    let value = self.cached_property(&chunk, pc - 1, index as usize, &receiver, chunk.position(pc - 1), &env)?;
                     stack.push(value);
                 }
                 Instr::SetIndex => {
@@ -948,7 +1176,7 @@ impl Evaluator {
                 Instr::SetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
                     let value = stack.pop().expect("stack");
-                    self.store_property(chunk, pc - 1, index as usize, receiver, value, &env)?;
+                    self.store_property(&chunk, pc - 1, index as usize, receiver, value, &env)?;
                 }
                 // The read-modify-write tails. Each target was resolved and read once,
                 // so these reuse what is already below the value instead of evaluating
@@ -962,7 +1190,7 @@ impl Evaluator {
                 Instr::SetPropertyKeep(index) => {
                     let value = stack.pop().expect("stack");
                     let receiver = stack.pop().expect("stack");
-                    self.store_property(chunk, pc - 1, index as usize, receiver, value, &env)?;
+                    self.store_property(&chunk, pc - 1, index as usize, receiver, value, &env)?;
                 }
                 Instr::UpdateIndex { name, decrement, prefix } => {
                     let value = stack.pop().expect("stack");
@@ -990,7 +1218,7 @@ impl Evaluator {
                     if !updated.is_finite() {
                         return Err(runtime(&base, "non-finite numeric result".to_string()));
                     }
-                    self.store_property(chunk, pc - 1, property as usize, receiver, Value::Number(updated), &env)?;
+                    self.store_property(&chunk, pc - 1, property as usize, receiver, Value::Number(updated), &env)?;
                     stack.push(Value::Number(if prefix { updated } else { previous }));
                 }
                 // The flat form of an update, which is what a counting loop's
@@ -1120,13 +1348,46 @@ impl Evaluator {
                 }
                 Instr::Throw => {
                     let value = stack.pop().expect("stack");
-                    self.release_scopes(root, &mut env, &mut scopes);
+                    // Only this frame's own scopes are unwound; the ones below it
+                    // belong to the frames parked underneath.
+                    self.release_scopes_to(&mut env, &mut scopes, scope_mark);
                     return Err(Signal::Throw { value, origin: chunk.base_at(chunk.position(pc - 1)).location() });
                 }
                 Instr::Return => {
                     let value = stack.pop().unwrap_or(Value::Null);
-                    self.release_scopes(root, &mut env, &mut scopes);
-                    return Ok(value);
+                    let Some(frame) = frames.pop() else {
+                        // Nothing is parked above this frame, so it is the outermost:
+                        // the value is what the chunk evaluates to.
+                        self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                        let mine = std::mem::take(&mut locals);
+                        self.release_locals(mine);
+                        return Ok(value);
+                    };
+                    // Leaving a frame a call entered. Its scopes and iterators are
+                    // unwound, its locals go back to the pool, and the caller's parked
+                    // state is loaded back. The result takes the place the call left for
+                    // it, which is one slot below this frame's operand base — where the
+                    // callee itself was on the caller's stack.
+                    self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                    iters.truncate(iter_mark);
+                    let mine = std::mem::replace(&mut locals, frame.locals);
+                    self.release_locals(mine);
+                    self.depth -= 1;
+                    stack.truncate(base - 1);
+                    if !frame.discard {
+                        stack.push(value);
+                    }
+                    chunk = frame.chunk;
+                    pc = frame.pc;
+                    env = frame.env;
+                    // The callee's own call scope, when it took one, goes back to the
+                    // pool now that nothing here still refers to it.
+                    if let Some(scope) = frame.scope {
+                        self.release_scope(scope);
+                    }
+                    base = frame.base;
+                    scope_mark = frame.scope_mark;
+                    iter_mark = frame.iter_mark;
                 }
                 Instr::ReturnEscape => {
                     // A `return` in a try body, a catch body, or a `finally`
@@ -1135,12 +1396,51 @@ impl Evaluator {
                     // unwinds, and the enclosing function turns it back into its own
                     // result.
                     let value = stack.pop().unwrap_or(Value::Null);
-                    self.release_scopes(root, &mut env, &mut scopes);
+                    self.release_scopes_to(&mut env, &mut scopes, scope_mark);
                     return Err(Signal::Return(value));
                 }
                 Instr::Try(index) => {
                     let proto = chunk.tries[index as usize].clone();
-                    self.run_try(&chunk.base_at(chunk.position(pc - 1)), &proto, &env)?;
+                    let outcome = self.run_try(&chunk.base_at(chunk.position(pc - 1)), &proto, &env);
+                    let value = match outcome {
+                        Ok(_) => continue,
+                        Err(Signal::Return(value)) => value,
+                        Err(signal) => return Err(signal),
+                    };
+                    // A `return` in a try body belongs to this function. It arrived as
+                    // a signal because the try's sub-chunks run in frames of their own,
+                    // and `Instr::ReturnEscape` is what a `return` in one of them
+                    // leaves. A frame a call entered turns it back into its own result
+                    // the same way `Instr::Return` does — which is the code below,
+                    // repeated rather than shared because this is the one instruction
+                    // that can reach a frame exit other than `Return` itself, and
+                    // routing the hot path through a call to share it would cost every
+                    // call in the program.
+                    let Some(frame) = frames.pop() else {
+                        // Nothing parked above this frame, so the signal belongs to the
+                        // function boundary above this chunk, as it always did.
+                        return Err(Signal::Return(value));
+                    };
+                    self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                    iters.truncate(iter_mark);
+                    let mine = std::mem::replace(&mut locals, frame.locals);
+                    self.release_locals(mine);
+                    self.depth -= 1;
+                    stack.truncate(base - 1);
+                    if !frame.discard {
+                        stack.push(value);
+                    }
+                    chunk = frame.chunk;
+                    pc = frame.pc;
+                    env = frame.env;
+                    // The callee's own call scope, when it took one, goes back to the
+                    // pool now that nothing here still refers to it.
+                    if let Some(scope) = frame.scope {
+                        self.release_scope(scope);
+                    }
+                    base = frame.base;
+                    scope_mark = frame.scope_mark;
+                    iter_mark = frame.iter_mark;
                 }
                 Instr::Comprehension(index) => {
                     let proto = &chunk.comprehensions[index as usize];
@@ -1584,14 +1884,19 @@ impl Evaluator {
         Err(failure)
     }
 
-    /// Unwinds pushed scopes, returning them to the pool, without touching the
-    /// frame's root scope, which the caller owns.
-    fn release_scopes(&mut self, root: &Env, env: &mut Env, scopes: &mut Vec<Env>) {
-        while let Some(parent) = scopes.pop() {
+    /// Unwinds the scopes a frame pushed, returning each to the pool, and leaves
+    /// `env` standing at the frame's own root.
+    ///
+    /// `mark` is how tall `scopes` stood when the frame was entered, so everything
+    /// above it was pushed by this frame and nothing below it is touched. That is what
+    /// lets a call's scopes be unwound by its return without disturbing the frame it
+    /// returns to: the frame's root is the environment at `mark`, and it is never the
+    /// child being released.
+    fn release_scopes_to(&mut self, env: &mut Env, scopes: &mut Vec<Env>, mark: usize) {
+        while scopes.len() > mark {
+            let parent = scopes.pop().expect("scopes above the frame's mark");
             let child = std::mem::replace(env, parent);
-            if !Rc::ptr_eq(&child, root) {
-                self.release_scope(child);
-            }
+            self.release_scope(child);
         }
     }
 }

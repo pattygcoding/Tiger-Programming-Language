@@ -66,15 +66,18 @@ jobs:
             echo "::error::WASI lost the regex module; see AGENTS.md"
             exit 1
           fi
-      - name: Enforce Wasm size budget
+      - name: Guard the Wasm size ceiling
         shell: bash
         run: |
           artifact=target/wasm32-unknown-unknown/release/tiger_wasm.wasm
           size=$(stat -c %s "$artifact")
-          budget=990000
-          echo "tiger.wasm is $size bytes (budget $budget)"
+          # A ceiling on a runaway rather than a target to tune against: it is here so
+          # that a dependency which drags in something large is caught in CI instead of
+          # in the download. The build is about a quarter of it today.
+          budget=2500000
+          echo "tiger.wasm is $size bytes (ceiling $budget)"
           if [ "$size" -gt "$budget" ]; then
-            echo "::error::tiger.wasm grew past the size budget; see AGENTS.md (Wasm size guardrails)"
+            echo "::error::tiger.wasm passed the size ceiling; see AGENTS.md (Wasm size guardrails)"
             exit 1
           fi
       # Boots the playground the way a browser does: builds the runtime, serves

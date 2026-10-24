@@ -363,10 +363,14 @@ Two changes that look like the obvious next step were implemented and measured
 *slower*, and are recorded here so they are not tried again:
 
 - **An explicit frame stack inside the loop**, the design Lua uses, in place of the
-  Rust frames a call re-enters through. Parking a frame's state costs about what the
-  frames it replaced did — the state is a `Chunk`, an environment, and three vectors
-  — and the larger loop body made every nested entry more expensive. It cost 15% on
-  `call/method` and gained nothing on `call/empty`.
+  Rust frames a call re-enters through — tried the way it is usually written, where
+  every instruction reads the chunk, the program counter, and the stack out of the
+  current frame. Parking a frame's state costs about what the frames it replaced did —
+  the state is a `Chunk`, an environment, and three vectors — and the larger loop body
+  made every nested entry more expensive. It cost 15% on `call/method` and gained
+  nothing on `call/empty`. The version that keeps the instruction state in the loop's
+  own variables is in the engine now, and it wins: see
+  [a call stops re-entering the engine](#a-call-stops-re-entering-the-engine).
 - **`Value::String(Rc<String>)` with an in-place append**, so that `s += x` in a loop
   grows the accumulator instead of copying it. A growable inner type costs one more
   allocation than the `Rc<str>` it replaces, on every string the program builds, and
@@ -1242,9 +1246,10 @@ scope push, the inline locals array, the `Signal::Return` hop back out through f
 nested calls — and every one of them measured individually is smaller than this
 machine's noise floor of roughly 2%. What is left is not a fast path; it is the
 recursive shape of `run_loop` itself. The alternative, a flat frame stack, was
-measured slower when it was tried (session 2) because it makes every instruction read
-its state through the frame instead of a register. The call path stays where it is
-until something changes that trade.
+measured slower when it was first tried because it makes every instruction read its
+state through the frame instead of a register — and that trade changed once the operand
+stack was shared between frames rather than pooled per call, which is the change
+[below](#a-call-stops-re-entering-the-engine).
 
 ### The activations were not the cost
 
@@ -1274,7 +1279,95 @@ is left in a call — about 55 ns against a 13 ns loop pass, for a body of two i
 the *frame*: the locals array, the state `run_loop` builds for itself, and the return hop. A
 change that removes Rust frames from between calls does not touch any of it; only a change that
 stops building a frame per call does, which is the arena the section above calls "the design".
-The fast path is cheap and stays, but it is not the road to a faster call.
+The fast path is cheap and stays, but it is not the road to a faster call — what is, and
+what it cost to get it, is the change below.
+
+### A call stops re-entering the engine
+
+`Instr::Call` used to call `run_frame`, which took a value stack from a pool and called
+`run_loop` again. Every plain call paid a Rust activation, a pool round trip, and the
+state a fresh loop entry builds, and the return crossed back out through the same
+activations. Nothing in the sections above had moved any of it: the fast path had taken
+3 ns off the prologue, and the remaining 34 ns of a call — the subtraction in "What is
+left in a call" — had been read as out of reach.
+
+A call now parks the running frame inside the loop and installs the callee's state in
+the loop's own variables.
+
+- **A frame is data, not an activation.** `Parked` holds the chunk, the program
+  counter, the operand base, the two marks, the discarded-result flag, the flat locals,
+  and the environment, and nothing else.
+- **The instruction path never reads a frame.** The chunk, the program counter, the
+  value stack, and the locals stay variables of `run_loop`, so dispatch is unchanged
+  and only entering and leaving a call touches `Parked`. That is the difference between
+  this and the attempt recorded under "Two changes that look the obvious next step":
+  parking that state cost about the same then, but every instruction paid for it.
+- **One value stack serves every frame.** A frame's operands start at `base` and a
+  return truncates back to it, so a call no longer takes a `Vec` from `stack_pool` and
+  hands it back — which is what leaves the state a frame parks small enough to be
+  cheaper than the frames it replaced.
+- **A frame unwinds its own scopes and iterators.** Each frame records how tall the two
+  stacks were when it was entered, so a return releases exactly what it pushed, and a
+  `for` loop's iterator still belongs to the frame that opened it.
+- **The depth a call counts is put back, not leaked.** An error abandons the frames
+  below it rather than returning through them, so `run_frame` restores the depth it
+  found: one caught error cannot raise the recursion limit for the rest of the run.
+- **The `Pop` a discarded call fused away is still stepped over**, which is what keeps
+  `f(x);` from leaving a value the next instruction would read.
+
+A method call, and a call that passes keywords, are entered the same way. Their frame
+needs a scope of its own for `this` and for bindings a keyword can move, so the two
+shapes share one preparation step with `invoke`: `prepare_frame` checks the arity, takes
+the scope, and binds `this`, `super`, the parameters, the variadics, the keywords, and
+the defaults, and hands back a frame the loop can park its own above. One implementation
+serving both is what keeps a parked call and an `invoke`d one from drifting apart in
+what they check or what they report.
+
+What still re-enters is a `try` body, a `catch` body, and a `finally` — each is a chunk
+of its own, run a level down — and a function the tree-walker runs, which has no chunk
+to enter at all. Neither is on a call's path: a try costs one loop entry per *try*, not
+per call, and no section moves by either.
+
+Two binaries, one from each revision, run alternately, best of 25:
+
+| micro case | before | after |
+| --- | --- | --- |
+| `call/empty` | 66.1 ns | **56.9 ns** |
+| `call/two-args` | 73.3 | **65.4** |
+| `call/discard` | 53.1 | **45.6** |
+| `recursion/fib20` | 58.7 | **51.0** |
+| `call/method` | 88.5 | 97.4 (up — a bound method does not take the path) |
+| `call/builtin`, `call/alias` (controls) | 42.1, 40.9 | 42.5, 41.9 (unmoved) |
+
+The controls are the check that matters: neither a built-in call nor a name read moved,
+so the delta is the frame and not the build. The protocol's sections move with them,
+best of 150, also alternating:
+
+| section | before | after |
+| --- | --- | --- |
+| `all` | 1.610 ms | **1.503 ms** |
+| `recursion` | 1.269 | **1.179** |
+| `calls` | 3.231 | **3.031** |
+| `loop`, `lists`, `dicts`, `strings`, `methods` | — | unmoved, within the noise of their own size |
+
+So the largest section moves 7% and the whole workload 6%, off one change: a call no
+longer pays for a frame it does not need. `fib(20)` is 21,891 calls, so the micro
+case's per-call figure is 51 ns where it was 58.7 — against 24 ns for CPython on the
+same workload.
+
+The shape that carried the first step's price is now a frame the loop enters too: a class
+method, a bound method, and a call that passes keywords all take their frame from
+`prepare_frame`, so they get the flattening as well as the locals indirection that made
+`call/method` 10% slower. That the micro case is back where it started has not been read
+cleanly — the runs after this step were taken on a loaded machine, where the controls
+themselves moved ±5% and `call/method`'s own spread was 20% — so the claim here stops at
+what the sections say: nothing else paid for it. `all` 1.503 → 1.504 ms, `recursion`
+1.179 → 1.125, `calls` 3.031 → 2.973, and the remaining shapes — a `try`'s chunks and a
+function the tree-walker runs — move no section at all.
+
+What is left of the locals indirection is the `Vec` the loop indexes rather than a slice
+it keeps in two registers, which is what the next change — a frame whose locals come from
+the same shared stack as its operands — is for.
 
 ## The biggest program was not the interpreter
 

@@ -650,16 +650,16 @@ impl Compiler {
             ..self.call_layout
         };
         let frame_needed = !self.scopes[0].names.is_empty() || self.is_method;
-        // Six of the seven facts the flat call path tests are facts about this declaration, not
-        // about the call: no frame of its own, flat parameters, no `super`, neither variadic nor
-        // keyword parameters, and locals that fit the engine's inline array. The call site tests
-        // this one flag instead; only its own argument count is left to it.
+        // Every fact the flat call path tests is a fact about this declaration, not about the
+        // call: no frame of its own, flat parameters, no `super`, neither variadic nor keyword
+        // parameters, and locals few enough to fit a frame the engine enters directly. The call
+        // site tests this one flag instead; only its own argument count is left to it.
         let flat_callable = !frame_needed
             && call_layout.flat_parameters
             && !call_layout.super_used
             && call_layout.variadic.is_none()
             && call_layout.keyword.is_none()
-            && self.flat_slots as usize <= crate::INLINE_LOCALS;
+            && self.flat_slots as usize <= crate::FLAT_LOCALS;
         Rc::new(Chunk {
             property_cache: std::cell::RefCell::new(vec![None; slots]),
             name_cache: std::cell::RefCell::new(vec![None; slots]),

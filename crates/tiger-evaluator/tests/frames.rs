@@ -1,0 +1,187 @@
+//! Call frames: the shapes a call has to leave the engine's state in.
+//!
+//! A plain function call does not re-enter the instruction loop. It parks the running
+//! frame inside the loop, loads the callee's state into the loop's own variables, and
+//! carries on, and `return` puts back what the call parked. What is pinned here is
+//! everything that has to stay true across that exchange: the depth a recursive call
+//! still counts toward, the operand stack the caller's pending values are resting on,
+//! the scopes and iterators a frame unwinds and no more, the `Pop` a discarded call
+//! leaves behind it, and the frame a `return` inside a `try` leaves.
+
+mod common;
+
+use common::{failure, output};
+
+#[test]
+fn a_call_runs_in_a_frame_of_its_own() {
+    // A recursive call is 400 frames deep and returns, which is what a parked frame
+    // has to survive: the value has to come back through every one of them.
+    assert_eq!(
+        output("function down(n) {\n    if n == 0 {\n        return 0;\n    }\n    return down(n - 1);\n}\nprint(down(400));"),
+        "0\n"
+    );
+    // And the depth is still counted, so the documented limit is reached where it
+    // always was rather than by overflowing the host's own stack.
+    let error = failure("function down(n) {\n    if n == 0 {\n        return 0;\n    }\n    return down(n - 1);\n}\nprint(down(600));");
+    assert!(error.contains("maximum evaluation depth exceeded"), "{error}");
+}
+
+#[test]
+fn a_discarded_call_leaves_the_stack_as_the_next_instruction_expects() {
+    // A call written as a statement has its `Pop` fused into the call, and the
+    // instruction it replaced is still in the code for the loop to step over. A frame
+    // that is parked instead of entered has to step over it too, or the next
+    // instruction reads a value the discarded call should have dropped.
+    assert_eq!(
+        output(
+            "function mark(value) {\n    return value;\n}\nvar total = 0;\nfor (var i = 0; i < 3; ++i) {\n    mark(i);\n    total += mark(i) + 1;\n}\nprint(total);"
+        ),
+        "6\n"
+    );
+}
+
+#[test]
+fn a_result_lands_where_the_call_left_room_for_it() {
+    // The caller's own operands stay on the stack below the call, so a result has to
+    // take exactly the slot the callee occupied — no more, no less. A call in the
+    // middle of an expression is where that shows.
+    assert_eq!(
+        output(
+            "function double(value) {\n    return value * 2;\n}\nvar total = 0;\nfor (var i = 0; i < 4; ++i) {\n    total = total + double(i) + double(i + 1);\n}\nprint(total);"
+        ),
+        "32\n"
+    );
+    // Nesting puts a whole chain of results through the same slot.
+    assert_eq!(output("function double(value) {\n    return value * 2;\n}\nprint(double(double(double(1))));"), "8\n");
+}
+
+#[test]
+fn a_return_inside_a_try_leaves_the_frame_a_call_entered() {
+    // A `return` in a try body is compiled into a separate chunk and reaches the
+    // enclosing function as a signal, so it arrives at the call's frame rather than at
+    // the instruction that made the call. It has to leave through that frame all the
+    // same, with the `finally` run and the value intact.
+    assert_eq!(
+        output(
+            "function pick(flag) {\n    var log = \"\";\n    try {\n        if flag {\n            return \"yes\";\n        }\n        log = \"no\";\n    } finally {\n        log = log + \"!\";\n    }\n    return log;\n}\nprint(pick(true), pick(false));"
+        ),
+        "yes no!\n"
+    );
+}
+
+#[test]
+fn an_error_that_unwinds_calls_leaves_no_frame_behind() {
+    // The frames below the error are abandoned rather than returned from, so the depth
+    // they counted has to come back down with them. Otherwise one caught error would
+    // raise the recursion limit for the rest of the run — and the second call here,
+    // which is as deep as the first, would hit it.
+    assert_eq!(
+        output(
+            "function down(n, explode) {\n    if n == 0 {\n        if explode {\n            throw \"boom\";\n        }\n        return 0;\n    }\n    return down(n - 1, explode);\n}\ntry {\n    down(300, true);\n} catch (error) {\n    print(\"caught\", error);\n}\nprint(down(300, false));"
+        ),
+        "caught boom\n0\n"
+    );
+}
+
+#[test]
+fn a_throw_through_calls_reaches_the_handler() {
+    // The same unwinding, with the error caught one function out. Every frame it
+    // crosses is a parked one, and the handler still runs in the frame that owns it.
+    assert_eq!(
+        output(
+            "function inner(n) {\n    if n == 0 {\n        throw \"deep\";\n    }\n    return inner(n - 1);\n}\nfunction outer() {\n    try {\n        inner(50);\n    } catch (error) {\n        return \"caught \" + error;\n    }\n    return \"no\";\n}\nprint(outer());"
+        ),
+        "caught deep\n"
+    );
+}
+
+#[test]
+fn a_call_inside_a_loop_is_between_iterators() {
+    // A `for` loop's iterator belongs to the frame that opened it. A call made from
+    // inside the loop runs above it and leaves it where it was, and a callee that opens
+    // its own loop takes the inner iterator away with it when it returns.
+    assert_eq!(
+        output(
+            "function visit(depth) {\n    if depth == 0 {\n        return 0;\n    }\n    var total = 0;\n    for step in [1, 2] {\n        total += visit(depth - 1) + 1;\n    }\n    return total;\n}\nprint(visit(3));"
+        ),
+        "14\n"
+    );
+    // The iterator the caller is holding still reads the right element afterwards.
+    assert_eq!(
+        output(
+            "function twice(value) {\n    return value * 2;\n}\nvar seen = [];\nfor item in [1, 2, 3] {\n    seen = seen + [twice(item)];\n    seen = seen + [item];\n}\nprint(seen);"
+        ),
+        "[2, 1, 4, 2, 6, 3]\n"
+    );
+}
+
+#[test]
+fn functions_that_call_each_other_keep_their_own_frames() {
+    assert_eq!(
+        output(
+            "function is_even(n) {\n    if n == 0 {\n        return true;\n    }\n    return is_odd(n - 1);\n}\nfunction is_odd(n) {\n    if n == 0 {\n        return false;\n    }\n    return is_even(n - 1);\n}\nprint(is_even(100), is_odd(100), is_even(101));"
+        ),
+        "true false false\n"
+    );
+}
+
+#[test]
+fn a_frame_that_needs_a_scope_of_its_own_is_entered_the_same_way() {
+    // A function that captured a name cannot run in the environment it was defined
+    // in — the binding has to be reachable from the frame — so its call takes a scope
+    // and its frame is the one the loop parks its own above.
+    assert_eq!(
+        output(
+            "function adder(step) {\n    function add(value) {\n        return value + step;\n    }\n    return add;\n}\nconst add2 = adder(2);\nprint(add2(40));"
+        ),
+        "42\n"
+    );
+    // A call that passes keywords binds them in the same frame, which is the other
+    // reason a frame needs a scope rather than flat slots.
+    assert_eq!(
+        output(
+            "function greet(name, greeting = \"hi\") {\n    return greeting + \" \" + name;\n}\nprint(greet(\"ann\"), greet(\"bob\", greeting = \"yo\"));"
+        ),
+        "hi ann yo bob\n"
+    );
+}
+
+#[test]
+fn a_method_call_gets_a_frame_with_its_receiver_bound() {
+    assert_eq!(
+        output(
+            "class Box {\n    var v = 1;\n    Box() {}\n    function get() {\n        return this.v;\n    }\n}\nconst box = Box();\nprint(box.get(), box.get() + 1);"
+        ),
+        "1 2\n"
+    );
+    // A method taken off its receiver is the same frame with `this` already in hand.
+    assert_eq!(
+        output(
+            "class Box {\n    var v = 7;\n    Box() {}\n    function get() {\n        return this.v;\n    }\n}\nconst box = Box();\nconst read = box.get;\nprint(read(), box.get());"
+        ),
+        "7 7\n"
+    );
+}
+
+#[test]
+fn a_return_out_of_a_try_leaves_a_method_frame_whole() {
+    // The method's frame owns a scope for its `this`, so a `return` that arrives from
+    // the try's own chunk has to leave through the frame with that scope released and
+    // the `finally` run — twice, with the receiver's state carried across both calls.
+    assert_eq!(
+        output(
+            "class Box {\n    var v = 1;\n    Box() {}\n    function get(flag) {\n        try {\n            if flag {\n                return this.v;\n            }\n        } finally {\n            this.v = this.v + 10;\n        }\n        return this.v;\n    }\n}\nconst box = Box();\nprint(box.get(true), box.get(false));"
+        ),
+        "1 21\n"
+    );
+}
+
+#[test]
+fn a_call_the_frame_cannot_take_reports_as_it_always_did() {
+    // The shape a parked frame is entered for is proven by the compiler, so a call of
+    // the wrong arity reaches the general path instead — and reports from there, at the
+    // position of the call.
+    let error = failure("function f(a) {\n    return a;\n}\nprint(f(1, 2));");
+    assert!(error.contains("f expects 1 arguments, got 2"), "{error}");
+    assert!(error.starts_with("4:8:"), "{error}");
+}

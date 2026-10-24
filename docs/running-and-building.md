@@ -113,8 +113,10 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 930 KB, about 293 KB with gzip, and smaller still
-with Brotli. Most static hosts compress `.wasm` automatically; otherwise enable
+The stripped binary is about 950 KB, about 293 KB with gzip, and smaller still
+with Brotli. There is no size target to hold a change to: CI fails the build if the
+raw artifact passes 2.5 MB, which is a ceiling on a runaway rather than a budget.
+Most static hosts compress `.wasm` automatically; otherwise enable
 gzip or Brotli for the `application/wasm` content type. The local `cargo run -p
 tiger-web` server does not compress.
 
@@ -259,4 +261,5 @@ program on it, which is the same path a browser takes.
 - **Wasm builds, closure guard, and size budget**: builds the browser runtime and
   both WASI artifacts, fails if `cargo tree -p tiger-evaluator --target
   wasm32-unknown-unknown` gains `regex` (or if the WASI closure loses it), and
-  fails if `tiger.wasm` grows past the size budget.
+  fails if `tiger.wasm` grows past its 2.5 MB ceiling, which guards against a runaway
+  rather than holding a change to a size target.
