@@ -15,8 +15,8 @@ it serves and is checked against.
 ## Wasm size guardrails
 
 `web/tiger.wasm` bundles the whole interpreter, so every crate linked into
-`crates/tiger-wasm` ships to the browser. It currently builds to about 844 KB
-stripped (~263 KB gzip). Keep it there.
+`crates/tiger-wasm` ships to the browser. It currently builds to about 953 KB
+stripped (~300 KB gzip). Keep it there.
 
 - **Keep the browser runtime free of `regex`, the host clock, and host entropy.** They live behind the `wasm32-unknown-unknown` cfg with stubs that report the documented error, because the `regex` crate would bloat the download and `SystemTime::now` panics on that target. `std::fs` is linked but never reached, because the browser always runs on the in-memory filesystem.
 - **Never add a dependency without checking the browser closure.** `cargo tree -p tiger-evaluator --target wasm32-unknown-unknown` must not gain a crate, and the same command for `--target wasm32-wasip1` must still show the ones WASI keeps.
@@ -26,7 +26,7 @@ stripped (~263 KB gzip). Keep it there.
 ## Validation
 
 Run `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` before
-finishing. `cargo test` runs the unit tests, the language suites, the 43
+finishing. `cargo test` runs the unit tests, the language suites, the 44
 benchmark programs, the 176 documentation examples, the example and portfolio
 programs, the standalone-build integration tests, the differential test that runs
 every one of those programs on both engines and checks that they agree, and the

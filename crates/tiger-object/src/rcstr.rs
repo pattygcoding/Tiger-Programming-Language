@@ -88,6 +88,12 @@ impl RcStr {
         if capacity <= INLINE_MAX {
             return RcStr::inline(text);
         }
+        // The heap branch is entered only when the allocation must hold more than the handle can,
+        // and every caller fills it before the string becomes observable: `new` passes the whole
+        // text, `append` grows to a total over the limit (or it would have stayed inline) and
+        // writes that length before the handle is replaced, and `concat` sizes for both halves and
+        // then appends the second. So a `RcStr` a caller can see is either an inline handle or an
+        // allocation of more than seven bytes, and `len()` or `refs()` alone says which.
         let layout = layout_for(capacity);
         // SAFETY: the layout is never zero-sized, so a null return means the
         // allocator failed, and `handle_alloc_error` does not return.
@@ -113,6 +119,49 @@ impl RcStr {
         storage[0] = (text.len() << 1) as u8 | 1;
         storage[1..1 + text.len()].copy_from_slice(text.as_bytes());
         handle
+    }
+
+    /// A string holding `value`'s digits, when `value` is an integer whose text
+    /// fits in the handle, or `None`.
+    ///
+    /// The rendering is exactly [`tiger_format::number`]'s for an integral value:
+    /// its `i64` form, with a negative zero keeping its sign. A caller that would
+    /// otherwise render into a `String` and then copy that text into a shared
+    /// string writes the digits once instead, which is what `str(i)` in a counting
+    /// loop pays for.
+    ///
+    /// A handle holds seven bytes, so the text is at most seven digits, or a sign
+    /// and six. Anything wider goes to the general formatter, which is the only
+    /// place that knows how a float that is not an integer prints.
+    pub fn from_integer(value: f64) -> Option<RcStr> {
+        // A value that is not an integer, and a NaN or an infinity, all fail this:
+        // `fract` of a NaN is a NaN, which is not zero.
+        if value.fract() != 0.0 {
+            return None;
+        }
+        let negative = value.is_sign_negative();
+        let limit = if negative { 999_999.0 } else { 9_999_999.0 };
+        if value.abs() > limit {
+            return None;
+        }
+        // The digits are written into a stack buffer first, so the length is known
+        // before anything is committed to the handle.
+        let mut digits = [0u8; INLINE_MAX];
+        let mut at = INLINE_MAX;
+        let mut magnitude = value.abs() as u64;
+        loop {
+            at -= 1;
+            digits[at] = b'0' + (magnitude % 10) as u8;
+            magnitude /= 10;
+            if magnitude == 0 {
+                break;
+            }
+        }
+        if negative {
+            at -= 1;
+            digits[at] = b'-';
+        }
+        Some(RcStr::inline(std::str::from_utf8(&digits[at..]).expect("digits are ASCII")))
     }
 
     /// Whether the text lives in the handle rather than in an allocation.
@@ -214,6 +263,19 @@ impl RcStr {
         *self = fresh;
     }
 
+    /// A string holding `first` followed by `second`, allocated once.
+    ///
+    /// The pair is sized up front, so `second` lands in the buffer `first` was copied into, and
+    /// a result short enough to live in the handle is never allocated at all. Building it as a
+    /// `String` and then copying that into an `RcStr` is two allocations and two copies of the
+    /// same bytes.
+    pub fn concat(first: &str, second: &str) -> RcStr {
+        let total = first.len().checked_add(second.len()).expect("a string is never too long to concatenate");
+        let mut joined = RcStr::with_capacity(total, first);
+        joined.append(second);
+        joined
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -305,6 +367,9 @@ impl AsRef<str> for RcStr {
 
 impl PartialEq for RcStr {
     fn eq(&self, other: &RcStr) -> bool {
+        // Comparing the bytes, not the handles: equal text can be held two ways (in a handle and
+        // in an allocation), and an inline fast path was measured and did not earn its branches —
+        // see "A string key's hash is not what a dictionary operation pays for" in the guide.
         self.as_str() == other.as_str()
     }
 }
@@ -325,6 +390,10 @@ impl Ord for RcStr {
 
 impl Hash for RcStr {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        // The bytes, so that the text is what a hasher sees. Hashing an inline handle as one word
+        // instead was measured and did not earn its branches: a key's hash is a `write` plus a
+        // terminator either way, and the fixed cost of the hash dominates both — see
+        // "A string key's hash is not what a dictionary operation pays for" in the guide.
         self.as_str().hash(state)
     }
 }
@@ -381,6 +450,37 @@ mod tests {
     }
 
     #[test]
+    fn a_small_integer_is_written_into_the_handle() {
+        // The handle holds seven bytes, so seven digits fit, or a sign and six.
+        let fits = [
+            (0.0, "0"),
+            (7.0, "7"),
+            (50.0, "50"),
+            (999_999.0, "999999"),
+            (1_000_000.0, "1000000"),
+            (9_999_999.0, "9999999"),
+            (-1.0, "-1"),
+            (-999_999.0, "-999999"),
+            (-0.0, "-0"),
+        ];
+        for (value, expected) in fits {
+            let text = RcStr::from_integer(value).unwrap_or_else(|| panic!("{value} should fit in the handle"));
+            assert_eq!(text.as_str(), expected);
+            // The rendering is the one the general formatter gives an integral value,
+            // which is what makes the fast path invisible to a program.
+            assert_eq!(text.as_str(), tiger_format::number(value));
+            assert!(text.is_inline(), "{value} should be held in the handle");
+            assert_eq!(text.len(), expected.len());
+        }
+        // A magnitude too wide for the handle, and anything that is not an integer at
+        // all, is left to the general formatter — the only place that knows how a
+        // value that is not an integer prints.
+        for value in [-1_000_000.0, 10_000_000.0, 9_999_999.5, 1.5, -1.5, 1e21, 2f64.powi(53), f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(RcStr::from_integer(value).is_none(), "{value} should not fit in the handle");
+        }
+    }
+
+    #[test]
     fn the_count_tracks_every_clone() {
         let held = RcStr::new("shared text");
         assert_eq!(held.refs(), 1);
@@ -431,8 +531,68 @@ mod tests {
         assert_ne!(a, b);
         assert!(a < b);
         assert_eq!(a.cmp(&b), "apple".cmp("banana"));
+        // Equal strings hash equal, whether the text lives in the handle or in an allocation, and
+        // the hash the standard hasher gives a `str` is the one they agree on.
         assert_eq!(hash_of(&a), hash_of("apple"));
-        assert_eq!(hash_of(&b), hash_of("banana"));
+        assert_eq!(hash_of(&RcStr::new("banana")), hash_of("banana"));
+        assert_ne!(hash_of(&a), hash_of(&b));
+
+        // A text too long for a handle hashes as itself too.
+        let long = "a text too long for a handle";
+        assert_eq!(hash_of(&RcStr::new(long)), hash_of(long));
+    }
+
+    #[test]
+    fn an_inline_handle_and_an_allocation_are_never_the_same_text() {
+        // The two representations divide the lengths between them: up to seven bytes live in the
+        // handle and an allocation is always longer, so `len()` and `refs()` alone say which
+        // representation a string is using.
+        let held = RcStr::new("1234567");
+        assert_eq!(held.refs(), 0);
+        assert_eq!(held.as_str().len(), INLINE_MAX);
+        let allocated = RcStr::new("12345678");
+        assert_eq!(allocated.as_str().len(), INLINE_MAX + 1);
+        assert!(allocated.refs() >= 1);
+        assert_ne!(held, allocated);
+        assert_ne!(hash_of(&held), hash_of(&allocated));
+
+        // A string that grows out of the handle is an allocation afterwards, and still compares
+        // and hashes as the same text it was before.
+        let mut grown = RcStr::new("1234567");
+        grown.append("8");
+        assert_eq!(grown.as_str(), "12345678");
+        assert_eq!(grown, RcStr::new("12345678"));
+        assert_eq!(hash_of(&grown), hash_of(&RcStr::new("12345678")));
+
+        // Two equal allocations compare equal without sharing one, which is what the second
+        // half of `eq` is for.
+        let first = RcStr::new("an allocated text");
+        let second = RcStr::new("an allocated text");
+        assert_ne!(RcStr::ptr_eq(&first, &second), RcStr::ptr_eq(&first, &first));
+        assert_eq!(first, second);
+        assert_eq!(hash_of(&first), hash_of(&second));
+    }
+
+    #[test]
+    fn a_concatenation_allocates_once() {
+        let joined = RcStr::concat("hello, ", "world");
+        assert_eq!(joined.as_str(), "hello, world");
+        assert_eq!(joined.refs(), 1);
+        assert_eq!(joined.capacity(), 12);
+        // A result short enough for the handle is not allocated and not counted at all.
+        let small = RcStr::concat("k", "12");
+        assert_eq!(small.as_str(), "k12");
+        assert_eq!(small.refs(), 0);
+        assert_eq!(RcStr::concat("", "").as_str(), "");
+        assert_eq!(RcStr::concat("", "abc").as_str(), "abc");
+        assert_eq!(RcStr::concat("abc", "").as_str(), "abc");
+        // The result is its own string, independent of the halves it was built from.
+        let first = RcStr::new("shared ");
+        let joined = RcStr::concat(&first, "tail");
+        assert_eq!(joined.as_str(), "shared tail");
+        assert_eq!(joined.refs(), 1);
+        drop(first);
+        assert_eq!(joined.as_str(), "shared tail");
     }
 
     #[test]

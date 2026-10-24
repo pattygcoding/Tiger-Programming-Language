@@ -136,7 +136,7 @@ print(describe("tiger", "wild", size="large"));
 - `list(value)`, `tuple(value)`, and `set(value)` convert any iterable, and
   `json.stringify` writes a tuple as a JSON array.
 
-### Comprehensions (`38_aggregates`)
+### Comprehensions (`38_aggregates`, `44_comprehensions`)
 
 - A list comprehension builds a list in one expression:
   `[x * x for x in range(1, 5)]`, with any number of `if` filters —

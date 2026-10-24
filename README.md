@@ -53,7 +53,7 @@ The underlying Wasm build command is:
 cargo build -p tiger-wasm --release --target wasm32-unknown-unknown
 ```
 
-The release profile strips symbols, and if Binaryen's `wasm-opt` is on `PATH`, `cargo run -p tiger-web` also runs `wasm-opt -Oz --converge`. The browser build keeps `regex` and the host clock out, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 915 KB but about 287 KB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
+The release profile strips symbols, and if Binaryen's `wasm-opt` is on `PATH`, `cargo run -p tiger-web` also runs `wasm-opt -Oz --converge`. The browser build keeps `regex` and the host clock out, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 930 KB but about 293 KB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
 
 For static deployment, publish the contents of `web/` along with an `examples/` subdirectory containing the Tiger examples and a `portfolio-features/` subdirectory for the Portfolio menu entries. Serve over HTTP(S), not `file://`, and send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so `input()` can wait for a line. `tigerRun(source, filename)` returns `{output, error}` inside the Wasm worker; output streams as it prints, and `input()` waits for a line typed into the output pane. Generated Wasm is ignored by Git.
 
@@ -140,7 +140,7 @@ The [portfolio-features](portfolio-features/) directory holds complete programs,
 
 ## Regression Benchmarks
 
-Run all forty-three reference-output programs, including OOP, control-flow, exception, variadic-call, function-ergonomics, aggregate/comprehension, lazy-iterator, text-precision, syntax-gap, file-I/O, list-sort, input, conversion, type-inspection, string-method, collection-method, set-and-tuple, module-export, operator, standard-library, math, and algo workloads:
+Run all forty-four reference-output programs, including OOP, control-flow, exception, variadic-call, function-ergonomics, aggregate/comprehension, lazy-iterator, text-precision, syntax-gap, file-I/O, list-sort, input, conversion, type-inspection, string-method, collection-method, set-and-tuple, module-export, operator, standard-library, math, and algo workloads:
 
 ```sh
 cargo test -p tiger-conformance --test benchmarks -- --nocapture

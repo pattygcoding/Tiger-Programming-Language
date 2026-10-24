@@ -165,15 +165,36 @@ fn key_for(value: &Value, role: &str, non_finite: &str) -> Result<Key, String> {
 }
 
 /// An insertion-ordered dictionary with a hash index for key lookup.
-#[derive(Default)]
+///
+/// `last` remembers where the most recent lookup found its entry. A read-modify-write through a
+/// dictionary — `counts[key] += 1` — reads the entry and then stores back into it, and without this
+/// the store would hash the key and probe the index all over again. An insert appends, so it never
+/// moves an entry a lookup found; a `delete` shifts the entries after it and a `clear` removes them
+/// all, and both drop this.
+#[derive(Default, Clone)]
 pub struct Dict {
     pub entries: Vec<(Value, Value)>,
     pub indices: HashMap<Key, usize>,
+    last: RefCell<Option<(Key, usize)>>,
 }
 
 impl Dict {
+    /// An empty dictionary with room for `count` entries, so filling it does not rehash the
+    /// index as it grows.
+    pub fn with_capacity(count: usize) -> Dict {
+        Dict { entries: Vec::with_capacity(count), indices: HashMap::with_capacity(count), last: RefCell::new(None) }
+    }
+
     pub fn set(&mut self, key: Value, value: Value) -> Result<(), String> {
         let hashed = hash(&key)?;
+        // A value that was read out of this dictionary and is being stored back for the same key —
+        // which is what a compound assignment through an index is — finds its entry here rather
+        // than hashing the key and probing the index a second time.
+        let remembered = self.last.borrow().as_ref().and_then(|(found, position)| (found == &hashed).then_some(*position));
+        if let Some(position) = remembered {
+            self.entries[position].1 = value;
+            return Ok(());
+        }
         if let Some(index) = self.indices.get(&hashed).copied() {
             self.entries[index].1 = value;
             return Ok(());
@@ -185,9 +206,31 @@ impl Dict {
 
     pub fn get(&self, key: &Value) -> Result<Option<Value>, String> {
         let hashed = hash(key)?;
-        match self.indices.get(&hashed) {
-            Some(index) => Ok(Some(self.entries[*index].1.clone())),
+        match self.indices.get(&hashed).copied() {
+            Some(index) => {
+                // Remember where this resolved, so a store for the same key is an array write.
+                *self.last.borrow_mut() = Some((hashed, index));
+                Ok(Some(self.entries[index].1.clone()))
+            }
             None => Ok(None),
+        }
+    }
+
+    /// Whether `key` is present, without reading what it holds.
+    ///
+    /// A membership test wants the entry, not its value, and going through
+    /// [`Dict::get`] would clone a value the caller throws away — for a key that
+    /// holds a list or a string that is a refcount per test. The entry the probe
+    /// resolved is remembered exactly as a read remembers it, so the store or the
+    /// read that follows the test for the same key is still an array write.
+    pub fn contains(&self, key: &Value) -> Result<bool, String> {
+        let hashed = hash(key)?;
+        match self.indices.get(&hashed).copied() {
+            Some(index) => {
+                *self.last.borrow_mut() = Some((hashed, index));
+                Ok(true)
+            }
+            None => Ok(false),
         }
     }
 
@@ -198,6 +241,9 @@ impl Dict {
             return Ok(false);
         };
         self.entries.remove(index);
+        // The entries after the one removed have shifted down, so what the last lookup found is not
+        // where it was any more.
+        *self.last.borrow_mut() = None;
         self.indices.remove(&hashed);
         for offset in index..self.entries.len() {
             if let Ok(moved) = hash(&self.entries[offset].0) {
@@ -210,6 +256,7 @@ impl Dict {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.indices.clear();
+        *self.last.borrow_mut() = None;
     }
 }
 
@@ -464,6 +511,38 @@ impl Bindings {
         self.insert_shared(Rc::from(name), binding);
     }
 
+    /// Inserts a batch of bindings into an *empty* scope, in order.
+    ///
+    /// This is the installer's case: a fresh top-level scope takes every built-in and every
+    /// module at once. One at a time, each entry costs a hash of its name, an atomic bump of
+    /// the binding epoch, and a borrow of the scope's cell — about a hundred of each, before
+    /// a program runs its first instruction. A batch costs one bump and one index build for
+    /// the lot.
+    ///
+    /// Nothing is checked against what the scope already holds, which is what the scope being
+    /// empty means: the debug assertion is the statement of that contract, and it holds for
+    /// every caller — a run's top-level scope is built here and nowhere else.
+    pub fn extend_shared(&mut self, entries: Vec<(Rc<str>, Binding)>) {
+        debug_assert!(self.entries.is_empty(), "a batch insert fills an empty scope");
+        BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
+        self.entries = entries;
+        self.index = None;
+        self.ensure_index();
+    }
+
+    /// Gives the scope a hash index once it holds enough names to want one.
+    fn ensure_index(&mut self) {
+        if self.entries.len() <= BINDINGS_INDEX_THRESHOLD {
+            self.index = None;
+            return;
+        }
+        let mut index = HashMap::with_capacity_and_hasher(self.entries.len(), BuildHasherDefault::<NameHasher>::default());
+        for (position, (key, _)) in self.entries.iter().enumerate() {
+            index.insert(key.clone(), position);
+        }
+        self.index = Some(index);
+    }
+
     /// Inserts a binding whose name is already a shared `Rc<str>`, so a repeated
     /// call with the same parameter name allocates nothing for the key.
     fn insert_shared(&mut self, key: Rc<str>, binding: Binding) {
@@ -476,11 +555,7 @@ impl Bindings {
             }
             None => {
                 if self.entries.len() > BINDINGS_INDEX_THRESHOLD {
-                    let mut index = HashMap::with_capacity_and_hasher(self.entries.len(), BuildHasherDefault::<NameHasher>::default());
-                    for (position, (key, _)) in self.entries.iter().enumerate() {
-                        index.insert(key.clone(), position);
-                    }
-                    self.index = Some(index);
+                    self.ensure_index();
                 }
             }
         }
@@ -576,6 +651,19 @@ pub fn define_shared(env: &Env, name: &Rc<str>, value: Value, constant: bool) ->
     if scope.bindings.contains(name) {
         return Err(format!("{:?} is already declared in this scope", name));
     }
+    scope.bindings.insert_shared(name.clone(), Binding { value, constant });
+    Ok(())
+}
+
+/// Defines a binding whose name is already a shared `Rc<str>` and whose slot the
+/// compiler already knows, so a loop that declares its variable on every pass
+/// allocates neither the key nor a lookup.
+pub fn define_at_shared(env: &Env, name: &Rc<str>, slot: usize, value: Value, constant: bool) -> Result<(), String> {
+    let mut scope = env.borrow_mut();
+    if scope.bindings.contains(name) {
+        return Err(format!("{:?} is already declared in this scope", name));
+    }
+    debug_assert_eq!(slot, scope.bindings.len(), "declaration slot for {:?}", name);
     scope.bindings.insert_shared(name.clone(), Binding { value, constant });
     Ok(())
 }
@@ -840,7 +928,9 @@ pub type BuiltinFn = dyn Fn(&mut dyn Host, &[Value], &[Keyword]) -> Result<Value
 /// drains a lazy iterator argument into a list before the call, so `list`, `sum`,
 /// `zip`, and their kin accept a generator exactly as they accept a list.
 pub struct Builtin {
-    pub name: String,
+    /// The name diagnostics quote. A shared string rather than an owned one, because a
+    /// built-in is built on every method access and most names fit in the handle.
+    pub name: RcStr,
     pub higher_order: bool,
     pub consumes_iterables: bool,
     pub payload: Option<Value>,
@@ -852,7 +942,7 @@ impl Builtin {
     where
         F: Fn(&mut dyn Host, &[Value], &[Keyword]) -> Result<Value, String> + 'static,
     {
-        Rc::new(Builtin { name: name.to_string(), higher_order: false, consumes_iterables: false, payload: None, call: Rc::new(call) })
+        Rc::new(Builtin { name: RcStr::new(name), higher_order: false, consumes_iterables: false, payload: None, call: Rc::new(call) })
     }
 
     /// Builds a built-in that walks its arguments, so the evaluator drains any
@@ -861,12 +951,12 @@ impl Builtin {
     where
         F: Fn(&mut dyn Host, &[Value], &[Keyword]) -> Result<Value, String> + 'static,
     {
-        Rc::new(Builtin { name: name.to_string(), higher_order: false, consumes_iterables: true, payload: None, call: Rc::new(call) })
+        Rc::new(Builtin { name: RcStr::new(name), higher_order: false, consumes_iterables: true, payload: None, call: Rc::new(call) })
     }
 
     /// Builds a placeholder for a callable the evaluator dispatches itself.
     pub fn higher_order(name: &str, payload: Option<Value>) -> Rc<Builtin> {
-        let label = name.to_string();
+        let label = RcStr::new(name);
         Rc::new(Builtin {
             name: label.clone(),
             higher_order: true,
@@ -1154,6 +1244,43 @@ mod tests {
         Value::Number(value)
     }
 
+    #[test]
+    fn a_read_then_a_store_for_the_same_key_lands_in_the_same_entry() {
+        // The shape the dictionary remembers a position for: read through the index, then store back
+        // for the same key. What must not change is which entry holds what, or the order.
+        let mut dict = dict_with(&[(number(1.0), "one"), (number(2.0), "two")]);
+        assert_eq!(dict.get(&number(1.0)).expect("get").map(|value| text(&value)), Some("one".to_string()));
+        dict.set(number(1.0), Value::string("ONE")).expect("set after a read");
+        assert_eq!(dict.entries.len(), 2);
+        assert_eq!(text(&dict.entries[0].0), "1");
+        assert_eq!(text(&dict.entries[0].1), "ONE");
+
+        // A store for a key nothing read still finds its entry.
+        dict.set(number(2.0), Value::string("TWO")).expect("set");
+        assert_eq!(text(&dict.entries[1].1), "TWO");
+
+        // An insert appends, so it does not move the entry a lookup found.
+        dict.set(number(3.0), Value::string("three")).expect("insert");
+        dict.get(&number(2.0)).expect("get");
+        dict.set(number(2.0), Value::string("twice")).expect("set after an insert");
+        assert_eq!(text(&dict.entries[1].1), "twice");
+        assert_eq!(text(&dict.entries[2].0), "3");
+
+        // A `delete` shifts everything after it, so a remembered position cannot outlive one.
+        assert!(dict.delete(&number(1.0)).expect("delete"));
+        dict.get(&number(2.0)).expect("get");
+        dict.set(number(2.0), Value::string("again")).expect("set after a delete");
+        assert_eq!(dict.entries.len(), 2);
+        assert_eq!(text(&dict.entries[0].0), "2");
+        assert_eq!(text(&dict.entries[0].1), "again");
+
+        // And a `clear` leaves nothing to remember at all.
+        dict.clear();
+        dict.set(number(4.0), Value::string("four")).expect("set after a clear");
+        assert_eq!(dict.entries.len(), 1);
+        assert_eq!(text(&dict.entries[0].1), "four");
+    }
+
     fn dict_with(pairs: &[(Value, &str)]) -> Dict {
         let mut dict = Dict::default();
         for (key, value) in pairs {
@@ -1298,6 +1425,27 @@ mod tests {
         dict.set(number(1.0), Value::string("uno")).expect("set");
         assert_eq!(dict.entries.len(), 2);
         assert_eq!(dict.get(&number(1.0)).unwrap().map(|value| text(&value)).as_deref(), Some("uno"));
+    }
+
+    #[test]
+    fn a_membership_test_leaves_the_entry_it_found_for_the_store() {
+        // A test is a read that throws the value away, so it leaves the position a
+        // store for the same key then writes through — the same thing a read does.
+        let mut dict = dict_with(&[(number(1.0), "one"), (number(2.0), "two")]);
+        assert!(dict.contains(&number(1.0)).expect("contains"));
+        assert!(!dict.contains(&number(9.0)).expect("contains"));
+        // A key that is not a scalar is refused exactly as a read refuses it.
+        assert_eq!(dict.contains(&Value::list(Vec::new())).unwrap_err(), "list cannot be a dictionary key");
+        // The store that follows finds its entry without probing the index again,
+        // which is what the remembered position is for; the entry count is unchanged.
+        dict.set(number(1.0), Value::string("uno")).expect("set");
+        assert_eq!(dict.entries.len(), 2);
+        assert_eq!(dict.get(&number(1.0)).unwrap().map(|value| text(&value)).as_deref(), Some("uno"));
+        // A miss remembers nothing, so a store for that key still appends.
+        assert!(!dict.contains(&number(9.0)).expect("contains"));
+        dict.set(number(9.0), Value::string("nine")).expect("set");
+        assert_eq!(dict.entries.len(), 3);
+        assert_eq!(text(&Value::Dict(Rc::new(RefCell::new(dict)))), "{1: \"uno\", 2: \"two\", 9: \"nine\"}");
     }
 
     #[test]

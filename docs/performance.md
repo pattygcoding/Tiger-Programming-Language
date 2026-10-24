@@ -289,11 +289,66 @@ per-operation costs the micro harness reports are roughly:
 | Operation | Cost |
 | --- | --- |
 | A loop iteration, counting | ~13 ns |
-| A list read or write through a flat index | ~16–29 ns |
-| A field read or write | ~26–31 ns |
-| A built-in call | ~48 ns |
-| A function call | ~80–100 ns |
-| A dictionary insert or lookup | ~210–220 ns |
+| A list read or write through a flat index | ~15–27 ns |
+| A field read or write | ~25–28 ns |
+| A built-in call | ~41 ns |
+| A function call | ~73 ns |
+| A string method call (`len(w.upper())` over the call it sits on) | ~39 ns |
+| A small integer through `str()` | ~71 ns |
+| A comprehension element over a range | ~51 ns |
+| A modulo, by the shape of its operands | ~9–16 ns |
+| A dictionary insert or lookup | ~119–129 ns |
+| A read-modify-write through a dictionary | ~255 ns |
+
+Those are the micro harness's own cases, best of its runs, and the last five rows are new in this
+session's work. The dictionary row is what moved most: it was 210–220 ns when this page was written,
+and the two hundred and fifty nanoseconds above it are the shape `counts[key] += 1` has — key
+building, a membership check, a read and a store. The string-method, `str` and dictionary rows were
+re-measured, best of 15, after the two changes recorded under "A method call builds no callable" and
+"A small integer becomes a string without a buffer"; the other rows are as the earlier pass left them.
+
+The per-run floor is 4 µs, and two measurements say what it is **not**. Removing a run's copy of the
+process environment takes it to 3 µs; stubbing the `random` and `secrets` module objects leaves it at
+4 µs, unchanged. So the environment copy is one microsecond of four, the module objects are free, and
+the rest is `Evaluator::new` building a fresh top-level scope and installing the built-ins into it.
+Deferring a module member would buy nothing, which is why the floor is not where a light section's
+remaining time will come from — and why neither experiment was kept.
+
+What the two tightest sections actually execute is worth writing down, because it decides which
+instruction to build next. `methods` is `checksum += len(words[i].upper())` in a loop — an index read,
+two `len` calls, and the method call — and the method call is about half of that section, at ~104 ns
+against ~41 for a call beside it. `dicts` is a membership test and a read-modify-write, but it also
+builds its key every iteration with `"k" + str(i % 50)`, so a built-in call and a concatenation are as
+much of that section as the dictionary probes are. The method call was the one operation either section
+turned on, and it is what `CallMethod` below was built for; `str(i % 50)`, the other thing both sections
+pay for, is what the integer fast path below answers.
+
+The flat call path's prologue was trimmed in the last push of this session. Six of the seven facts it
+tested — no frame of its own, flat parameters, no `super`, neither variadic nor keyword parameters,
+and locals that fit the inline array — are facts about the *declaration*, not about the call, so the
+compiler now folds them into one flag on the chunk and a call site tests that and its own argument
+count. Measured, best of 40: `call/empty` 72.7 → 69.1 ns, `call/discard` 59.5 → 55.5, and `fib(20)`
+64–71 → 62.3 ns per call — while `call/builtin`, which does not take that path, stayed at 40.5, which
+is what says the move is the flag and not the noise floor. The sections moved with the micro cases:
+`recursion` 1.419–1.477 → 1.375 ms, `all` 1.78–1.84 → 1.749 ms. It is the first change this session
+to move the call path at all, and it moves it by removing work from the prologue rather than by
+removing Rust frames — which is the third measurement saying that frames are not where the call's
+time is.
+
+One line more of the same: the array a flat frame keeps its locals in was cut from eight slots to
+four (`INLINE_LOCALS`). A frame initializes every slot to `Null` and drops every slot on the way out,
+and most frames — `fib`'s, any one-parameter function — use one. Measured on the protocol's own
+300-run minimums: `recursion` 1.375 → 1.254 ms, `calls` 3.324 → 3.240 ms, and `all` 1.749 → 1.600 ms,
+the best `all` this session has seen. Frames with five to eight flat locals now take the pooled vector
+path instead of an inline array, which is what makes this a trade rather than a free win; the sections
+say it comes out ahead, and an array sized per frame — a slot or two for most, eight for the rest —
+would keep both halves of it.
+
+A note on the micro harness, which cost this session a wrong reading. Its cases are not equally
+repeatable. Running the same build twice in a row moved `recursion/fib20` by 0.2% and `call/discard` by
+0.5%, but `call/str-method` by 14% and `call/method-index` by 200%. `call/empty` moved 11% *between*
+the two builds, and the section rows then said its section had improved — so layout effects between
+builds are real at this scale, and a micro case has to be shown stable before its delta is read.
 
 A global name read used to be about 13 ns of a built-in call's 62: calling `len`
 through a flat local alias instead of through the built-in name measured 48 ns
@@ -373,6 +428,45 @@ the floor making the ratio 1.56; `loop` is 1.2; `lists`, `dicts`, and `calls` ar
 1.5 to 2.1; and `methods` (2.2) and `recursion` (2.9) are calls and the work around
 them, which is where the rest of this page's remaining cost sits.
 
+### A second pass at the floor
+
+The 13 µs above was three things, and two of them were still doing per-entry work for a scope
+that takes all its names at once.
+
+**The install was one name insert per binding.** About a hundred of them, and each cost a
+borrow of the scope's cell, a hash of the name to check it was not already there, and an atomic
+bump of the binding epoch. `Bindings::extend_shared` takes the batch instead: one bump, one
+index build, and the entries pushed straight in, because a fresh scope has nothing for them to
+collide with — which is what the debug assertion on it states, and what both callers
+(`builtins::install` and `modules::module`) do.
+
+**And `sys.env` was rebuilt entry by entry.** The process environment was already read once per
+thread, but each run inserted its hundred variables into a fresh dictionary one at a time: a
+hash of each name, a `borrow_mut` of the cell for each, and a rehash of the whole index at every
+doubling of its growth. A run has to *own* its copy — a program may write into `sys.env`, and
+`tests/runs.rs` pins that the next run must not see it — but owning a copy is not the same as
+building one: the snapshot is now a dictionary built once per thread, index and all, and a run
+clones it. Two allocations instead of a hundred inserts and six rehashes.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| A run's own setup (`overhead`) | 13 µs | **5 µs** |
+| `overhead` against CPython | 16.2x | **4.6x** |
+| `strings` | 0.020 ms | **0.008** |
+| `strings` against CPython | 1.91x | **0.71x** |
+| `loop` | 0.050 | 0.042 |
+| `lists` | 0.112 | 0.100 |
+| `dicts` | 0.224 | 0.214 |
+| `methods` | 0.056 | 0.045 |
+| `recursion` | 1.431 | 1.408 |
+| `calls` | 3.461 | 3.420 |
+
+`strings` is the first section the protocol passes: 200 appends are about 9 µs of work, and the
+floor that made that 1.91x is now under the work rather than over it. The sections still over the
+ratio are the ones the floor was never hiding — `recursion`, `calls`, and `methods` are calls,
+`dicts` is dictionary operations, and `loop` and `lists` are the index and step machinery the
+compiled engine shares with comprehensions.
+
 ## Reading the corpus number
 
 `time_benchmark_programs` runs each program through `tiger_conformance::run`, which
@@ -435,25 +529,32 @@ the `profile` feature so a release build has no trace of it:
 cargo test -p tiger-evaluator --features profile --test profile -- --ignored --nocapture
 ```
 
-Over the 39 timed benchmark programs — 351,563 instructions — the mix is:
+Over the 44 benchmark programs — 780,348 instructions — the mix is:
 
 | Category | Share | Cost each | Weighted |
 | --- | --- | --- | --- |
-| A flat local or a constant | 20.8% | ~5 ns | 1.0 |
-| A name that walks the environment | 8.5% | ~6 | 0.5 |
-| An index read | 5.1% | ~10 | 0.5 |
-| A property read | 3.1% | ~10 | 0.3 |
-| A flat store | 10.0% | ~6 | 0.6 |
-| An environment store | 3.7% | ~15 | 0.6 |
-| An operator | 12.1% | ~6 | 0.7 |
-| A branch | 13.9% | ~5 | 0.7 |
-| **A call** | **8.8%** | **~64** | **5.6** |
-| Control, collections, and the rest | 13.9% | ~8 | 1.1 |
+| A flat local or a constant | 12.3% | ~5 ns | 0.6 |
+| A name that walks the environment | 6.4% | ~3 | 0.2 |
+| An index read | 2.3% | ~13 | 0.3 |
+| A property read | 1.4% | ~15 | 0.2 |
+| A flat store | 15.0% | ~3 | 0.5 |
+| An environment store | 1.7% | ~15 | 0.3 |
+| An operator | 15.7% | ~6 | 0.9 |
+| A branch | 14.2% | ~4 | 0.6 |
+| **A call** | **6.6%** | **~58** | **3.8** |
+| Control, collections, and the rest | 24.5% | ~8 | 2.0 |
+| **All** | 100% | — | **~9.4** |
 
-A call is one instruction in eleven and nearly half the time. Everything a call costs —
+The corpus is not the same one this table first described: it holds 44 programs now, and the
+comprehension program added in this session's work is over half of its instructions, which is what
+moved locals down and control, collections, and the rest up. The conclusion the table was written for
+survives it — a call is one instruction in fifteen and about 40% of the time, because the *weighted*
+column is what a change has to move.
+
+A call is one instruction in fifteen and about 40% of the weighted time. Everything a call costs —
 resolving the name, the operand-stack round trip for the callee and its arguments, the
 dispatch, the scope, the frame, and the return — is charged to that one category, and it
-is ~64 ns against ~5 ns for the load beside it. That is what "most of the time is not
+is ~58 ns against ~5 ns for the load beside it. That is what "most of the time is not
 dispatch" turns out to mean: not the loop, the *calls*.
 
 Two slices of it came off cheaply. `Instr::Call` already answered a built-in directly; it
@@ -694,6 +795,218 @@ this was aimed at is not where its time goes. The change removes a quadratic cop
 programs that build a string by appending indexed elements, and that is what it should
 be judged on — the corpus simply does not contain one.
 
+### A string key's hash is not what a dictionary operation pays for
+
+A dictionary operation with a string key costs about 20 ns more than the same operation with an
+integer key — 88 against 69 in the micro harness, for a read of a key that is already built — and
+the obvious reading is the hash: `Hash for RcStr` hands the hasher the bytes and a terminator,
+while a number hands it one word. An inline string makes that look avoidable, because its handle
+already *is* its text (a length byte, the bytes, then zeros), so equal text means equal handles and
+one `write_usize` could stand in for a `write` plus a terminator. Equality could short-circuit the
+same way, comparing two handles as one word.
+
+Both were implemented, and neither moved anything:
+
+| micro case | Before | After |
+| --- | --- | --- |
+| `dict/set` | 149.8 ns | 146.5 |
+| `dict/get` | 158.9 | 158.4 |
+| `dict/get-held` | 89.2 | 88.3 |
+| `dict/set-int` (control) | 57.1 | 57.2 |
+| `dict/get-int` (control) | 69.1 | 68.8 |
+| `list/read` (control) | 26.7 | 26.6 |
+
+The controls are in the same runs, so the comparison holds. The fixed cost of hashing dominates
+either form — a three-byte `write` and a `write_usize` cost the same inside a `SipHash` round — and
+what is left of those 20 ns is the probe and the key's own plumbing rather than the bytes.
+**Reverted**, with the invariant the idea rests on left documented where it is created
+(`RcStr::with_capacity`) and pinned by a test, so the next attempt starts from it.
+
+The 20 ns is real, though, and the protocol's `dicts` section is three probes deep in it:
+`counts[key] += 1` reads through the index, writes through it, and checks membership before that.
+Cutting it means fewer probes or a remembered slot, not a cheaper hash — which is what the next
+section is.
+
+### A range steps in place
+
+`IterNext` reaches a lazy source through `iterator_next`, which swaps the iterator's kind out of its
+state and stores it back. That is necessary for `map`, `filter`, and a generator body, because they
+run user code in between and no borrow may be held across it. A range runs no user code at all, so it
+was paying for that safety anyway: one `RefCell` borrow and two moves of the whole kind per element —
+and the kind is bigger than it looks, since the generator variant carries two environments and a
+cursor list.
+
+A range is now stepped inside the borrow the state is already under, and its arithmetic lives in one
+function both paths call, so the fast path adds no second copy of the rule.
+
+| micro case | Before | After |
+| --- | --- | --- |
+| `comprehension/range`, 2,000 elements over a range | 63.6 ns | **50.9** |
+| `for/loop-var-captured`, a `for` over a range with a closure | 125.1 | 118.8 |
+| `loop/count` (control) | 13.5 | 13.3 |
+
+Eleven nanoseconds an element, on the shape every `for n in range(...)` in the corpus has. The
+protocol's `lists` — a 600-element comprehension over a range plus 1,800 loop passes — goes 0.101 ms
+to **0.097**, and `loop` reaches parity with CPython (0.96x on the run that measured it).
+
+### A dictionary remembers where its last lookup landed
+
+The line above is the fix. `Dict` keeps the position its most recent `get` resolved, so a `set` for
+that same key writes the entry instead of hashing the key and probing the index again. That is
+exactly what `counts[key] += 1` is — a read through the index and a store back through it — and what
+every `d[k] = d[k] + 1` in a counting loop is.
+
+An insert appends, so it cannot move an entry a lookup found. The two operations that *can* move one
+are `delete`, which shifts every entry after the one removed, and `clear`, which removes them all,
+and both drop what was remembered. That is the whole soundness argument, and `tiger-object`'s tests
+pin it step by step: a store after a read, after an insert, after a delete, and after a clear, with
+entry positions and key order checked at each.
+
+| micro case | Cache off | Cache on |
+| --- | --- | --- |
+| `dict/read-modify-write`: a membership check, a read and a store | 310.9 ns | **286.1** |
+| `loop/count` (control) | 13.1 | 13.6 |
+| `dict/set` (control: a fresh key every time) | 149.4 | 149.4 |
+| `dict/get` (control: reads, never stores) | 159.4 | 159.4 |
+
+Twenty-three nanoseconds an operation, read as an A/B rather than against a previous run, because the
+case did not exist before it. The protocol's `dicts` section goes 0.200 ms to **0.192**: the section
+is also key building and a membership check, so an operation's 7.5% is a section's 4%.
+
+Two of the three probes are still there for this loop — the membership check's and the read's.
+Removing those means the *compiler* fusing a membership test, a read and a store into one instruction
+that resolves the entry once, which is the next step here.
+
+The same cache was then tried on the *read* side, where the membership check before a read-modify-write
+asks the same question two instructions earlier. **It is not a win.** `dict/read-modify-write` went
+286.1 to 279.0, but `dict/get` went 158.4 to **162.8** and `dict/get-held` 89.0 to **91.0** on a run
+whose control (`loop/count`) was 3% *faster* than the one before it — a program that reads many
+distinct keys pays for the check on every read and hits it on none. Reverted. The write side is the
+shape that repeats a key, and the read side is not.
+
+### A method access built four things
+
+`words[i].upper()` measured **184 ns** against a plain built-in call at 40.5, and the method itself
+was not the cost. `methods::string_method` builds a fresh callable on *every* access: `transform`
+calls `Builtin::new`, which allocates the `Rc<Builtin>`, boxes the closure, and — with
+`name: String` — allocates the name; then `transform` allocates a second copy of that name as the
+label its diagnostics quote. Two of those four are avoidable and are gone: `Builtin.name` is a
+shared string, which for a name like `upper` lives in the handle and allocates nothing, and the
+labels are shared the same way. The six `let label = name.to_string()` sites in `methods.rs` were
+the rest of it.
+
+| micro case | Before | After |
+| --- | --- | --- |
+| `call/str-method`, `s += len(w.upper())` | 183.9 ns | **144.8** |
+| `call/method-index`, the same through `words[0]` | 190.1 | **153.4** |
+| `call/builtin`, the floor a call sits on | 40.5 | 41.3 |
+| `call/empty` / `call/method` | 72.0 / 91.3 | 71.1 / 91.7 |
+
+The name was not particular to strings: a built-in is built for every `list.sort`, `sorted`, `map`,
+`filter`, and conversion-method access too. The protocol's `methods` section — four string-method
+calls per round — goes 0.046 ms to **0.040**, and its ratio 2.27x to **2.02x**.
+
+What is left of the 144 ns is the two structural allocations (the callable and its closure), the
+method's own work (`to_uppercase` returns a `String`, which is then copied into a shared string),
+and the call at ~27 ns. Removing the last two means not building a callable at all — passing the
+receiver to the call as a first argument, which is what a `CallMethod` instruction would do, and
+what a bound method costs in a class today.
+
+### A concatenation copied its result twice
+
+`a + b` on two strings sized a `String`, filled it, and then copied those bytes into the shared
+string it returned — two allocations and two copies of the same text. The comment on it said
+"allocates once", which was true of the `String` and not of the answer.
+
+`RcStr::concat` fills the shared string's own buffer instead: the pair is sized up front, the first
+half is copied into the allocation, and the second is appended into it. A result short enough to
+live in the handle — `"k" + str(n)` is three characters — never reaches the allocator at all, where
+the `String` did and was then thrown away.
+
+| micro case | Before | After |
+| --- | --- | --- |
+| `dict/set`, a string key built per operation | 166.7 ns | **149.8** |
+| `dict/get`, the same | 177.9 | **158.9** |
+| `dict/get-held`, a key already built | 89.0 | 89.2 |
+| `dict/set-int`, an integer key | 57.2 | 57.1 |
+| `string/concat`, appending to an accumulator | 16.6 | 16.2 |
+| `string/concat-fresh`, `"k" + "x"` | — | 60.9 |
+| `string/concat-long`, twenty characters | — | 80.4 |
+
+The cases that build no key are the check: a dictionary operation handed its key does not move, and
+neither does the in-place append path, which was already writing into a buffer it owned. What moved
+is the key construction, and building a key is about a quarter of the protocol's `dicts` section —
+`i % 50`, then `str`, then `"k" +` — which is why that section goes 0.211 ms to **0.201** and its
+ratio 1.69x to **1.57x** while `strings` stays where it was.
+
+Two cases were added for the fresh concatenation, one on each side of the handle's limit, because
+what it costs is not the same either side of that line.
+
+### A comprehension declared its variable on every pass
+
+A comprehension's clause is a loop with a scope of its own, and it did two things per
+element that cost more than the element did.
+
+**It declared the clause variable on every pass**, and treated the refusal as the signal to
+assign:
+
+```rust
+if object::define(scope, &clause.name, value.clone(), false).is_err() {
+    object::assign(scope, &clause.name, value)?;
+}
+```
+
+`define` refuses a name the scope already holds, and the refusal is a diagnostic — a
+`format!`-ed `String`. From the second pass on the clause variable *is* already there, so the
+loop took that path deliberately, built a string saying so, discarded it, and assigned. A
+comprehension over a thousand elements built a thousand of them and threw every one away.
+The variable is now declared once and written in place after that, which is what the
+duplicate path was already doing.
+
+**And the clause loop itself was interpreted.** A comprehension whose clause variable nothing
+deferred reaches is now lowered to the instructions the `for ... in` statement already uses:
+an `IterInit` for the source, an `IterNext` per element, the clause variable stored into a
+flat slot of the frame, each filter a branch back to that `IterNext`, and the element
+collected into a list or dictionary the loop builds in a scratch slot of the frame. Nothing
+re-enters the interpreter, so an element costs what a loop pass costs.
+
+The compiler will not lower a comprehension whose clause variable a function, a class, or a
+generator expression mentions. Those run later, out of the frame running the loop, and reach
+a name through the environment — so that shape keeps `comprehension_clause`, which binds the
+variable by name in the scope the construct captured. `clause_reaches_out` is the test, and it
+is the capture scan itself: what that collects *is* the set of names a deferred construct
+mentions. A comprehension is a construct the compiler folds into the enclosing chunk, not a
+chunk of its own, so lowering it also removes a per-comprehension scope with nothing to hold:
+a clause variable that is a flat slot needs no scope at all. What is left in the frame is one
+scratch slot for the collection and one flat slot per clause variable.
+
+The same per-pass declaration shape sat in `for ... in`: it declares its variable at the top of
+every pass, under a name the chunk already holds as a shared `Rc<str>`, and the declaration was
+rebuilding that name from the `&str` it was handed — an allocation per iteration. `DefineName`
+and `DefineLocal` now bind through the shared name, with `object::define_shared` and
+`object::define_at_shared`.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| `comprehension/range` (micro), per element | 92–100 ns | **64 ns** |
+| `lists` (protocol): a 600-element comprehension plus 1,800 loop passes | 0.155 ms | **0.112 ms** (−28%) |
+| `lists` ratio against CPython | 2.21x | **1.44x** |
+| `all` (protocol) | 1.975 ms | 1.914 ms |
+| `loop`, `dicts`, `strings`, `methods`, `recursion` | unchanged | unchanged |
+
+The sections holding no comprehension are unmoved inside the harness's own spread — `dicts`
+0.222 against 0.227, `strings` 0.019 against 0.019, `methods` 0.057 against 0.059 — which is
+the check that this did nothing outside the path it was aimed at. Two cases were added to the
+micro harness so the shape is measured from here on: `comprehension/range`, which builds 2,000
+elements, and `for/loop-var-captured`, a loop whose variable a closure made in the body
+reaches, at about 126 ns per pass including the closure.
+
+What is left of the 64 ns is the `IterNext` step — stepping a `range` goes through
+`Value::Iterator(Rc<RefCell<..>>)`, and a `for` loop over a range pays that too — plus a
+six-instruction body and the collect. An element now costs about twice what a hand-written
+loop pass costs instead of seven times, and the gap that is left is the machinery a `for` loop
+shares, not something a comprehension adds.
+
 ### Dispatch is cheap; the arms are not
 
 `cargo test -p tiger-evaluator --lib -- --ignored --nocapture disassembles` prints the
@@ -743,6 +1056,156 @@ Together those cut the parse by about 28% and a whole corpus pass by about 7%. W
 is left is mostly the AST itself: every node is a boxed enum carrying a `Base`, so
 the remaining cost is the allocations that shape implies.
 
+### A modulo is not worth an integer path
+
+`%` on two numbers is the operator the benchmarks use most inside a loop — `i * 3 % 7`,
+`i * i % 97`, `i % 50` — and on `f64` it reaches the platform's `fmod`. An integral operand pair is
+the case that looks worth pulling out of it: `f64` holds every integer below 2^53 exactly, so an
+integer remainder would be exact, and it needs no scaling loop. It was implemented, and it is
+**slower**:
+
+| micro case | `fmod` | integer remainder |
+| --- | --- | --- |
+| `operator/mod-large`: `s * 31 % 1000003` | **15.1 ns** above the control | 17.1 |
+| `operator/mod-small`: `s % 251`, `s < 251` | **8.3** | 13.0 |
+
+Both shapes, three repeats each, read as a difference against `loop/count` in the same run — the
+control, not an absolute, because the two builds were measured in machine states that differed by
+17% on it. The direction held in every repeat of both shapes.
+
+The reason is two-sided. `fmod` is not the long function it looks like: it returns its dividend
+immediately when that is *smaller* than the divisor, which is precisely what the second case
+measures, and for a larger dividend it scales rather than divides. And what replaced it is an `i64`
+division, whose latency on this machine is worse than either. Both cases stay in the harness, one
+per shape, because a modulo's cost depends on its operands and a change to the operator has to be
+read against both.
+
+What came out of the attempt and is kept is the *refactor*: the compiled engine's inlined
+operators, the interpreter's numeric fast path, and its general arithmetic arm held three copies of
+this expression, which is a place for two engines to drift, and they now call one `modulo`. The
+tests that came with it pin semantics rather than cost — including the case the measurement
+uncovered, below.
+
+### A zero remainder takes the divisor's sign
+
+`print(-10 % 5)` printed `-0`. `fmod` gives a zero remainder the *dividend's* sign and the
+correction around it only fires for a non-zero remainder, so the sign of that zero came from the
+wrong operand — where the language documents that the sign follows the divisor. Python's float
+modulo is the rule:
+
+| | `-10 % 5` | `-0.0 % 5` | `-0.0 % -5` |
+| --- | --- | --- | --- |
+| Python `f64` | `0.0` | `0.0` | `-0.0` |
+| Tiger, before | `-0` | `-0` | `-0` |
+| Tiger, now | `0` | `0` | `-0` |
+
+A zero remainder now takes the divisor's sign, which is where "the sign follows the divisor" lands
+at zero. Nothing in the corpus, the documentation, or the examples prints such a value, so no
+expectation moved: `tests/operators.rs` and the both-engines table in
+`tests/compiled_paths.rs` pin all three columns.
+
+### A method call builds no callable
+
+`obj.method(...)` compiled to a property read and then a call. The read resolved the member
+and returned what a read returns — a `BoundMethod` for an instance method, a `Builtin` for a
+string's or a collection's own method — and the call then invoked that object. So every
+method call built a value nothing else could see: `Rc::new` of a `BoundMethod` per instance
+method, and for the built-in methods an `Rc<Builtin>` with a boxed closure capturing the
+receiver. On a string it could not even be amortized: `cached_property` deliberately never
+remembers a string's member, because a program builds most strings fresh, which made a
+string method the one shape that allocated a callable on *every* access.
+
+`CallMethod` is one instruction in place of those two. It leaves the receiver where the
+call's callee would have been and resolves the member itself:
+
+- a **class method** is found in the class table and invoked with the receiver, so no
+  `BoundMethod` is built — and the lookup is remembered against the *class*, so a loop over
+  a list of instances hits on every pass where the receiver-keyed slot `cached_property`
+  keeps could only ever hit for a repeated receiver;
+- a **string's own method** is dispatched by name, so no `Builtin` is built. The body is
+  shared with the one a property read builds, so the two run the same code;
+- a **length spelling** — `size`, `length` — is answered outright, for exactly the receivers a
+  read would answer it for;
+- anything else — a list's method, a module's, a field holding a callable, `super` — resolves
+  the member exactly as `GetProperty` did and calls the value it found.
+
+Three things had to hold for that to be the same language:
+
+*Two positions.* Resolving a member reports at the member's own column and a call that cannot
+be made reports at the call's: `[1].unknown()` reports at `unknown` and `"x".length(1)`
+reports at `(`. One instruction has one position, so the member name's is kept beside it, in
+`Chunk::members`, and the instruction's own carries the call's.
+
+*The order.* A property read resolves the member *before* the arguments are evaluated and a
+`CallMethod` resolves it *after*, because by then the arguments are already on the stack. An
+argument that could raise would therefore raise in the wrong order — `9.size(nope)` has to
+report `size does not accept number` and never evaluate `nope` — so the compiler emits the
+fused instruction only when every argument is a literal or a read of a frame-local. Those are
+the two shapes that can neither fail nor run anything. Everything else keeps the property
+read and the call.
+
+*The field.* A field shadows a method of the same name, so the method path looks for a field
+first, through the same helper a read uses — which is also where a private field is refused.
+
+| micro case | before | after |
+| --- | --- | --- |
+| `call/str-method`, `s += len(w.upper())` | 138.5 ns | **83.2** |
+| `call/method-index`, the same through `words[0]` | 149.6 | **83.9** |
+| `call/method`, a class method on one instance | 94.3 | **89.3** |
+| `recursion/fib20` (control) | 60.1 | 60.1 |
+| `operator/mod-small` (control) | 21.6 | 21.6 |
+| `call/builtin` (control) | 39.9 | 44.6 |
+| `call/alias` (control) | 38.7 | 41.4 |
+
+Back to back in one directory, best of 15. The two cases that share nothing with this change
+are identical to a tenth of a nanosecond, and the two that also share nothing with it moved by
+the 7–12% this harness's noise floor is — the spread the note above records. The method cases
+moved by 6% to 44%, both string shapes by about 40%.
+
+The protocol's `methods` section — four string-method calls per round — goes from **2.00x to
+1.44–1.57x** against CPython. Its `dicts` and `recursion` sections are unmoved by this, which is
+the check that it changed the method call and nothing else.
+
+`all` does not move, and that is arithmetic rather than a missing win: the section is 94% of
+its own time inside `recursion` (1.64 ms of 1.71), and a plain function call takes the `Call`
+path, which this does not touch. What is left of `methods` is the index read, two `len` calls,
+and the call the method sits on; what is left of `dicts` is the membership probe and the
+read-modify-write, which is the next thing to fuse.
+
+### A small integer becomes a string without a buffer
+
+`str(n)` is how a counting loop builds a dictionary key — `"k" + str(i % 50)` — and it went
+through `object::format`, which renders into a `String` and then copies that text into a
+shared string. For an integer that is two passes over text that never had to reach the heap:
+a key like `"k7"` fits in the handle `RcStr` keeps in its own eight bytes, and so do the
+digits it is built from.
+
+`RcStr::from_integer` writes those digits straight into a handle, for the range the handle
+holds — seven digits, or a sign and six. It is the same rendering `tiger_format::number`
+gives an integral value, and a `#[test]` beside it pins the two against each other on both
+sides of the boundary. Everything else — a fraction, `1e21`, `2^53`, a NaN — returns `None`
+and goes to the general formatter, which is the only place that knows how those print.
+`str` and `ToString` both go through it, so `1.ToString()` gets it too.
+
+The membership test beside it stopped cloning what it found as well. `key in dict` read the
+entry through `Dict::get`, which clones the value for a caller that throws it away; it now
+probes through `Dict::contains`, which leaves the entry it resolved remembered for the store
+that follows, exactly as a read does.
+
+| micro case | before | after |
+| --- | --- | --- |
+| `string/str-int`, `s += len(str(i % 50))` | 110.9 ns | **70.9** |
+| `dict/set`, a string key built per operation | 148.2 | **119.3** |
+| `dict/get`, the same | 173.7 | **128.9** |
+| `dict/read-modify-write`, a check, a read and a store | 319.7 | **255.3** |
+| `string/concat-fresh` (control: no `str`) | 62.3 | 61.0 |
+
+The protocol's `dicts` section goes from **1.62x to 1.29–1.38x** against CPython. With
+`CallMethod` switched off for the comparison it is 1.35–1.40x, so this is the whole of that
+move — and `methods` is unmoved by it, at 1.89–1.90x with the fast path in and `CallMethod`
+out. The two halves of the section's work are therefore accounted for separately, which is
+what the switched-off run is for.
+
 ## Binding an argument moves it
 
 A call's arguments are pushed on the operand stack, and the frame that receives them
@@ -782,6 +1245,36 @@ recursive shape of `run_loop` itself. The alternative, a flat frame stack, was
 measured slower when it was tried (session 2) because it makes every instruction read
 its state through the frame instead of a register. The call path stays where it is
 until something changes that trade.
+
+### The activations were not the cost
+
+The section above says the remaining 34 ns of a call is spread so thin that no single step is
+worth a change, and that the next cut has to remove several at once. That was measured
+directly. `Instr::Call` now runs a plain function whose parameters are all flat slots and whose
+body needs no scope straight from the call instruction, skipping `invoke` (which decides
+whether the call needs a scope and pools one), `run_compiled` (which takes the frame's locals
+and holds the depth limit), and `bind_call` (which reads the declaration's variadic, keyword,
+and default parameters only to find that none apply). Three of the five Rust activations
+between the instruction and the body are gone for the most common call shape, and the arity
+checks those functions make cannot fail in it: the call passes exactly one argument per
+parameter, with nothing variadic and no keywords, which is the one case that is neither short
+nor long.
+
+| micro case | Before | After |
+| --- | --- | --- |
+| `call/empty` | 74.3 ns | **73.0 ns** |
+| `call/two-args` | 81.0 | **77.2** |
+| `call/discard` | 62.7 | **59.8** |
+| `recursion/fib20` | 71.1 | **69.6** |
+| `call/method` | 92.2 | 93.9 (unmoved — a bound method does not take the path) |
+
+Two to five percent, which settles the question: the activations were not where the time was,
+and neither is the operand-stack pool, which is warm by the second call at any given depth. What
+is left in a call — about 55 ns against a 13 ns loop pass, for a body of two instructions — is
+the *frame*: the locals array, the state `run_loop` builds for itself, and the return hop. A
+change that removes Rust frames from between calls does not touch any of it; only a change that
+stops building a frame per call does, which is the arena the section above calls "the design".
+The fast path is cheap and stays, but it is not the road to a faster call.
 
 ## The biggest program was not the interpreter
 

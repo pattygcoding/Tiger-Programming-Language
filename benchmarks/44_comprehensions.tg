@@ -1,0 +1,105 @@
+/* Comprehensions: the clause variables, the scope they live in, and the collection
+   they build. A comprehension is an interpreted loop with a scope of its own, so
+   what it costs per element is the cost of binding one variable and collecting one
+   value — and a large one here is what makes that cost visible in the corpus. */
+
+const SIZE = 20000;
+
+print("== list comprehensions ==");
+print([n * n for n in range(6)]);
+print([n for n in range(1, 11) if n % 3 == 0]);
+print([n for n in range(1, 21) if n % 2 == 0 if n % 5 == 0]);
+const words = ["delta", "alpha", "charlie", "bravo"];
+print([word.upper() for word in words]);
+print([len(word) for word in words]);
+print([n * 2 for n in [1, 2, 3]][1:]);
+
+print("== nested clauses ==");
+print([b for a in [1, 2] for b in [a, a * 10]]);
+print([a * 100 + b for a in [1, 2, 3] for b in [1, 2]]);
+print([[a, b] for a in [1, 2] for b in ["x", "y"]]);
+print([a + b for a in [1, 2] for b in [a, a * 10] if b > a]);
+print([c for word in ["ab", "cd"] for c in word if c != "a"]);
+
+// A repeated clause name rebinds one variable: the clauses still nest left to
+// right, and each outer pass evaluates the inner iterable against the value the
+// outer clause left in place.
+print([x for x in [1, 2] for x in [x, x * 10]]);
+
+print("== dictionary comprehensions ==");
+print({n: n * n for n in range(1, 5)});
+print({word: len(word) for word in words if len(word) > 5});
+print({k: len(k) for k in ["a", "b", "a"]});
+print({c: c.upper() for c in "abc"});
+print(len({k: k for k in range(1000)}));
+
+print("== scope ==");
+// The clause variable is local to the comprehension, so it shadows and never leaks.
+var shadowed = 5;
+print([shadowed for shadowed in [1, 2]], shadowed);
+var outside = 10;
+print([x + outside for x in [1, 2]], outside);
+const items = [1, 2, 3];
+print([x for x in items], items);
+function counted() {
+    return [y for y in range(3)];
+}
+print(counted(), [z for z in range(3)]);
+
+print("== closures and the clause variable ==");
+// The clause variable is one binding written in place, so closures made on
+// different passes share it and see the value the comprehension finished with.
+const makers = [function() { return x; } for x in [1, 2]];
+print(makers[0](), makers[1]());
+print([(function() { return n * 10; })() for n in [1, 2]]);
+const held = [function() { return n; } for n in range(4)];
+print([f() for f in held]);
+
+print("== comprehensions over the collections ==");
+const ages = {"ada": 36, "alan": 41, "grace": 45};
+print([name for name in ages]);
+print([name for name in ages if ages[name] > 40]);
+print([c for c in "tiger"]);
+print([v for v in (7, 8)], [v * 2 for v in {2, 1, 3}]);
+print([n for n in range(10, 0, -3)], [n for n in range(0)]);
+
+print("== a comprehension of a comprehension ==");
+print([[y * 2 for y in range(x)] for x in range(4)]);
+print([y for y in [x * 2 for x in range(5)] if y > 3]);
+print({x: [x * i for i in range(2)] for x in [1, 3]});
+
+print("== comprehension results feed built-ins ==");
+print(sorted([n % 5 for n in range(12)]));
+print(any([n > 8 for n in range(10)]), all([n > 8 for n in range(10)]));
+print(list(map([x * x for x in range(4)], function(v) { return v + 1; })));
+print(sum([n for n in range(100)]), min([n % 7 for n in range(100)]), max([n % 7 for n in range(100)]));
+
+print("== a large comprehension ==");
+const squares = [n * n % 97 for n in range(SIZE)];
+var total = 0;
+for value in squares {
+    total += value;
+}
+print(len(squares), squares[0], squares[-1], squares[1]);
+print(total == sum(squares));
+const keys = ["k" + str(n % 50) for n in range(SIZE)];
+print(len(keys), len(set(keys)), keys[0], keys[-1]);
+
+print("== errors ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return error;
+    }
+}
+print("not iterable" in fails(function() { return [x for x in 1]; }));
+print("not iterable" in fails(function() { return {x: x for x in 5}; }));
+print("dictionary key" in fails(function() { return {[x]: x for x in [1]}; }));
+print("undefined name" in fails(function() { return [y + nope for y in [1]]; }));
+print("undefined name" in fails(function() { return [x for y in [1]]; }));
+print("not supported" in fails(function() { return [x + "a" for x in [1]]; }));
+print("has no properties" in fails(function() { return [x.nope for x in [1]]; }));
+
+print("done");

@@ -1,6 +1,6 @@
 //! The differential engine test: both engines must agree on every fixture.
 //!
-//! Every program the other suites cover — the 42 benchmarks, the `tg` fences in
+//! Every program the other suites cover — the 44 benchmarks, the `tg` fences in
 //! `README.md` and `docs/*.md`, and the `examples/` and `portfolio-features/`
 //! programs — is run twice: once on the tree-walking interpreter and once on the
 //! compiled (linear) engine. The two must produce exactly the same output and

@@ -459,3 +459,163 @@ fn the_same_work_compiles_and_walks_to_the_same_output() {
                   print(counts, items, sum, tally.total);";
     assert_eq!(both_output(source), "{\"k0\": 2, \"k1\": 2} [7, 2, 4] 13 19\n");
 }
+
+#[test]
+fn a_comprehension_rebinds_its_clause_variable_in_place() {
+    // The clause variable is declared once and written in place on every later pass.
+    // That is what a repeated clause name and a closure made by the element both
+    // observe, so it is a place the engines could drift apart.
+    expect_both_outputs(&[
+        ("print([x for x in [1, 2] for x in [x, x * 10]]);", "[1, 10, 2, 20]\n"),
+        ("const f = [function() { return x; } for x in [1, 2]]; print(f[0](), f[1]());", "2 2\n"),
+        ("var shadowed = 5; print([shadowed for shadowed in [1, 2]], shadowed);", "[1, 2] 5\n"),
+        ("var outside = 10; print([x + outside for x in [1, 2]]);", "[11, 12]\n"),
+        ("print([x for x in [1, 2, 3] if x % 2 == 1]);", "[1, 3]\n"),
+        ("print([b for a in [1, 2] for b in [a, a * 10]]);", "[1, 10, 2, 20]\n"),
+        ("print({k: len(k) for k in [\"a\", \"b\", \"a\"]});", "{\"a\": 1, \"b\": 1}\n"),
+        ("print([y for y in [x * 2 for x in [1, 2]] if y > 2]);", "[4]\n"),
+    ]);
+}
+
+#[test]
+fn a_method_call_agrees_on_both_engines() {
+    // `receiver.name(...)` is one instruction on the compiled engine, and the member
+    // is resolved there without building the callable a property read returns. Every
+    // shape it takes — a class method, a string's own method, a collection's, a
+    // length spelling, a member read as a value first, and the fallback through a
+    // property read — is compared here.
+    expect_both_outputs(&[
+        ("class Box { var v = 1; Box() {} function get() { return this.v; } } print(Box().get());", "1\n"),
+        ("class Box { var v = 2; Box() {} function add(n) { return this.v + n; } } print(Box().add(3));", "5\n"),
+        ("class Box { var v = 1; Box() {} function add(n) { this.v += n; } } const b = Box(); b.add(4); print(b.v);", "5\n"),
+        // An argument that is a frame-local keeps the call one instruction.
+        ("class Box { Box() {} function echo(n) { return n; } } const n = 7; print(Box().echo(n));", "7\n"),
+        // A method inherited from a parent, and one reached through `super`.
+        ("class A { A() {} function name() { return \"A\"; } } class B extends A { B() {} } print(B().name());", "A\n"),
+        ("class A { A() {} function name() { return \"A\"; } } class B extends A { B() {} function name() { return super.name() + \"B\"; } } print(B().name());", "AB\n"),
+        ("print(\"abc\".upper(), \"ABC\".lower(), \"  x \".trim());", "ABC abc x\n"),
+        ("print(\"a-b\".split(\"-\"), \"ab\".startswith(\"a\"), \"ab\".endswith(\"b\"), \"abc\".find(\"c\"));", "[\"a\", \"b\"] true true 2\n"),
+        ("print(\"a\".padStart(3, \".\"), \"a\".padEnd(3, \".\"), \"ab\".replace(\"a\", \"z\"));", "..a a.. zb\n"),
+        ("print(\"Tiger\".size(), \"Tiger\".length(), [1, 2].size(), {}.length());", "5 5 2 0\n"),
+        ("const items = [1, 2]; items.extend([3]); print(items);", "[1, 2, 3]\n"),
+        ("const items = [1, 2]; print(items.pop(), items);", "2 [1]\n"),
+        ("const d = {\"a\": 1}; print(d.keys(), d.get(\"a\"), d.size());", "[\"a\"] 1 1\n"),
+        ("const s = {1}; s.add(2); print(s.size());", "2\n"),
+        // A method call written as a statement drops its value, and one whose result
+        // is used keeps it.
+        ("class Box { var v = 0; Box() {} function bump() { this.v += 1; } } const b = Box(); b.bump(); b.bump(); print(b.v);", "2\n"),
+        ("const items = [1, 2]; items.reverse(); print(items);", "[2, 1]\n"),
+        ("const items = []; items.insert(0, 1); items.insert(0, 2); print(items);", "[2, 1]\n"),
+        // The member read as a value first, which is the path that still builds one.
+        ("const f = \"abc\".upper; print(f());", "ABC\n"),
+        ("class Box { var v = 1; Box() {} function get() { return this.v; } } const g = Box().get; print(g());", "1\n"),
+        ("const f = 7.ToString; print(f());", "7\n"),
+        // A member that resolved to something else: a conversion method, and a
+        // callable the caller supplied for the receiver.
+        ("print(7.ToString(), 1.5.ToString(), true.ToString());", "7 1.5 true\n"),
+        ("class Box { var v = 1; var go = 0; Box() {} } const b = Box(); b.go = function(n) { return n * 2; }; print(b.go(3));", "6\n"),
+        // A field is not a method, so the member resolves through a property read
+        // rather than as one — and a field holding a number is not callable.
+        (
+            "class Box { var get = 5; Box() {} } try { Box().get(); } catch (error) { print(error); }",
+            "1:52: number is not callable\n",
+        ),
+        // An argument that is neither a literal nor a frame-local keeps the property
+        // read, so the member is resolved before the argument runs.
+        ("class Box { Box() {} function echo(n) { return n; } } var log = []; function note() { log = log + [1]; return 3; } print(Box().echo(note()), log);", "3 [1]\n"),
+    ]);
+}
+
+#[test]
+fn a_method_call_reports_where_the_read_and_the_call_do() {
+    // A member that does not resolve is reported at the member name and a call that
+    // cannot be made is reported at the call, and the interpreter reports the two
+    // from different places. The compiled engine keeps both, so these pin the
+    // position as well as the message.
+    expect_both_outputs(&[
+        // A member that does not resolve is reported where the member name is.
+        ("try { [1].unknown(); } catch (error) { print(error); }", "1:11: list has no property \"unknown\"\n"),
+        ("try { (1, 2).append(3); } catch (error) { print(error); }", "1:14: tuple has no property \"append\"\n"),
+        ("try { 9.size(); } catch (error) { print(error); }", "1:9: size does not accept number\n"),
+        ("try { 9.length(); } catch (error) { print(error); }", "1:9: length does not accept number\n"),
+        ("class Box { Box() {} } try { Box().missing(); } catch (error) { print(error); }", "1:36: Box has no property \"missing\"\n"),
+        (
+            "class Box { private function secret() {} Box() {} } try { Box().secret(); } catch (error) { print(error); }",
+            "1:65: cannot access private member of Box\n",
+        ),
+        // A call that cannot be made is reported where the call is, which is a
+        // different column from the member name.
+        ("try { \"x\".length(1); } catch (error) { print(error); }", "1:17: length expects 0 arguments, got 1\n"),
+        ("try { [1].size(1); } catch (error) { print(error); }", "1:15: size expects 0 arguments, got 1\n"),
+        ("try { \"abc\".upper(1); } catch (error) { print(error); }", "1:18: upper expects 0 arguments, got 1\n"),
+        (
+            "class Box { function method(value) {} } try { Box().method(); } catch (error) { print(error); }",
+            "1:59: method expects 1 arguments, got 0\n",
+        ),
+        // The member is resolved before the argument is evaluated, so an argument that
+        // would raise never runs.
+        ("try { 9.size(nope); } catch (error) { print(error); }", "1:9: size does not accept number\n"),
+    ]);
+}
+
+#[test]
+fn str_of_a_number_agrees_on_both_engines() {
+    // `str(n)` writes a small integer's digits straight into the string's handle and
+    // leaves everything else to the general formatter, so the boundary between the
+    // two and every shape that is not an integer is what could drift.
+    expect_both_outputs(&[
+        ("print(str(0), str(7), str(50), str(-1));", "0 7 50 -1\n"),
+        ("print(str(999999), str(1000000), str(9999999), str(10000000));", "999999 1000000 9999999 10000000\n"),
+        ("print(str(-999999), str(-1000000), str(-0.0));", "-999999 -1000000 -0\n"),
+        ("print(str(1.5), str(-1.5), str(0.1));", "1.5 -1.5 0.1\n"),
+        ("print(str(1e21), str(9007199254740992));", "1000000000000000000000 9007199254740992\n"),
+        ("print(str(1e21) == str(1000000000000000000000));", "true\n"),
+        ("print(str(\"abc\"), str(true), str(null), str([1, 2]), str((1, 2)));", "abc true null [1, 2] (1, 2)\n"),
+        ("print(str({}), str({1}), str(1e-7));", "{} {1} 0.0000001\n"),
+        ("print(\"k\" + str(7), \"\" + str(-0.0));", "k7 -0\n"),
+        // The shape a counting loop builds a dictionary key with, which is what the
+        // fast path is for.
+        (
+            "const counts = {};\nfor (var i = 0; i < 60; ++i) { const key = \"k\" + str(i % 5); if key in counts { counts[key] += 1; } else { counts[key] = 1; } }\nprint(counts);",
+            "{\"k0\": 12, \"k1\": 12, \"k2\": 12, \"k3\": 12, \"k4\": 12}\n",
+        ),
+    ]);
+}
+
+#[test]
+fn a_dictionary_membership_test_agrees_on_both_engines() {
+    // The test probes without reading the value and leaves the entry it found for the
+    // store that follows, so the keys it accepts, the errors it raises, and the state
+    // it leaves behind are all compared here.
+    expect_both_outputs(&[
+        ("const d = {\"a\": 1, \"b\": 2}; print(\"a\" in d, \"z\" in d, 1 in d);", "true false false\n"),
+        ("const d = {}; print(\"a\" in d); d[\"a\"] = 1; print(\"a\" in d);", "false\ntrue\n"),
+        ("const d = {\"a\": 1}; print(\"a\" in d, len(d)); d.delete(\"a\"); print(\"a\" in d, len(d));", "true 1\nfalse 0\n"),
+        ("const d = {\"a\": 1}; d.clear(); print(\"a\" in d, len(d));", "false 0\n"),
+        ("const d = {1: \"x\"}; print(1 in d, 1.0 in d, -0.0 in d, 0 in d);", "true true false false\n"),
+        ("const d = {\"a\": [1]}; print(\"a\" in d);", "true\n"),
+        ("const counts = {}; for (var i = 0; i < 6; ++i) { const key = \"k\" + str(i % 2); if key in counts { counts[key] += 1; } else { counts[key] = 1; } } print(counts);", "{\"k0\": 3, \"k1\": 3}\n"),
+    ]);
+    // A key the runtime refuses is refused in the same place, with the same message,
+    // as a read of it.
+    expect_both_outputs(&[
+        ("try { [] in {}; } catch (error) { print(error); }", "1:10: list cannot be a dictionary key\n"),
+        ("try { null in {}; } catch (error) { print(error); }", "1:12: null cannot be a dictionary key\n"),
+        ("try { (1 / 0) in {}; } catch (error) { print(error); }", "1:10: division by zero\n"),
+    ]);
+}
+
+#[test]
+fn a_modulo_agrees_on_both_engines() {
+    // The operator is inlined in one engine and computed by the interpreter's own path in the
+    // other, and an integral pair takes a path neither shares with a fractional one.
+    expect_both_outputs(&[
+        ("print(7 % 3, -7 % 3, 7 % -3, -7 % -3);", "1 2 -2 -1\n"),
+        ("print(10 % -5, -10 % -5, -0.0 % 5, -0.0 % -5);", "-0 -0 0 -0\n"),
+        ("print(2.5 % 1, -2.5 % 1, 2.5 % -1, -2.5 % -1);", "0.5 0.5 -0.5 -0.5\n"),
+        // 2^53 is the largest value a float holds as an exact integer, so both engines reach
+        // the same remainder for it — which is not true of anything above it.
+        ("print(1e9 % 7, 9007199254740992 % 97);", "6 32\n"),
+        ("var total = 0; for (var i = 0; i < 12; ++i) { total += i * 3 % 7; } print(total);", "37\n"),
+    ]);
+}

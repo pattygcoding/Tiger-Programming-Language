@@ -49,6 +49,24 @@ fn logical_operators() {
 }
 
 #[test]
+fn modulo_follows_the_divisor() {
+    expect_outputs(&[
+        // The sign follows the divisor, as Python's does, not the dividend as C's does.
+        ("print(7 % 3, -7 % 3, 7 % -3, -7 % -3);", "1 2 -2 -1\n"),
+        ("print(10 % 5, -10 % 5, 0 % 7, 5 % 5);", "0 0 0 0\n"),
+        // A zero remainder takes the divisor's sign, as Python's float modulo does: `fmod`
+        // would give the dividend's, which prints as `-0` where the divisor is positive.
+        ("print(10 % -5, -10 % -5, -0.0 % 5, -0.0 % -5);", "-0 -0 0 -0\n"),
+        // A fractional operand takes the float path, which corrects the same way.
+        ("print(2.5 % 1, -2.5 % 1, 2.5 % -1, -2.5 % -1);", "0.5 0.5 -0.5 -0.5\n"),
+        // Values large enough to matter are still exact: 1e9 is well inside what a float
+        // holds as an integer, and the answer is the integer remainder either way.
+        ("print(1e9 % 7, 123456 % 97, 10000 % 1000);", "6 72 0\n"),
+        ("var total = 0; for (var i = 0; i < 12; ++i) { total += i * 3 % 7; } print(total);", "37\n"),
+    ]);
+}
+
+#[test]
 fn operator_errors() {
     expect_errors(&[
         ("print(1 div 0);", "division by zero"),

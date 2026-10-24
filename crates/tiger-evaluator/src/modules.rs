@@ -75,9 +75,13 @@ impl ModuleLoader for BundleLoader {
 /// Builds a module from a list of named built-ins.
 fn module(name: &str, definitions: &[(&str, Rc<object::Builtin>)]) -> Rc<Module> {
     let env = object::Environment::new(None);
-    for (entry, builtin) in definitions {
-        let _ = object::define(&env, entry, Value::Builtin(builtin.clone()), true);
-    }
+    // A fresh scope takes all its names at once, for the same reason the installer does:
+    // `random` and `secrets` are built again for every run.
+    let entries: Vec<(Rc<str>, object::Binding)> = definitions
+        .iter()
+        .map(|(entry, builtin)| (Rc::from(*entry), object::Binding { value: Value::Builtin(builtin.clone()), constant: true }))
+        .collect();
+    env.borrow_mut().bindings.extend_shared(entries);
     Module::new(name.to_string(), env)
 }
 
@@ -930,8 +934,8 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     era * 146097 + doe - 719468
 }
 
-/// The process environment, as the name and value strings `sys.env` copies from.
-type EnvironmentSnapshot = Rc<Vec<(object::RcStr, object::RcStr)>>;
+/// The process environment, as the dictionary `sys.env` copies from.
+type EnvironmentSnapshot = Rc<object::Dict>;
 
 /// The process environment a program reads through `sys.env`.
 ///
@@ -954,9 +958,13 @@ fn environment_variables() -> EnvironmentSnapshot {
         match built {
             Some(variables) => variables,
             None => {
-                let variables = Rc::new(
-                    std::env::vars().map(|(name, value)| (object::RcStr::new(&name), object::RcStr::new(&value))).collect::<Vec<_>>(),
-                );
+                // Built once per thread, index and all: a run clones this rather than building
+                // its own copy a hundred entries at a time.
+                let mut built = object::Dict::default();
+                for (name, value) in std::env::vars() {
+                    let _ = built.set(Value::string(&name), Value::string(&value));
+                }
+                let variables = Rc::new(built);
                 *cell.borrow_mut() = Some(variables.clone());
                 variables
             }
@@ -966,7 +974,7 @@ fn environment_variables() -> EnvironmentSnapshot {
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn environment_variables() -> EnvironmentSnapshot {
-    Rc::new(Vec::new())
+    Rc::new(object::Dict::default())
 }
 
 /// The `sys` module: `argv`, `env`, and `exit`.
@@ -979,13 +987,17 @@ fn environment_variables() -> EnvironmentSnapshot {
 pub fn sys_module(arguments: &[String]) -> Rc<Module> {
     let env = object::Environment::new(None);
     let argv: Vec<Value> = arguments.iter().map(|argument| Value::string(argument)).collect();
-    let _ = object::define(&env, "argv", Value::list(argv), true);
-    let variables = Rc::new(RefCell::new(object::Dict::default()));
-    for (name, value) in environment_variables().iter() {
-        let _ = variables.borrow_mut().set(Value::String(name.clone()), Value::String(value.clone()));
-    }
-    let _ = object::define(&env, "env", Value::Dict(variables), true);
-    let _ = object::define(&env, "exit", Value::Builtin(object::Builtin::higher_order("sys.exit", None)), true);
+    // `sys.env` has to be this run's own dictionary — a program may write into it, and the
+    // next run must not see that — so each run gets a copy. What it does not have to do is
+    // build the copy entry by entry: the snapshot is indexed once per thread, and a run
+    // clones it, which is two allocations instead of a rehash at every doubling of the index.
+    let variables = Rc::new(RefCell::new(environment_variables().as_ref().clone()));
+    let entries: Vec<(Rc<str>, object::Binding)> = vec![
+        (Rc::from("argv"), object::Binding { value: Value::list(argv), constant: true }),
+        (Rc::from("env"), object::Binding { value: Value::Dict(variables), constant: true }),
+        (Rc::from("exit"), object::Binding { value: Value::Builtin(object::Builtin::higher_order("sys.exit", None)), constant: true }),
+    ];
+    env.borrow_mut().bindings.extend_shared(entries);
     Module::new("sys".to_string(), env)
 }
 

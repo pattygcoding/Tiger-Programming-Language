@@ -25,129 +25,176 @@ fn string_argument(name: &str, role: &str, value: &Value) -> Result<String, Stri
 }
 
 /// Builds the string member method named `name`, or `None`.
+///
+/// The built-in captures the receiver and boxes a closure, which is what a
+/// property read has to return; a call goes through [`call_string_method`] and
+/// builds neither.
 pub(crate) fn string_method(name: &str, receiver: RcStr) -> Option<Value> {
+    let call = string_implementation(name)?;
+    Some(Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| call(&receiver, arguments, keywords))))
+}
+
+/// Calls the string member method named `name`, or `None` when `name` is not one
+/// of a string's own methods.
+///
+/// A string is the one receiver whose property read is never remembered by the
+/// inline cache, so it is the one that builds a callable on *every* access; a
+/// method call has no use for that callable, because the receiver is already in
+/// hand. Both entry points run the same body, so a call and a read agree on every
+/// result and every diagnostic.
+pub(crate) fn call_string_method(name: &str, receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Option<Result<Value, String>> {
+    Some(string_implementation(name)?(receiver, arguments, keywords))
+}
+
+/// The body of one member method: the receiver, the arguments, the keywords.
+///
+/// A plain function rather than the closure a built-in holds, so one body can serve
+/// both the property read that materializes a callable and the call that does not.
+type MemberFn = fn(&RcStr, &[Value], &[Keyword]) -> Result<Value, String>;
+
+/// The body of a string's member method, or `None` when `name` is not one.
+///
+/// The name is matched once, here, and both entry points use the body it finds.
+fn string_implementation(name: &str) -> Option<MemberFn> {
     match name {
-        "upper" => Some(transform(name, receiver, |text| text.to_uppercase())),
-        "lower" => Some(transform(name, receiver, |text| text.to_lowercase())),
-        "trim" => Some(transform(name, receiver, |text| text.trim().to_string())),
-        "split" => Some(split_method(receiver)),
-        "replace" => Some(replace_method(receiver)),
-        "startswith" => Some(affix_method(name, "prefix", receiver, |text, affix| text.starts_with(affix))),
-        "endswith" => Some(affix_method(name, "suffix", receiver, |text, affix| text.ends_with(affix))),
-        "find" => Some(find_method(receiver)),
-        "padStart" => Some(pad_method(name, receiver, true)),
-        "padEnd" => Some(pad_method(name, receiver, false)),
+        "upper" => Some(upper),
+        "lower" => Some(lower),
+        "trim" => Some(trim),
+        "split" => Some(split),
+        "replace" => Some(replace),
+        "startswith" => Some(startswith),
+        "endswith" => Some(endswith),
+        "find" => Some(find),
+        "padStart" => Some(pad_start),
+        "padEnd" => Some(pad_end),
         _ => None,
     }
 }
 
-fn transform(name: &str, receiver: RcStr, apply: fn(&str) -> String) -> Value {
-    let label = name.to_string();
-    Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
-        no_arguments(&label, arguments, keywords)?;
-        Ok(Value::string(&apply(&receiver)))
-    }))
+fn upper(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    no_arguments("upper", arguments, keywords)?;
+    Ok(Value::string(&receiver.to_uppercase()))
+}
+
+fn lower(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    no_arguments("lower", arguments, keywords)?;
+    Ok(Value::string(&receiver.to_lowercase()))
+}
+
+fn trim(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    no_arguments("trim", arguments, keywords)?;
+    Ok(Value::string(receiver.trim()))
 }
 
 /// Mirrors Python's `str.split`: no argument folds whitespace runs; an explicit
 /// separator splits exactly and keeps empty fields.
-fn split_method(receiver: RcStr) -> Value {
-    Value::Builtin(object::Builtin::new("split", move |_host, arguments, keywords| {
-        if !keywords.is_empty() {
-            return Err("split does not accept keyword arguments".to_string());
-        }
-        let parts: Vec<String> = match arguments.len() {
-            0 => receiver.split_whitespace().map(str::to_string).collect(),
-            1 => {
-                let separator = string_argument("split", "separator", &arguments[0])?;
-                if separator.is_empty() {
-                    return Err("split: empty separator".to_string());
-                }
-                receiver.split(separator.as_str()).map(str::to_string).collect()
+fn split(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    if !keywords.is_empty() {
+        return Err("split does not accept keyword arguments".to_string());
+    }
+    let parts: Vec<String> = match arguments.len() {
+        0 => receiver.split_whitespace().map(str::to_string).collect(),
+        1 => {
+            let separator = string_argument("split", "separator", &arguments[0])?;
+            if separator.is_empty() {
+                return Err("split: empty separator".to_string());
             }
-            count => return Err(format!("split expects at most 1 argument, got {}", count)),
-        };
-        Ok(Value::list(parts.iter().map(|part| Value::string(part)).collect()))
-    }))
+            receiver.split(separator.as_str()).map(str::to_string).collect()
+        }
+        count => return Err(format!("split expects at most 1 argument, got {}", count)),
+    };
+    Ok(Value::list(parts.iter().map(|part| Value::string(part)).collect()))
 }
 
-fn replace_method(receiver: RcStr) -> Value {
-    Value::Builtin(object::Builtin::new("replace", move |_host, arguments, keywords| {
-        if !keywords.is_empty() {
-            return Err("replace does not accept keyword arguments".to_string());
-        }
-        if arguments.len() != 2 {
-            return Err(format!("replace expects 2 arguments, got {}", arguments.len()));
-        }
-        let old = string_argument("replace", "old", &arguments[0])?;
-        let new = string_argument("replace", "new", &arguments[1])?;
-        Ok(Value::string(&receiver.replace(old.as_str(), new.as_str())))
-    }))
+fn replace(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    if !keywords.is_empty() {
+        return Err("replace does not accept keyword arguments".to_string());
+    }
+    if arguments.len() != 2 {
+        return Err(format!("replace expects 2 arguments, got {}", arguments.len()));
+    }
+    let old = string_argument("replace", "old", &arguments[0])?;
+    let new = string_argument("replace", "new", &arguments[1])?;
+    Ok(Value::string(&receiver.replace(old.as_str(), new.as_str())))
 }
 
-fn affix_method(name: &str, role: &str, receiver: RcStr, predicate: fn(&str, &str) -> bool) -> Value {
-    let label = name.to_string();
-    let role = role.to_string();
-    Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
-        if !keywords.is_empty() {
-            return Err(format!("{} does not accept keyword arguments", label));
-        }
-        if arguments.len() != 1 {
-            return Err(format!("{} expects 1 argument, got {}", label, arguments.len()));
-        }
-        let affix = string_argument(&label, &role, &arguments[0])?;
-        Ok(Value::Bool(predicate(&receiver, &affix)))
-    }))
+fn startswith(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    affix("startswith", "prefix", receiver, |text, affix| text.starts_with(affix), arguments, keywords)
+}
+
+fn endswith(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    affix("endswith", "suffix", receiver, |text, affix| text.ends_with(affix), arguments, keywords)
+}
+
+fn affix(
+    name: &str,
+    role: &str,
+    receiver: &RcStr,
+    predicate: fn(&str, &str) -> bool,
+    arguments: &[Value],
+    keywords: &[Keyword],
+) -> Result<Value, String> {
+    if !keywords.is_empty() {
+        return Err(format!("{} does not accept keyword arguments", name));
+    }
+    if arguments.len() != 1 {
+        return Err(format!("{} expects 1 argument, got {}", name, arguments.len()));
+    }
+    let affix = string_argument(name, role, &arguments[0])?;
+    Ok(Value::Bool(predicate(receiver, &affix)))
 }
 
 /// Returns the code-point index of the first occurrence, or -1.
-fn find_method(receiver: RcStr) -> Value {
-    Value::Builtin(object::Builtin::new("find", move |_host, arguments, keywords| {
-        if !keywords.is_empty() {
-            return Err("find does not accept keyword arguments".to_string());
-        }
-        if arguments.len() != 1 {
-            return Err(format!("find expects 1 argument, got {}", arguments.len()));
-        }
-        let needle = string_argument("find", "argument", &arguments[0])?;
-        match receiver.find(needle.as_str()) {
-            Some(index) => Ok(Value::Number(if receiver.is_ascii() { index as f64 } else { receiver[..index].chars().count() as f64 })),
-            None => Ok(Value::Number(-1.0)),
-        }
-    }))
+fn find(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    if !keywords.is_empty() {
+        return Err("find does not accept keyword arguments".to_string());
+    }
+    if arguments.len() != 1 {
+        return Err(format!("find expects 1 argument, got {}", arguments.len()));
+    }
+    let needle = string_argument("find", "argument", &arguments[0])?;
+    match receiver.find(needle.as_str()) {
+        Some(index) => Ok(Value::Number(if receiver.is_ascii() { index as f64 } else { receiver[..index].chars().count() as f64 })),
+        None => Ok(Value::Number(-1.0)),
+    }
 }
 
 const MAX_PAD_WIDTH: f64 = 1_000_000.0;
 
+fn pad_start(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    pad("padStart", receiver, true, arguments, keywords)
+}
+
+fn pad_end(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    pad("padEnd", receiver, false, arguments, keywords)
+}
+
 /// Implements `padStart`/`padEnd(width, fill=" ")`; fill must be one code point.
-fn pad_method(name: &str, receiver: RcStr, start: bool) -> Value {
-    let label = name.to_string();
-    Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
-        if !keywords.is_empty() {
-            return Err(format!("{} does not accept keyword arguments", label));
+fn pad(name: &str, receiver: &RcStr, start: bool, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
+    if !keywords.is_empty() {
+        return Err(format!("{} does not accept keyword arguments", name));
+    }
+    if arguments.is_empty() || arguments.len() > 2 {
+        return Err(format!("{} expects 1 or 2 arguments, got {}", name, arguments.len()));
+    }
+    let width = pad_width(name, &arguments[0])?;
+    let mut fill = " ".to_string();
+    if arguments.len() == 2 {
+        fill = string_argument(name, "fill", &arguments[1])?;
+        if fill.chars().count() != 1 {
+            return Err(format!("{} fill must be a single character", name));
         }
-        if arguments.is_empty() || arguments.len() > 2 {
-            return Err(format!("{} expects 1 or 2 arguments, got {}", label, arguments.len()));
-        }
-        let width = pad_width(&label, &arguments[0])?;
-        let mut fill = " ".to_string();
-        if arguments.len() == 2 {
-            fill = string_argument(&label, "fill", &arguments[1])?;
-            if fill.chars().count() != 1 {
-                return Err(format!("{} fill must be a single character", label));
-            }
-        }
-        let length = receiver.chars().count();
-        if width <= length {
-            return Ok(Value::string(&receiver));
-        }
-        let padding: String = fill.repeat(width - length);
-        if start {
-            Ok(Value::string(&format!("{}{}", padding, receiver)))
-        } else {
-            Ok(Value::string(&format!("{}{}", receiver, padding)))
-        }
-    }))
+    }
+    let length = receiver.chars().count();
+    if width <= length {
+        return Ok(Value::string(receiver));
+    }
+    let padding: String = fill.repeat(width - length);
+    if start {
+        Ok(Value::string(&format!("{}{}", padding, receiver)))
+    } else {
+        Ok(Value::string(&format!("{}{}", receiver, padding)))
+    }
 }
 
 fn pad_width(name: &str, value: &Value) -> Result<usize, String> {
@@ -501,7 +548,7 @@ fn set_clear_method(receiver: Rc<RefCell<object::Set>>) -> Value {
 /// `union`, `intersection`, or `difference` against another iterable, returning a
 /// new set: the receiver keeps its order, then `union` appends what is new.
 fn set_algebra_method(name: &str, receiver: Rc<RefCell<object::Set>>) -> Value {
-    let label = name.to_string();
+    let label = RcStr::new(name);
     Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
         if !keywords.is_empty() {
             return Err(format!("{} does not accept keyword arguments", label));
@@ -550,7 +597,7 @@ pub(crate) fn conversion_method(name: &str, receiver: &Value) -> Option<Value> {
         return None;
     }
     let receiver = receiver.clone();
-    let label = name.to_string();
+    let label = RcStr::new(name);
     Some(Value::Builtin(object::Builtin::new(name, move |_host, arguments, keywords| {
         if !arguments.is_empty() || !keywords.is_empty() {
             return Err(format!("{} expects 0 arguments", label));
@@ -565,10 +612,27 @@ pub(crate) fn convert(name: &str, value: &Value) -> Result<Value, String> {
     match name {
         "int" | "ToInt" => to_int(name, value),
         "float" | "ToFloat" => to_float(name, value),
-        "str" | "ToString" => Ok(Value::string(&object::format(value))),
+        "str" | "ToString" => Ok(text_of(value)),
         "bool" | "ToBool" => Ok(Value::Bool(object::truthy(value))),
         _ => Err(format!("{} cannot convert {}", name, value.type_name())),
     }
+}
+
+/// `str(value)`, with an integer whose digits fit in a string's handle written
+/// straight into it.
+///
+/// [`object::format`] renders into a `String` and then copies that text into a
+/// shared string — two passes over text that for an integer was never going to
+/// reach the heap. `"k" + str(i)` in a counting loop is the shape this is for, and
+/// the rendering [`RcStr::from_integer`] writes is the one the general path gives
+/// an integral value.
+fn text_of(value: &Value) -> Value {
+    if let Value::Number(number) = value {
+        if let Some(text) = RcStr::from_integer(*number) {
+            return Value::String(text);
+        }
+    }
+    Value::string(&object::format(value))
 }
 
 fn to_int(name: &str, value: &Value) -> Result<Value, String> {

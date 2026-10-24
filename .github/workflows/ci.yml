@@ -30,7 +30,7 @@ jobs:
         run: cargo fmt --check
       - name: Build
         run: cargo build --release
-      # Runs the unit tests, the ported Go suites, the 43 benchmark programs,
+      # Runs the unit tests, the ported Go suites, the 44 benchmark programs,
       # the 176 documentation examples, the example and portfolio programs, the
       # standalone-build integration tests, and the browser runtime under Node.
       - name: Test

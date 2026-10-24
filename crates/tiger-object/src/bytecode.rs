@@ -162,7 +162,27 @@ pub enum Instr {
     BuildTuple(u32),
     /// Pop `count` values and push a set of them, rejecting an unhashable one.
     BuildSet(u32),
+    /// Pop a value into scratch slot `slot`, a flat local that no name addresses.
+    ///
+    /// A comprehension's accumulator lives in one: its loop body appends to it, and
+    /// keeping it in the frame's own locals rather than on the operand stack is what
+    /// lets the body use the stack normally.
+    StoreScratch(u32),
+    /// Pop a value and push it onto the list in scratch slot `slot`.
+    Collect(u32),
+    /// Pop a value and a key, then put the pair into the dictionary in scratch slot
+    /// `slot`.
+    ///
+    /// A key the runtime rejects is reported where this instruction is, so the
+    /// compiler places it at the key expression — which is where the interpreter's
+    /// own comprehension reports it.
+    CollectPair(u32),
     /// Push the comprehension `chunk.comprehensions[i]` builds.
+    ///
+    /// A comprehension whose clause variable nothing outside the frame reaches is
+    /// lowered to its own loop instead (see `Compiler::comprehension`), so this is the
+    /// shape that keeps the interpreter's own clause walker in use: the walker binds
+    /// the clause variable by name, which is what a captured one needs.
     Comprehension(u32),
     /// Push a lazy generator iterator for `chunk.generators[i]`.
     Generator(u32),
@@ -174,6 +194,25 @@ pub enum Instr {
     Class(u32),
     /// Call a callable: the stack holds `[callee, positional.., name, value, ..]`.
     Call { positional: u32, keywords: u32, discard: bool },
+    /// Call the member `name` of the receiver below the arguments: the stack holds
+    /// `[receiver, positional.., name, value, ..]`.
+    ///
+    /// The fused form of `GetProperty(name)` and the `Call` that consumes it, which
+    /// is what `receiver.name(...)` lowers to. It is also the one place a member is
+    /// called without building the object a property read returns: a class method
+    /// is invoked with the receiver, and a string's own method is dispatched by
+    /// name, so neither builds a callable per access.
+    ///
+    /// `member` indexes [`Chunk::members`], which holds the position of the member
+    /// name. Resolving a member reports from where the name is and a call that
+    /// cannot be made reports from where the call is, and those differ, so the
+    /// instruction's own position carries the second and this carries the first.
+    ///
+    /// The compiler only emits this when the arguments cannot be observed out of
+    /// order: the member is resolved after they are evaluated, where the property
+    /// read it replaces resolves it before, so an argument that could raise or do
+    /// anything at all would move that work past the member's.
+    CallMethod { name: u32, positional: u32, keywords: u32, member: u32, discard: bool },
     /// Pop a key and a collection, then push the indexed element.
     GetIndex,
     /// Increment or decrement the value in flat slot `slot`, then jump to `target`.
@@ -315,11 +354,12 @@ pub struct SliceProto {
     pub step: Option<Box<tiger_ast::Expr>>,
 }
 
-/// A compiled comprehension: what it builds and the clauses that drive it.
+/// A compiled comprehension that keeps the interpreter's clause walker: what it
+/// builds and the clauses that drive it.
 ///
-/// Both parts stay as AST because the engine evaluates them through the same
-/// helpers the interpreter uses, which is what keeps the two engines' results and
-/// diagnostics identical.
+/// Both parts stay as AST because the engine evaluates them through the same helpers
+/// the interpreter uses, which is what keeps the two engines' results — and their
+/// diagnostics — identical.
 pub struct CompProto {
     pub body: tiger_ast::ComprehensionBody,
     pub clauses: Vec<tiger_ast::ComprehensionClause>,
@@ -395,6 +435,17 @@ pub enum CachedProperty {
     /// then a plain index as well, which is what a constructor does, and the value
     /// is still read fresh on every access.
     Field { class: Rc<crate::Class>, position: u32 },
+    /// A class method a method call resolved.
+    ///
+    /// The class is the guard rather than the receiver, so every instance of one
+    /// class takes the same hit: a loop over a list of instances calls each one's
+    /// method without looking it up again, where a receiver-keyed slot would miss on
+    /// every pass and build a bound method for each. A class's methods are fixed
+    /// once it is defined, and a field cannot share a method's name, so no instance
+    /// can shadow what this remembers. Only a public method is remembered — a private
+    /// one's visibility is checked against the caller, which can differ between two
+    /// calls — and only a `CallMethod` reads this.
+    Method { class: Rc<crate::Class>, method: Rc<crate::Method> },
 }
 
 /// A compiled script or function body.
@@ -418,6 +469,15 @@ pub struct Chunk {
     /// it binds is flat, it does not, and the engine runs the body directly in the
     /// environment the function captured.
     pub frame_needed: bool,
+    /// Whether a call to this chunk can take the engine's flat fast path.
+    ///
+    /// The fast path applies when the body needs no frame of its own, every parameter has
+    /// a flat slot, `super` is unused, neither a variadic nor a keyword parameter is
+    /// declared, and the frame's locals fit the engine's inline array. All of those are
+    /// facts about the declaration rather than about any call, so the compiler decides
+    /// them once and a call site tests this flag instead of six fields. The one fact a
+    /// call site still has to check is its own argument count.
+    pub flat_callable: bool,
     /// One monomorphic inline cache slot per instruction: the receiver a property
     /// access last resolved, and the value it resolved to.
     ///
@@ -440,6 +500,12 @@ pub struct Chunk {
     pub name_cache: RefCell<Vec<Option<(Env, u64, Value)>>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
+    /// The `(line, column)` of each member name a [`Instr::CallMethod`] resolves,
+    /// indexed by that instruction's `member` field.
+    ///
+    /// Only a method call needs a second position, so a chunk with no `CallMethod`
+    /// in it has an empty vector rather than one entry per instruction.
+    pub members: Vec<(u32, u32)>,
     /// The source name every position in this chunk belongs to.
     pub source: Rc<str>,
 }
@@ -457,6 +523,14 @@ impl Chunk {
     /// source name — where a diagnostic actually needs one.
     pub fn position(&self, pc: usize) -> (u32, u32) {
         self.positions.get(pc).copied().unwrap_or((0, 0))
+    }
+
+    /// The `(line, column)` of the member name a [`Instr::CallMethod`] resolves.
+    ///
+    /// A plain copy, so the engine can carry it without building a base until a
+    /// diagnostic actually needs one.
+    pub fn member(&self, index: u32) -> (u32, u32) {
+        self.members.get(index as usize).copied().unwrap_or((0, 0))
     }
 
     /// Turns a [`position`](Chunk::position) into a positioned diagnostic base.

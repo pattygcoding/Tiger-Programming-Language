@@ -1186,24 +1186,46 @@ impl Evaluator {
             return Err(runtime(base, format!("{} is not an iterator", iterator.type_name())));
         };
         self.tick(base)?;
-        let kind = {
+        // A range steps arithmetically and runs no user code, so it is stepped inside the borrow the
+        // state is already under rather than swapped out and back. What that saves is a borrow and
+        // two moves of the whole kind — larger than it looks, because the generator variant carries
+        // two environments — for every element of every loop over a range, which is the shape
+        // `for n in range(...)` has.
+        {
             let mut borrowed = state.borrow_mut();
             if borrowed.done {
                 return Ok(None);
             }
+            let mut yielded: Option<Value> = None;
+            let mut finished = false;
+            if let object::IteratorKind::Range { current, stop, step } = &mut borrowed.kind {
+                match range_step(*current, *stop, *step) {
+                    Some((value, next)) => {
+                        *current = next;
+                        yielded = Some(Value::Number(value));
+                    }
+                    None => finished = true,
+                }
+            }
+            if finished {
+                borrowed.kind = object::IteratorKind::Done;
+                borrowed.done = true;
+                return Ok(None);
+            }
+            if yielded.is_some() {
+                return Ok(yielded);
+            }
+        }
+        let kind = {
+            let mut borrowed = state.borrow_mut();
             std::mem::replace(&mut borrowed.kind, object::IteratorKind::Done)
         };
         let (result, restored) = match kind {
             object::IteratorKind::Done => (Ok(None), object::IteratorKind::Done),
-            object::IteratorKind::Range { current, stop, step } => {
-                let produced = if step > 0 { current < stop } else { current > stop };
-                if produced {
-                    let next = current.checked_add(step).unwrap_or(stop);
-                    (Ok(Some(Value::Number(current as f64))), object::IteratorKind::Range { current: next, stop, step })
-                } else {
-                    (Ok(None), object::IteratorKind::Done)
-                }
-            }
+            object::IteratorKind::Range { current, stop, step } => match range_step(current, stop, step) {
+                Some((value, next)) => (Ok(Some(Value::Number(value))), object::IteratorKind::Range { current: next, stop, step }),
+                None => (Ok(None), object::IteratorKind::Done),
+            },
             object::IteratorKind::Sequence { source, index } => match object::sequence_element(&source, index) {
                 Some(value) => (Ok(Some(value)), object::IteratorKind::Sequence { source, index: index + 1 }),
                 None => (Ok(None), object::IteratorKind::Done),
@@ -1345,6 +1367,13 @@ impl Evaluator {
         let lazy = iterable.is_iterator();
         let values = if lazy { Vec::new() } else { self.iterable_values(clause.iterable.base(), &iterable)? };
         let mut position = 0usize;
+        // Whether the clause variable has been declared in this scope yet. It is
+        // declared once and written in place afterwards: declaring it on every pass
+        // would make each pass after the first a duplicate declaration, which is a
+        // diagnostic the binding path builds — a formatted string — and this one
+        // throws away. A loop over a thousand elements used to build a thousand of
+        // them.
+        let mut declared = false;
         loop {
             let value = if lazy {
                 match self.iterator_next(clause.iterable.base(), &iterable)? {
@@ -1360,10 +1389,17 @@ impl Evaluator {
                 value
             };
             self.tick(base)?;
-            // The clause variable is rebound in place on every iteration, so a
-            // later clause can still read the one before it.
-            if object::define(scope, &clause.name, value.clone(), false).is_err() {
+            // The clause variable is rebound in place after the first pass, so a
+            // later clause can still read the one before it. A name this scope
+            // already holds — the same name in a repeated clause — is assigned
+            // rather than declared, which is what the duplicate path did before.
+            if declared {
                 object::assign(scope, &clause.name, value).map_err(|message| runtime(base, message))?;
+            } else {
+                declared = true;
+                if object::define(scope, &clause.name, value.clone(), false).is_err() {
+                    object::assign(scope, &clause.name, value).map_err(|message| runtime(base, message))?;
+                }
             }
             let mut keep = true;
             for filter in &clause.filters {
@@ -1666,7 +1702,7 @@ impl<'a> Args<'a> {
 
 /// How many flat locals a call keeps on its own activation instead of taking a pooled
 /// vector. A frame with more than this takes the pool.
-const INLINE_LOCALS: usize = 8;
+const INLINE_LOCALS: usize = 4;
 
 /// The locals a call may reuse: the layout the compiler worked out for the call site,
 /// and the frame itself when the site is a flat one. Both are `None` for a call the
@@ -2456,6 +2492,49 @@ fn order_values(left: &Value, right: &Value, sorting: bool) -> Result<std::cmp::
     }
 }
 
+/// One step of a `range` iterator: the value it yields, and where its next step starts. `None` once
+/// the range is finished.
+///
+/// It is written once because two paths step a range — the general one, which swaps the kind out of
+/// its state so that user code can run in between, and the in-place one for the kinds that run no
+/// user code at all.
+fn range_step(current: i64, stop: i64, step: i64) -> Option<(f64, i64)> {
+    if if step > 0 { current < stop } else { current > stop } {
+        Some((current as f64, current.checked_add(step).unwrap_or(stop)))
+    } else {
+        None
+    }
+}
+
+/// `first % second`, with the sign following the divisor — the floored modulo the language
+/// documents, which is Python's rather than C's.
+///
+/// It is written once here because three callers need it: the compiled engine's inlined
+/// operators, the interpreter's numeric fast path, and its general arithmetic arm. They used
+/// to hold three copies of this expression, which is a place for two engines to drift.
+///
+/// An integral operand pair is the case that looks worth special-casing, and it is not. `%` on
+/// `f64` reaches the platform's `fmod`, which returns its dividend immediately when that is
+/// smaller than the divisor and otherwise runs a short scaling loop — cheaper than the long
+/// division an `i64` remainder costs. Replacing it with an integer remainder was measured and
+/// made both shapes of a modulo loop slower; see "A modulo is not worth an integer path" in
+/// `docs/performance.md`.
+#[inline]
+pub(crate) fn modulo(first: f64, second: f64) -> f64 {
+    let mut remainder = first % second;
+    if remainder == 0.0 {
+        // A zero remainder takes the divisor's sign, which is where "the sign follows the
+        // divisor" lands at zero: `-10 % 5` is `0` and `10 % -5` is `-0`. `fmod` gives the
+        // dividend's sign instead, so this is the one place the two rules disagree, and it is
+        // Python's float rule that the language documents.
+        return if second < 0.0 { -0.0 } else { 0.0 };
+    }
+    if (remainder < 0.0) != (second < 0.0) {
+        remainder += second;
+    }
+    remainder
+}
+
 impl Evaluator {
     fn binary(&mut self, base: &Base, operator: &str, left: Value, right: Value) -> Eval {
         // Numeric fast path: arithmetic and comparison on two numbers is the hot
@@ -2480,13 +2559,7 @@ impl Evaluator {
                     let value = match operator {
                         "/" => first / second,
                         "div" => (first / second).floor(),
-                        _ => {
-                            let mut remainder = first % second;
-                            if remainder != 0.0 && (remainder < 0.0) != (second < 0.0) {
-                                remainder += second;
-                            }
-                            remainder
-                        }
+                        _ => modulo(first, second),
                     };
                     return finite_number(base, value);
                 }
@@ -2512,7 +2585,7 @@ impl Evaluator {
                         return Ok(Value::Bool(exists));
                     }
                     Value::Dict(dict) => {
-                        let exists = dict.borrow().get(&left).map_err(|message| runtime(base, message))?.is_some();
+                        let exists = dict.borrow().contains(&left).map_err(|message| runtime(base, message))?;
                         return Ok(Value::Bool(exists));
                     }
                     Value::String(text) => {
@@ -2563,13 +2636,7 @@ impl Evaluator {
                     match operator {
                         "/" => first / second,
                         "div" => (first / second).floor(),
-                        _ => {
-                            let mut remainder = first % second;
-                            if remainder != 0.0 && (remainder < 0.0) != (second < 0.0) {
-                                remainder += second;
-                            }
-                            remainder
-                        }
+                        _ => modulo(first, second),
                     }
                 }
                 "**" => first.powf(second),
@@ -2612,12 +2679,11 @@ impl Evaluator {
                 // Sized once and filled, rather than built by `format!` and then
                 // copied into a shared string: a concatenation allocates once.
                 //
-                "+" => {
-                    let mut joined = String::with_capacity(first.len() + second.len());
-                    joined.push_str(first);
-                    joined.push_str(second);
-                    return Ok(Value::string(&joined));
-                }
+                // The two halves go into the buffer directly (`RcStr::concat`), because a
+                // `String` built here and then copied into a shared string is that allocation
+                // and that copy over again — and for a result short enough to live in the
+                // handle, both of them.
+                "+" => return Ok(Value::String(object::RcStr::concat(first, second))),
                 "<" => return Ok(Value::Bool(first < second)),
                 "<=" => return Ok(Value::Bool(first <= second)),
                 ">" => return Ok(Value::Bool(first > second)),
@@ -3032,6 +3098,8 @@ mod tests {
             ("list/append", "const d = {\"a\": 1};\nvar ks = d.keys();\nks += [\"b\"];\nprint(d.keys(), ks);"),
             ("index/accumulate", "const d = {\"x\": 1, \"y\": 2};\nvar sum = 0;\nfor k in d.keys() { sum += d[k]; }\nprint(sum);"),
             ("call", "function f(v) { return v; }\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += f(1); }\nprint(s);"),
+            ("method/call", "class Box { var v = 1; Box() {} function get() { return this.v; } }\nconst b = Box();\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += b.get(); }\nprint(s);"),
+            ("method/string", "const w = \"abc\";\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += len(w.upper()); }\nprint(s);"),
             ("field", "class B { var v = 1; B() {} }\nconst b = B();\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += b.v; }\nprint(s);"),
             ("dict", "const d = {};\nfor (var i = 0; i < 3; ++i) { d[\"k\" + str(i)] = i; }\nprint(len(d));"),
         ] {

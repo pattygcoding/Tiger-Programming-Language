@@ -10,7 +10,7 @@ use tiger_object as object;
 use tiger_object::bytecode::{CachedProperty, Chunk, Instr, Op, TryProto};
 use tiger_object::{Env, FunctionValue, Keyword, Value};
 
-use crate::{runtime, Evaluator, Signal};
+use crate::{builtins, methods, runtime, Evaluator, Signal};
 
 /// A `for ... in` iteration in progress.
 ///
@@ -149,6 +149,54 @@ fn scope_at<'a>(env: &'a Env, scopes: &'a [Env], hops: u32) -> Option<&'a Env> {
     }
 }
 
+/// Where one call's operands sit on the value stack, and which instruction is making
+/// it.
+///
+/// The compiler leaves a call's arguments at the top of the stack — the positional
+/// ones first, then a name/value pair per keyword — so every helper that runs a call
+/// needs the same few things: the instruction, the base a failure reports from, where
+/// the positional arguments start, and how many of each kind there are. Keeping them
+/// together is what lets `Call` and `CallMethod` share the code that runs a call
+/// without either passing half a dozen numbers to it.
+struct CallSite<'a> {
+    chunk: &'a Rc<Chunk>,
+    /// The program counter of the instruction making the call.
+    pc: usize,
+    /// The index of the first positional argument.
+    at: usize,
+    positional: u32,
+    keywords: u32,
+}
+
+impl<'a> CallSite<'a> {
+    /// The call the instruction at `pc` is making, given the stack it left behind.
+    fn new(chunk: &'a Rc<Chunk>, pc: usize, stack: &[Value], positional: u32, keywords: u32) -> CallSite<'a> {
+        let arguments = positional as usize + 2 * keywords as usize;
+        CallSite { chunk, pc, at: stack.len() - arguments, positional, keywords }
+    }
+
+    /// The positioned base a failure in this call reports from, which is where the
+    /// call itself is.
+    fn base(&self) -> tiger_ast::Base {
+        self.chunk.base_at(self.chunk.position(self.pc))
+    }
+
+    /// The positional arguments, which sit contiguously at the top of the stack.
+    fn arguments(&self) -> std::ops::Range<usize> {
+        self.at..self.at + self.positional as usize
+    }
+
+    /// The keyword pairs, which sit above the positional arguments.
+    fn keyword_pairs(&self) -> std::ops::Range<usize> {
+        self.at + self.positional as usize..self.at + self.positional as usize + 2 * self.keywords as usize
+    }
+
+    /// What the member of this call resolved to, for the instruction that carries it.
+    fn member(&self, member: u32) -> (u32, u32) {
+        self.chunk.member(member)
+    }
+}
+
 /// The inline numeric path for a binary operator the compiler tagged.
 ///
 /// `None` means the two values are not both numbers, or the operator keeps its
@@ -166,13 +214,7 @@ fn fast_binary(op: Op, left: &Value, right: &Value) -> Option<Result<Value, &'st
         Op::Pow => Some(a.powf(b)),
         Op::Div if b != 0.0 => Some(a / b),
         Op::FloorDiv if b != 0.0 => Some((a / b).floor()),
-        Op::Mod if b != 0.0 => {
-            let mut remainder = a % b;
-            if remainder != 0.0 && (remainder < 0.0) != (b < 0.0) {
-                remainder += b;
-            }
-            Some(remainder)
-        }
+        Op::Mod if b != 0.0 => Some(crate::modulo(a, b)),
         Op::Lt => return Some(Ok(Value::Bool(a < b))),
         Op::Le => return Some(Ok(Value::Bool(a <= b))),
         Op::Gt => return Some(Ok(Value::Bool(a > b))),
@@ -225,6 +267,58 @@ impl Evaluator {
         stack.clear();
         self.stack_pool.push(stack);
         result
+    }
+
+    /// Runs a plain function whose body needs no scope of its own and whose parameters all
+    /// have flat slots, which is the shape most calls have.
+    ///
+    /// `None` means the callee is not that shape, and the caller takes the general call path.
+    /// The arity checks that path makes cannot fail here: the fast path is only taken when the
+    /// call passes exactly one argument per parameter, with nothing variadic and no keywords,
+    /// which is the one case that is neither short nor long.
+    ///
+    /// This is one Rust activation where the general path is four: `invoke`, which decides
+    /// whether the call needs a scope and pools one; `run_compiled`, which takes the frame's
+    /// locals and holds the depth limit; `bind_call`, which reads the declaration's variadic,
+    /// keyword, and default parameters only to find that none apply; and `run_frame`, which
+    /// pools the operand stack. What is left here is the depth limit and the binding itself.
+    ///
+    /// A method never takes this path: a method's frame is never skipped, because its call sets
+    /// the class context its body checks visibility against, so `frame_needed` is always true.
+    pub(crate) fn call_flat_function(
+        &mut self,
+        base: &tiger_ast::Base,
+        function: &Rc<FunctionValue>,
+        arguments: &mut [Value],
+    ) -> Result<Option<Value>, Signal> {
+        let Some(code) = &function.code else { return Ok(None) };
+        let layout = &code.call_layout;
+        if !code.flat_callable || arguments.len() != layout.parameters.len() {
+            return Ok(None);
+        }
+        self.depth += 1;
+        if self.depth >= 512 {
+            self.depth -= 1;
+            return Err(crate::fatal(base, "maximum evaluation depth exceeded".to_string()));
+        }
+        // A frame whose flat locals fit a small fixed array keeps them on this activation's own
+        // stack, as `run_compiled` does it, so a call allocates nothing.
+        let mut inline = [const { Value::Null }; crate::INLINE_LOCALS];
+        let locals = &mut inline[..code.flat_count];
+        for (index, slot) in layout.parameters.iter().enumerate() {
+            // The argument moves into the frame: the caller's copy on the operand stack is
+            // dropped when the call returns, so cloning it would be a copy thrown away.
+            locals[slot.expect("a flat parameter has a slot") as usize] = std::mem::replace(&mut arguments[index], Value::Null);
+        }
+        let result = self.run_frame(code, &function.env, locals);
+        self.depth -= 1;
+        // A `return` inside the body leaves its chunk as a signal, and the function boundary is
+        // where it becomes the result — the same place `invoke` turns it.
+        match result {
+            Err(Signal::Return(value)) => Ok(Some(value)),
+            Ok(value) => Ok(Some(value)),
+            Err(signal) => Err(signal),
+        }
     }
 
     /// The instruction loop; `stack` is pooled by the caller so a call does not
@@ -372,12 +466,15 @@ impl Evaluator {
                 }
                 Instr::DefineName { name, constant } => {
                     let value = stack.pop().expect("stack");
-                    object::define(&env, &chunk.names[name as usize], value, constant)
+                    // `chunk.names[i]` is already a shared name, so the binding takes a
+                    // clone of it rather than building a fresh one: a `for name in ...`
+                    // loop declares its variable on every pass.
+                    object::define_shared(&env, &chunk.names[name as usize], value, constant)
                         .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
                 }
                 Instr::DefineLocal { name, slot, constant } => {
                     let value = stack.pop().expect("stack");
-                    object::define_at(&env, &chunk.names[name as usize], slot as usize, value, constant)
+                    object::define_at_shared(&env, &chunk.names[name as usize], slot as usize, value, constant)
                         .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
                 }
                 Instr::Equal => {
@@ -423,7 +520,7 @@ impl Evaluator {
                         let base = chunk.base_at(chunk.position(pc - 1));
                         return Err(runtime(&base, format!("cannot assign a property of {}", receiver.type_name())));
                     }
-                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, &env)?;
+                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, chunk.position(pc - 1), &env)?;
                     stack.push(receiver);
                     stack.push(value);
                 }
@@ -472,7 +569,8 @@ impl Evaluator {
                 // The fused property read: the receiver is a flat slot, and the cache
                 // slot is the one the `GetProperty` it replaced would have used.
                 Instr::FlatProperty { value, name, cache } => {
-                    let value = self.cached_property(chunk, cache as usize, name as usize, &locals[value as usize], &env)?;
+                    let slot = cache as usize;
+                    let value = self.cached_property(chunk, slot, name as usize, &locals[value as usize], chunk.position(slot), &env)?;
                     stack.push(value);
                     pc += 1;
                 }
@@ -633,10 +731,6 @@ impl Evaluator {
                                 let value = (builtin.call)(self, &stack[at..at + positional as usize], &[])
                                     .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
                                 stack.truncate(at - 1);
-                                // A call whose value is dropped absorbed the `Pop` that
-                                // would have discarded it, so it steps over that slot as
-                                // well — after the position above is read, because the
-                                // error a call raises is reported where the call is.
                                 if discard {
                                     pc += 1;
                                 } else {
@@ -645,27 +739,28 @@ impl Evaluator {
                                 continue;
                             }
                         }
-                    }
-                    let mut named = if keyword_count == 0 { Vec::new() } else { self.keywords_pool.pop().unwrap_or_default() };
-                    if keyword_count > 0 {
-                        for pair in stack[at + positional as usize..].chunks(2) {
-                            let Value::String(name) = &pair[0] else { unreachable!("keyword name") };
-                            named.push(Keyword { name: name.to_string(), value: pair[1].clone() });
-                        }
-                    }
-                    // A user function is the next most common callee after a built-in, and
-                    // it is the one the general path's type dispatch and argument plumbing
-                    // exists for the sake of everything else. Calling it here skips that
-                    // match and the slice it would rebuild.
-                    if keyword_count == 0 {
+                        // A user function is the next most common callee after a
+                        // built-in, and it is the one the general path's type dispatch
+                        // and argument plumbing exists for the sake of everything else.
+                        // Calling it here skips that match and the slice it would
+                        // rebuild — and, for a function whose parameters are all flat
+                        // slots and whose body needs no scope, the three activations
+                        // between this instruction and the body as well.
                         if let Value::Function(function) = &callee {
-                            let value = self.invoke(
+                            let value = match self.call_flat_function(
                                 &chunk.base_at(chunk.position(pc - 1)),
                                 function,
                                 &mut stack[at..at + positional as usize],
-                                &[],
-                                None,
-                            )?;
+                            )? {
+                                Some(value) => value,
+                                None => self.invoke(
+                                    &chunk.base_at(chunk.position(pc - 1)),
+                                    function,
+                                    &mut stack[at..at + positional as usize],
+                                    &[],
+                                    None,
+                                )?,
+                            };
                             stack.truncate(at - 1);
                             if discard {
                                 pc += 1;
@@ -675,40 +770,30 @@ impl Evaluator {
                             continue;
                         }
                     }
-                    // A bound method is the other common callee, and its dispatch is one
-                    // step: the receiver and the method already travel together. Calling
-                    // it here skips the match and the slice it would rebuild.
-                    if let Value::BoundMethod(bound) = &callee {
-                        let value = self.invoke(
-                            &chunk.base_at(chunk.position(pc - 1)),
-                            &bound.method.function,
-                            &mut stack[at..at + positional as usize],
-                            &named,
-                            Some((&bound.method, &bound.receiver)),
-                        )?;
-                        stack.truncate(at - 1);
-                        if keyword_count > 0 {
-                            named.clear();
-                            self.keywords_pool.push(named);
-                        }
-                        if !discard {
-                            stack.push(value);
-                        } else {
-                            pc += 1;
-                        }
-                        continue;
-                    }
-                    let value =
-                        self.call(&chunk.base_at(chunk.position(pc - 1)), callee, &mut stack[at..at + positional as usize], &named, &env)?;
+                    let call = CallSite::new(chunk, pc - 1, stack, positional, keywords);
+                    let value = self.finish_call(&call, callee, stack, &env)?;
                     stack.truncate(at - 1);
-                    if keyword_count > 0 {
-                        named.clear();
-                        self.keywords_pool.push(named);
-                    }
-                    if !discard {
-                        stack.push(value);
-                    } else {
+                    if discard {
                         pc += 1;
+                    } else {
+                        stack.push(value);
+                    }
+                }
+                // A method call: the member is resolved and the call made in one
+                // dispatch, and no callable object is built for the shapes that would
+                // otherwise build one. See `call_method`.
+                Instr::CallMethod { name, positional, keywords, member, discard } => {
+                    let keyword_count = keywords as usize;
+                    let argument_count = positional as usize + 2 * keyword_count;
+                    let at = stack.len() - argument_count;
+                    let receiver = std::mem::replace(&mut stack[at - 1], Value::Null);
+                    let call = CallSite::new(chunk, pc - 1, stack, positional, keywords);
+                    let value = self.call_method(call, name as usize, member, receiver, stack, &env)?;
+                    stack.truncate(at - 1);
+                    if discard {
+                        pc += 1;
+                    } else {
+                        stack.push(value);
                     }
                 }
                 // A counting loop's step: the update and the back edge in one
@@ -849,7 +934,7 @@ impl Evaluator {
                 }
                 Instr::GetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
-                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, &env)?;
+                    let value = self.cached_property(chunk, pc - 1, index as usize, &receiver, chunk.position(pc - 1), &env)?;
                     stack.push(value);
                 }
                 Instr::SetIndex => {
@@ -1062,6 +1147,27 @@ impl Evaluator {
                     let value = self.comprehension(&chunk.base_at(chunk.position(pc - 1)), &proto.body, &proto.clauses, &env)?;
                     stack.push(value);
                 }
+                Instr::StoreScratch(slot) => {
+                    let value = stack.pop().expect("stack");
+                    locals[slot as usize] = value;
+                }
+                // The two collection steps of a comprehension: the value the body
+                // computed goes straight into the collection the loop is building.
+                Instr::Collect(slot) => {
+                    let value = stack.pop().expect("stack");
+                    let Value::List(elements) = &locals[slot as usize] else {
+                        unreachable!("a list comprehension's accumulator is a list")
+                    };
+                    elements.borrow_mut().push(value);
+                }
+                Instr::CollectPair(slot) => {
+                    let value = stack.pop().expect("stack");
+                    let key = stack.pop().expect("stack");
+                    let Value::Dict(dict) = &locals[slot as usize] else {
+                        unreachable!("a dictionary comprehension's accumulator is a dictionary")
+                    };
+                    dict.borrow_mut().set(key, value).map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                }
                 Instr::Generator(index) => {
                     let proto = chunk.generators[index as usize].clone();
                     let value = self.generator(&proto, &env)?;
@@ -1102,7 +1208,12 @@ impl Evaluator {
     /// access is a name match plus — for every receiver but an instance field — a
     /// freshly built method object. A loop over one receiver, which is the common
     /// shape, pays neither after its first pass.
-    fn cached_property(&mut self, chunk: &Rc<Chunk>, pc: usize, name: usize, receiver: &Value, env: &Env) -> Vm {
+    ///
+    /// `position` is where a member that does not resolve reports from, which is
+    /// the member name's own place rather than the instruction's: a `CallMethod`
+    /// resolves a member for a call whose own position is somewhere else, so the
+    /// two are passed separately instead of being read from `cache`.
+    fn cached_property(&mut self, chunk: &Rc<Chunk>, cache: usize, name: usize, receiver: &Value, position: (u32, u32), env: &Env) -> Vm {
         let name = &chunk.names[name];
         // Only a receiver whose members are stable and whose identity is
         // meaningful is worth a cache slot. A string, a tuple, or a scalar has no
@@ -1111,25 +1222,28 @@ impl Evaluator {
         // lookup at all, which is what keeps a method-heavy program from paying
         // for a slot it can never fill.
         if !matches!(receiver, Value::Dict(_) | Value::Module(_) | Value::Instance(_) | Value::List(_) | Value::Set(_)) {
-            return self.property(&chunk.base_at(chunk.position(pc)), receiver, name, env);
+            return self.property(&chunk.base_at(position), receiver, name, env);
         }
         {
-            let cache = chunk.property_cache.borrow();
-            match cache.get(pc).and_then(|hit| hit.as_ref()) {
+            let slots = chunk.property_cache.borrow();
+            match slots.get(cache).and_then(|hit| hit.as_ref()) {
                 Some(CachedProperty::Value { receiver: cached, value }) => {
                     if same_receiver(cached, receiver) {
                         return Ok(value.clone());
                     }
                 }
-                Some(CachedProperty::Field { class, position }) => {
+                Some(CachedProperty::Field { class, position: at }) => {
                     if let Value::Instance(instance) = receiver {
                         if Rc::ptr_eq(class, &instance.class) {
-                            if let Some((_, value)) = instance.fields.borrow().get(*position as usize) {
+                            if let Some((_, value)) = instance.fields.borrow().get(*at as usize) {
                                 return Ok(value.clone());
                             }
                         }
                     }
                 }
+                // A method a `CallMethod` remembered in this slot, which only that
+                // instruction reads; a `GetProperty` on the same receiver is not it.
+                Some(CachedProperty::Method { .. }) => {}
                 None => {}
             }
         }
@@ -1137,23 +1251,229 @@ impl Evaluator {
         // every access to it into a plain index: no class-chain walk, no visibility
         // check, and no name comparison, whatever instance arrives.
         if let Value::Instance(instance) = receiver {
-            if let Some((position, value, remember)) = self.instance_field(&chunk.base_at(chunk.position(pc)), instance, name, env)? {
+            if let Some((at, value, remember)) = self.instance_field(&chunk.base_at(position), instance, name, env)? {
                 if remember {
                     let class = instance.class.clone();
-                    if let Some(slot) = chunk.property_cache.borrow_mut().get_mut(pc) {
-                        *slot = Some(CachedProperty::Field { class, position });
+                    if let Some(slot) = chunk.property_cache.borrow_mut().get_mut(cache) {
+                        *slot = Some(CachedProperty::Field { class, position: at });
                     }
                 }
                 return Ok(value);
             }
         }
-        let value = self.property(&chunk.base_at(chunk.position(pc)), receiver, name, env)?;
+        let value = self.property(&chunk.base_at(position), receiver, name, env)?;
         if reusable_property(receiver, &value) {
-            if let Some(slot) = chunk.property_cache.borrow_mut().get_mut(pc) {
+            if let Some(slot) = chunk.property_cache.borrow_mut().get_mut(cache) {
                 *slot = Some(CachedProperty::Value { receiver: receiver.clone(), value: value.clone() });
             }
         }
         Ok(value)
+    }
+
+    /// Resolves the member `name` of `site`'s receiver and calls it, which is what one
+    /// `CallMethod` instruction does.
+    ///
+    /// The fused form of a property read and the call that consumes it, and the one
+    /// path that reaches a method without building the object a read returns: a class
+    /// method is invoked with the receiver, a string's own method is dispatched by
+    /// name, and a length spelling is answered outright. Everything else resolves the
+    /// member exactly as `GetProperty` resolves it and calls the value it found, so a
+    /// call and a read agree on every receiver, every result, and every diagnostic.
+    ///
+    /// The member is resolved here, after the arguments the caller has already
+    /// evaluated, which is why the compiler emits this only where an argument cannot
+    /// be observed out of order.
+    ///
+    /// Kept out of the instruction loop: it is a member lookup and a dispatch, and
+    /// inlining it would put both in the loop's own frame for the sake of the one
+    /// instruction that uses them.
+    #[inline(never)]
+    fn call_method(
+        &mut self,
+        site: CallSite<'_>,
+        name: usize,
+        member: u32,
+        receiver: Value,
+        stack: &mut [Value],
+        env: &Env,
+    ) -> Result<Value, Signal> {
+        let call_position = site.chunk.position(site.pc);
+        let member_position = site.member(member);
+        let label: &str = &site.chunk.names[name];
+        // A length spelling is answered here for every receiver that accepts one. The
+        // built-in a read returns captures the receiver, so answering it directly is
+        // what keeps `text.size()` from building one — and `length_of` accepts exactly
+        // the receivers a read would return that built-in for.
+        if label == "size" || label == "length" {
+            if let Some(length) = builtins::length_of(&receiver) {
+                // The arity the built-in would have reported, at the call.
+                if site.keywords != 0 {
+                    return Err(runtime(&site.chunk.base_at(call_position), format!("{} does not accept keyword arguments", label)));
+                }
+                if site.positional != 0 {
+                    return Err(runtime(
+                        &site.chunk.base_at(call_position),
+                        format!("{} expects 0 arguments, got {}", label, site.positional),
+                    ));
+                }
+                return Ok(Value::Number(length));
+            }
+        }
+        // A class method: found in the class table and invoked with the receiver, so no
+        // bound-method object is built.
+        if let Value::Instance(instance) = &receiver {
+            if let Some(method) = self.method_of(site.chunk, site.pc, label, member_position, instance, env)? {
+                return self.call_bound_method(&site, &method, instance, stack);
+            }
+        }
+        // A string's own method: dispatched by name, so no built-in is built. Every
+        // other receiver's member read is remembered by the inline cache — a list's, a
+        // dictionary's, an instance's — but a string's is deliberately never cached,
+        // which makes it the one that would build a callable on every access.
+        if site.keywords == 0 {
+            if let Value::String(text) = &receiver {
+                if let Some(result) = methods::call_string_method(label, text, &stack[site.arguments()], &[]) {
+                    return result.map_err(|message| runtime(&site.chunk.base_at(call_position), message));
+                }
+            }
+        }
+        let callee = self.cached_property(site.chunk, site.pc, name, &receiver, member_position, env)?;
+        self.finish_call(&site, callee, stack, env)
+    }
+
+    /// The class method `instance.name` resolves to, or `None` when the member is not
+    /// one.
+    ///
+    /// A field of the same name shadows a method, so the field is looked for first —
+    /// through the same helper a read uses, so a private field is refused in the same
+    /// place — and a receiver that has one is left to the general path, which is where
+    /// a call through a field goes. A method that is found is checked for visibility
+    /// here, exactly as a read checks it.
+    ///
+    /// A public method is remembered against its class, so the next call — on this
+    /// instance or any other of the same class — is a pointer comparison.
+    fn method_of(
+        &mut self,
+        chunk: &Rc<Chunk>,
+        cache: usize,
+        name: &str,
+        position: (u32, u32),
+        instance: &Rc<object::Instance>,
+        env: &Env,
+    ) -> Result<Option<Rc<object::Method>>, Signal> {
+        if let Some(CachedProperty::Method { class, method }) = chunk.property_cache.borrow().get(cache).and_then(|hit| hit.as_ref()) {
+            if Rc::ptr_eq(class, &instance.class) {
+                return Ok(Some(method.clone()));
+            }
+        }
+        let base = chunk.base_at(position);
+        if self.instance_field(&base, instance, name, env)?.is_some() {
+            return Ok(None);
+        }
+        let Some(method) = instance.class.find_method(name) else { return Ok(None) };
+        self.accessible(&base, &method.function.declaration.access, &method.owner, env)?;
+        let access = &method.function.declaration.access;
+        if access.is_empty() || access == "public" {
+            let class = instance.class.clone();
+            if let Some(slot) = chunk.property_cache.borrow_mut().get_mut(cache) {
+                *slot = Some(CachedProperty::Method { class, method: method.clone() });
+            }
+        }
+        Ok(Some(method))
+    }
+
+    /// Calls `callee` with `site`'s arguments, and returns its value.
+    ///
+    /// The tail of `Call` — keywords, a bound method, or any other callee — and the
+    /// whole of `CallMethod`'s fallback, so a call of a value and a call of a member
+    /// that resolved to a value reach a built-in, a user function, and a bound method
+    /// through one path and cannot drift apart. The positional arguments are read out
+    /// of the caller's operand stack rather than copied into a buffer, which is what
+    /// keeps a call from allocating; the caller truncates the stack once it has the
+    /// value.
+    ///
+    /// The two callees `Call` answers itself — a built-in called with positional
+    /// arguments, and a user function — are answered here as well, because a member
+    /// that resolved to one of them reaches this and has to take the same path.
+    fn finish_call(&mut self, site: &CallSite<'_>, callee: Value, stack: &mut [Value], env: &Env) -> Result<Value, Signal> {
+        if site.keywords == 0 {
+            if let Value::Builtin(builtin) = &callee {
+                if !builtin.higher_order && !builtin.consumes_iterables {
+                    return (builtin.call)(self, &stack[site.arguments()], &[]).map_err(|message| runtime(&site.base(), message));
+                }
+            }
+        }
+        let base = site.base();
+        let named = self.take_keywords(site, stack);
+        let arguments = &mut stack[site.arguments()];
+        let result = if site.keywords == 0 {
+            // A user function is the next most common callee after a built-in, and it
+            // is the one the general path's type dispatch and argument plumbing exists
+            // for the sake of everything else. Calling it here skips that match and the
+            // slice it would rebuild — and, for a function whose parameters are all flat
+            // slots and whose body needs no scope, the three activations between this
+            // instruction and the body as well.
+            if let Value::Function(function) = &callee {
+                match self.call_flat_function(&base, function, arguments)? {
+                    Some(value) => Ok(value),
+                    None => self.invoke(&base, function, arguments, &[], None),
+                }
+            } else if let Value::BoundMethod(bound) = &callee {
+                self.invoke(&base, &bound.method.function, arguments, &named, Some((&bound.method, &bound.receiver)))
+            } else {
+                self.call(&base, callee, arguments, &named, env)
+            }
+        } else if let Value::BoundMethod(bound) = &callee {
+            self.invoke(&base, &bound.method.function, arguments, &named, Some((&bound.method, &bound.receiver)))
+        } else {
+            self.call(&base, callee, arguments, &named, env)
+        };
+        if site.keywords > 0 {
+            self.recycle_keywords(named);
+        }
+        result
+    }
+
+    /// Calls a class method with the receiver it was found on.
+    ///
+    /// The receiver and the method travel together, exactly as a bound method carries
+    /// them, so this is the call `Call` makes for a `Value::BoundMethod` without the
+    /// object that would have carried the pair.
+    fn call_bound_method(
+        &mut self,
+        site: &CallSite<'_>,
+        method: &Rc<object::Method>,
+        instance: &Rc<object::Instance>,
+        stack: &mut [Value],
+    ) -> Result<Value, Signal> {
+        let named = self.take_keywords(site, stack);
+        let result = self.invoke(&site.base(), &method.function, &mut stack[site.arguments()], &named, Some((method, instance)));
+        if site.keywords > 0 {
+            self.recycle_keywords(named);
+        }
+        result
+    }
+
+    /// Materializes a call's keyword arguments, taking a pooled buffer.
+    ///
+    /// A call that passes no keywords — which is nearly every call — allocates nothing
+    /// and touches no pool.
+    fn take_keywords(&mut self, site: &CallSite<'_>, stack: &[Value]) -> Vec<Keyword> {
+        if site.keywords == 0 {
+            return Vec::new();
+        }
+        let mut named = self.keywords_pool.pop().unwrap_or_default();
+        for pair in stack[site.keyword_pairs()].chunks(2) {
+            let Value::String(name) = &pair[0] else { unreachable!("keyword name") };
+            named.push(Keyword { name: name.to_string(), value: pair[1].clone() });
+        }
+        named
+    }
+
+    /// Returns a keyword buffer to the pool, cleared.
+    fn recycle_keywords(&mut self, mut named: Vec<Keyword>) {
+        named.clear();
+        self.keywords_pool.push(named);
     }
 
     /// Stores `receiver.name = value` for one `SetProperty` instruction.

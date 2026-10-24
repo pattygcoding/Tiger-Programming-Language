@@ -215,6 +215,9 @@ struct Compiler {
     functions: Vec<Rc<FunctionProto>>,
     classes: Vec<Rc<ClassProto>>,
     positions: Vec<(u32, u32)>,
+    /// One `(line, column)` per member name a `CallMethod` resolves, in the order
+    /// the instructions were emitted; each instruction carries its own index.
+    members: Vec<(u32, u32)>,
     source: Rc<str>,
     scope_depth: usize,
     /// The lexical scopes of this chunk, outermost first. `hops` counts up from
@@ -225,6 +228,8 @@ struct Compiler {
     loops: Vec<LoopTarget>,
     tries: Vec<Rc<TryProto>>,
     slices: Vec<Rc<SliceProto>>,
+    /// The comprehensions that keep the interpreter's clause walker, because their
+    /// clause variable has to be bound by name.
     comprehensions: Vec<Rc<CompProto>>,
     generators: Vec<Rc<GenProto>>,
     escape_return: bool,
@@ -300,6 +305,7 @@ impl Compiler {
             functions: Vec::new(),
             classes: Vec::new(),
             positions: Vec::new(),
+            members: Vec::new(),
             source,
             scope_depth: 0,
             scopes: vec![frame],
@@ -328,6 +334,23 @@ impl Compiler {
     fn leave_scope(&mut self) {
         self.scopes.pop();
         self.scope_depth -= 1;
+    }
+
+    /// Whether evaluating `expression` can do nothing at all: neither fail nor run
+    /// anything a caller could observe.
+    ///
+    /// A literal and a read of a frame-local are the two shapes that qualify. Both
+    /// always succeed — a flat slot belongs to the frame and holds a value — and
+    /// neither can run user code, which is what [`Instr::CallMethod`] needs: it
+    /// resolves the member after the arguments are evaluated, where the property
+    /// read it replaces resolves it before, so an argument that could raise would
+    /// raise in the wrong order.
+    fn side_effect_free(&self, expression: &Expr) -> bool {
+        match expression {
+            Expr::Literal { .. } => true,
+            Expr::Identifier { name, .. } => matches!(self.resolve(name), Some(Local::Flat { .. })),
+            _ => false,
+        }
     }
 
     /// Resolves a name within this chunk, or `None` when it is not a local of this
@@ -446,6 +469,16 @@ impl Compiler {
     fn constant(&mut self, value: Value) -> u32 {
         self.constants.push(value);
         (self.constants.len() - 1) as u32
+    }
+
+    /// Records the position of a member name a `CallMethod` resolves, and returns
+    /// the index that instruction carries.
+    ///
+    /// A method call has two positions and the instruction's own slot holds only
+    /// one of them, so the member name's is kept here.
+    fn member(&mut self, base: &Base) -> u32 {
+        self.members.push((base.line, base.column));
+        (self.members.len() - 1) as u32
     }
 
     fn name(&mut self, text: &str) -> u32 {
@@ -572,6 +605,14 @@ impl Compiler {
                     (Instr::Call { positional, keywords, discard: false }, Instr::Pop) => {
                         Some((Instr::Call { positional: *positional, keywords: *keywords, discard: true }, index, 2))
                     }
+                    // The same for a method call written as a statement:
+                    // `items.insert(0, x);`. The member name's own position is carried
+                    // through, because resolving it still reports from there.
+                    (Instr::CallMethod { name, positional, keywords, member, discard: false }, Instr::Pop) => Some((
+                        Instr::CallMethod { name: *name, positional: *positional, keywords: *keywords, member: *member, discard: true },
+                        index,
+                        2,
+                    )),
                     // A comparison whose only consumer is the branch: the operand
                     // stack is left alone and the truthiness test is skipped.
                     (Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
@@ -608,6 +649,17 @@ impl Compiler {
             super_used: self.super_used || self.captured.contains("super"),
             ..self.call_layout
         };
+        let frame_needed = !self.scopes[0].names.is_empty() || self.is_method;
+        // Six of the seven facts the flat call path tests are facts about this declaration, not
+        // about the call: no frame of its own, flat parameters, no `super`, neither variadic nor
+        // keyword parameters, and locals that fit the engine's inline array. The call site tests
+        // this one flag instead; only its own argument count is left to it.
+        let flat_callable = !frame_needed
+            && call_layout.flat_parameters
+            && !call_layout.super_used
+            && call_layout.variadic.is_none()
+            && call_layout.keyword.is_none()
+            && self.flat_slots as usize <= crate::INLINE_LOCALS;
         Rc::new(Chunk {
             property_cache: std::cell::RefCell::new(vec![None; slots]),
             name_cache: std::cell::RefCell::new(vec![None; slots]),
@@ -622,8 +674,10 @@ impl Compiler {
             generators: self.generators,
             flat_count: self.flat_slots as usize,
             call_layout,
-            frame_needed: !self.scopes[0].names.is_empty() || self.is_method,
+            frame_needed,
+            flat_callable,
             positions: self.positions,
+            members: self.members,
             source: self.source,
         })
     }
@@ -735,6 +789,27 @@ impl Compiler {
                 self.emit(Instr::MakeFunction(proto), &declaration.base);
             }
             Expr::Call { base, function, arguments, keywords } => {
+                // `receiver.name(...)` is one instruction when the arguments cannot
+                // be observed out of order. A property read resolves the member
+                // before the arguments are evaluated and `CallMethod` resolves it
+                // after, so an argument that could raise or run anything at all would
+                // move that work past the member's — a literal and a read of a
+                // frame-local are the two shapes that can do neither.
+                if let Expr::Property { base: member, receiver, name } = &**function {
+                    if keywords.is_empty() && arguments.iter().all(|argument| !argument.spread && self.side_effect_free(&argument.value)) {
+                        self.expression(receiver)?;
+                        for argument in arguments {
+                            self.expression(&argument.value)?;
+                        }
+                        let index = self.name(name);
+                        let member = self.member(member);
+                        self.emit(
+                            Instr::CallMethod { name: index, positional: arguments.len() as u32, keywords: 0, member, discard: false },
+                            base,
+                        );
+                        return Ok(());
+                    }
+                }
                 self.expression(function)?;
                 for argument in arguments {
                     if argument.spread {
@@ -769,11 +844,20 @@ impl Compiler {
             // The bounds stay as expressions: the engine evaluates them against
             // the collection's length, exactly as the interpreter does.
             Expr::Comprehension { base, body, clauses } => {
-                // The clauses and the element stay as AST: the engine runs them
-                // through the interpreter's own comprehension helper.
-                let index = self.comprehensions.len() as u32;
-                self.comprehensions.push(Rc::new(CompProto { body: body.clone(), clauses: clauses.clone() }));
-                self.emit(Instr::Comprehension(index), base);
+                // A clause variable mentioned inside a function, a class, or a generator
+                // has to stay in the shared environment: those run later, out of the frame
+                // that is running this loop, and reach a name through the environment — so
+                // the interpreter's own clause walker binds it, which is the same thing the
+                // tree-walking engine does and what makes the two agree. Everything else is
+                // lowered to a loop of this chunk, whose clause variables live in the frame's
+                // own flat slots.
+                if clause_reaches_out(body, clauses) {
+                    let index = self.comprehensions.len() as u32;
+                    self.comprehensions.push(Rc::new(CompProto { body: body.clone(), clauses: clauses.clone() }));
+                    self.emit(Instr::Comprehension(index), base);
+                } else {
+                    self.comprehension(body, clauses, base)?;
+                }
             }
             Expr::Generator { base, body, clauses } => {
                 // Like a comprehension, the clauses and element stay as AST for the
@@ -858,6 +942,126 @@ impl Compiler {
             _ => return Err(Unsupported),
         }
         Ok(())
+    }
+
+    /// Lowers a comprehension to the loop the `for ... in` statement already uses.
+    ///
+    /// The clause variables are flat slots of this frame, so the scope the comprehension
+    /// opens holds nothing: it is there to place them, which is what keeps a clause variable
+    /// from leaking into the enclosing scope and what lets a nested comprehension shadow a
+    /// name an outer one binds. The instructions are the statement's own, so a source is
+    /// treated exactly as a `for` loop treats it — a lazy iterator is stepped one element at
+    /// a time and anything else is snapshotted when the loop opens — and nothing here
+    /// re-enters the interpreter, which is what a comprehension used to cost per element.
+    ///
+    /// A comprehension whose clause variable a deferred construct reaches is not lowered at
+    /// all: it keeps the interpreter's clause walker, which binds the variable by name in the
+    /// scope the construct captured. See [`clause_reaches_out`].
+    fn comprehension(&mut self, body: &ComprehensionBody, clauses: &[ComprehensionClause], base: &Base) -> Compiled {
+        // The accumulator is a flat local this frame hands out no name for, so the body
+        // can append to it while using the operand stack normally.
+        let accumulator = self.flat_slots;
+        self.flat_slots += 1;
+        // A comprehension opens a scope of its own: that is what keeps its clause
+        // variables from leaking into the enclosing one, and it is why a nested
+        // comprehension can shadow a name the outer one binds.
+        self.emit(Instr::PushScope, base);
+        self.enter_scope();
+        match body {
+            ComprehensionBody::List(_) => self.emit(Instr::BuildList(0), base),
+            ComprehensionBody::Dict(_) => self.emit(Instr::BuildDict(0), base),
+        }
+        self.emit(Instr::StoreScratch(accumulator), base);
+        self.comprehension_clauses(body, clauses, 0, accumulator, base)?;
+        self.emit(Instr::PopScope, base);
+        self.leave_scope();
+        // The collection the loop left in the scratch slot is the comprehension's value.
+        self.emit(Instr::LoadFlat(accumulator), base);
+        Ok(())
+    }
+
+    /// One clause of a comprehension: its iterable, its filters, and then either the
+    /// next clause or the value that is collected.
+    fn comprehension_clauses(
+        &mut self,
+        body: &ComprehensionBody,
+        clauses: &[ComprehensionClause],
+        index: usize,
+        accumulator: u32,
+        base: &Base,
+    ) -> Compiled {
+        let clause = &clauses[index];
+        self.expression(&clause.iterable)?;
+        self.emit(Instr::IterInit, clause.iterable.base());
+        // The clause variable gets a flat slot of this frame and nothing binds it: the
+        // loop's own store writes that slot before anything can read it, and a name the
+        // compiler has not recorded yet does not resolve at all — which is what keeps a
+        // clause variable read before its own loop has run an `undefined name` error
+        // rather than a silent `null`. A clause that reuses a name an earlier clause
+        // bound writes that same binding instead of taking a slot of its own.
+        self.declare_clause(&clause.name);
+        let start = self.here();
+        self.emit(Instr::IterNext(0), clause.iterable.base());
+        self.emit_store(&clause.name, clause.iterable.base());
+        // A filter that does not hold skips to the next element of this clause, which is
+        // its own `IterNext`. They are tested in order, so the first that fails ends the
+        // pass.
+        for filter in &clause.filters {
+            self.expression(filter)?;
+            let skip = self.here();
+            self.emit(Instr::JumpIfFalse(0), filter.base());
+            self.patch(skip, start);
+        }
+        if index + 1 < clauses.len() {
+            // A later clause runs once per element of this one, so its iterable is
+            // evaluated here rather than once for the whole comprehension.
+            self.comprehension_clauses(body, clauses, index + 1, accumulator, base)?;
+        } else {
+            match body {
+                ComprehensionBody::List(element) => {
+                    self.expression(element)?;
+                    self.emit(Instr::Collect(accumulator), element.base());
+                }
+                ComprehensionBody::Dict(pair) => {
+                    self.expression(&pair.key)?;
+                    self.expression(&pair.value)?;
+                    // The instruction carries the key's position, so a key the runtime
+                    // cannot hash is reported where the key is written.
+                    self.emit(Instr::CollectPair(accumulator), pair.key.base());
+                }
+            }
+        }
+        self.emit(Instr::Jump(start as u32), base);
+        let end = self.here();
+        self.patch(start, end);
+        Ok(())
+    }
+
+    /// Records a comprehension's clause variable in the scope the comprehension opened,
+    /// and gives it a flat slot of this frame.
+    ///
+    /// No instruction binds it. The loop's own store writes the slot before the element
+    /// or a later clause can read it, so a declaration would only be a store of `null`
+    /// that the first element overwrites; and leaving the name unrecorded until its
+    /// clause is compiled is what makes a read of it *before* its loop an `undefined
+    /// name` rather than a silent `null`.
+    fn declare_clause(&mut self, name: &str) {
+        if self.declared_here(name) {
+            return;
+        }
+        let slot = self.flat_slots;
+        self.flat_slots += 1;
+        self.scopes.last_mut().expect("a scope is always open").flat.push((Rc::from(name), slot, false));
+    }
+
+    /// Whether the scope the compiler is in already declares `name`.
+    ///
+    /// A comprehension's clause variables are the case this exists for: a second clause
+    /// under the same name is a write to the binding the first one made, so it must not
+    /// take a slot of its own.
+    fn declared_here(&self, name: &str) -> bool {
+        let Some(scope) = self.scopes.last() else { return false };
+        scope.flat.iter().any(|(declared, _, _)| &**declared == name) || scope.names.iter().any(|declared| &**declared == name)
     }
 
     fn function_proto(&mut self, declaration: &Rc<FunctionDecl>) -> Result<u32, Unsupported> {
@@ -1412,6 +1616,33 @@ fn seed_name(frame: &mut ScopeFrame, flat_slots: &mut u32, name: &str, constant:
 ///
 /// The walk is deliberately generous: it gathers every identifier it meets in those
 /// places, so a name is only ever treated as flat when nothing mentions it there.
+/// Whether a clause variable of a comprehension is mentioned inside a construct that runs
+/// later: a function, a class, or a generator expression.
+///
+/// The capture scan answers this already, because what it collects *is* the set of names a
+/// deferred construct mentions — so asking it with `inside` false leaves a name in the set
+/// only when something nested mentioned it. A comprehension that mentions a clause variable
+/// that way keeps the interpreter's clause walker, which binds the variable by name in the
+/// scope the construct captured; one that does not is lowered to a loop whose clause
+/// variables are flat slots of the frame running it.
+fn clause_reaches_out(body: &ComprehensionBody, clauses: &[ComprehensionClause]) -> bool {
+    let mut deferred: HashSet<String> = HashSet::new();
+    for clause in clauses {
+        scan_expr(&clause.iterable, false, &mut deferred);
+        for filter in &clause.filters {
+            scan_expr(filter, false, &mut deferred);
+        }
+    }
+    match body {
+        ComprehensionBody::List(element) => scan_expr(element, false, &mut deferred),
+        ComprehensionBody::Dict(pair) => {
+            scan_expr(&pair.key, false, &mut deferred);
+            scan_expr(&pair.value, false, &mut deferred);
+        }
+    }
+    clauses.iter().any(|clause| deferred.contains(&clause.name))
+}
+
 fn captured_by_nesting(statements: &[Stmt]) -> HashSet<String> {
     let mut found = HashSet::new();
     scan_block(statements, false, &mut found);

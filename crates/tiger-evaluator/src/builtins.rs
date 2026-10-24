@@ -13,19 +13,29 @@ use crate::modules;
 /// `arguments` is the running program's `sys.argv`: its own path first, then each
 /// argument, which is what the host passes in.
 pub(crate) fn install(env: &Env, arguments: &[String]) {
-    // Everything stateless is built once per thread and copied into this scope as a
-    // name insert and an `Rc` clone per entry. Rebuilding it per run meant rebuilding
-    // the module tables and re-reading the process environment for `sys.env`, and that
-    // was most of what a run cost before it did any work; what follows is what
-    // genuinely belongs to one run.
-    for (name, value) in shared().iter() {
-        let _ = object::define_shared(env, name, value.clone(), true);
+    // Everything stateless is built once per thread and copied into this scope as an `Rc`
+    // clone per entry. Rebuilding it per run meant rebuilding the module tables and
+    // re-reading the process environment for `sys.env`, and that was most of what a run
+    // cost before it did any work; what follows is what genuinely belongs to one run.
+    //
+    // The scope takes them in one batch. A name insert each would be a borrow of the scope,
+    // a hash of the name, and an atomic bump of the binding epoch — about a hundred of each,
+    // before a program runs its first instruction.
+    let shared = shared();
+    let mut entries: Vec<(Rc<str>, object::Binding)> = Vec::with_capacity(shared.len() + 3);
+    for (name, value) in shared.iter() {
+        entries.push((name.clone(), object::Binding { value: value.clone(), constant: true }));
     }
-    // `sys.argv` is this run's arguments, and `random` and `secrets` each hold a
-    // generator a program seeds for itself, so they are built per run.
-    let _ = object::define(env, "random", Value::Module(modules::random_module()), true);
-    let _ = object::define(env, "secrets", Value::Module(modules::secrets_module()), true);
-    let _ = object::define(env, "sys", Value::Module(modules::sys_module(arguments)), true);
+    // `sys.argv` is this run's arguments, and `random` and `secrets` each hold a generator a
+    // program seeds for itself, so they are the three that are built per run.
+    for (name, value) in [
+        ("random", Value::Module(modules::random_module())),
+        ("secrets", Value::Module(modules::secrets_module())),
+        ("sys", Value::Module(modules::sys_module(arguments))),
+    ] {
+        entries.push((Rc::from(name), object::Binding { value, constant: true }));
+    }
+    env.borrow_mut().bindings.extend_shared(entries);
 }
 
 /// The stateless half of the top-level scope, shared by every run on a thread: the

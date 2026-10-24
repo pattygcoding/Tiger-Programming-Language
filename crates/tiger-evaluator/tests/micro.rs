@@ -132,6 +132,104 @@ const CASES: &[Case] = &[
         source: "function fib(n) { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); }\nprint(fib(20));",
         operations: 21_891,
     },
+    // A comprehension, whose clause variable used to be declared afresh on every
+    // element — a duplicate declaration the binding path would build a diagnostic
+    // for and the comprehension would throw away.
+    Case {
+        name: "comprehension/range",
+        source: "const a = [n * n % 97 for n in range(2000)];\nprint(len(a));",
+        operations: 2_000,
+    },
+    // A `for ... in` loop whose variable a nested function reaches, so the loop
+    // declares it in the shared environment on every pass. The name it is declared
+    // under is the chunk's own, so the declaration is a clone rather than an
+    // allocation. (The closure is made in the loop body, which is the only scope the
+    // loop variable is reachable from — the loop pushes a scope per pass.)
+    Case {
+        name: "for/loop-var-captured",
+        source: "var total = 0;\nfor n in range(20000) { const f = function() { return n; }; total += 1; }\nprint(total);",
+        operations: 20_000,
+    },
+    // The cost of a modulo, in the two shapes that have one. `fmod` returns its dividend
+    // immediately when that is smaller than the divisor, and does real work when it is not —
+    // which is the shape the benchmarks contain: `i * 3 % 7`, `i * i % 97`. The two cases are
+    // here to keep that visible, because a change to the operator has to be read against both.
+    // The counting loop beside them is the control: no `%` in it, so it cannot move for either.
+    Case {
+        name: "operator/mod-small",
+        source: "var s = 3;\nfor (var i = 0; i < 200000; ++i) { s = s % 251 + 1; }\nprint(s);",
+        operations: 200_000,
+    },
+    Case {
+        name: "operator/mod-large",
+        source: "var s = 1;\nfor (var i = 0; i < 200000; ++i) { s = s * 31 % 1000003; }\nprint(s);",
+        operations: 200_000,
+    },
+    // A dictionary operation with an integer key, which isolates the map from the string
+    // building the two cases above pay for: a number key hashes its own bits, so what is left
+    // is the probe itself. Read against `dict/set` and `dict/get`, these say how much of a
+    // dictionary operation is the key's string and how much is the table.
+    Case {
+        name: "dict/set-int",
+        source: "const d = {};\nfor (var i = 0; i < 200000; ++i) { d[i % 64] = i; }\nprint(len(d));",
+        operations: 200_000,
+    },
+    Case {
+        name: "dict/get-int",
+        source: "const d = {};\nfor (var i = 0; i < 64; ++i) { d[i] = i; }\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += d[i % 64]; }\nprint(s);",
+        operations: 200_000,
+    },
+    // A dictionary read whose key is already built and held, so the operation pays the probe
+    // and the hash of a two-character string and nothing else.
+    Case {
+        name: "dict/get-held",
+        source: "const d = {};\nconst keys = [\"k\" + str(i) for i in range(64)];\nfor (var i = 0; i < 64; ++i) { d[keys[i]] = i; }\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += d[keys[i % 64]]; }\nprint(s);",
+        operations: 200_000,
+    },
+    // A concatenation that builds a new string rather than appending to one, which is what
+    // `a + b` is where neither side is a growing accumulator. This result is two characters
+    // long, so it fits in the handle and should not reach the allocator at all.
+    Case {
+        name: "string/concat-fresh",
+        source: "const a = \"k\";\nconst b = \"x\";\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += len(a + b); }\nprint(s);",
+        operations: 200_000,
+    },
+    // `str(n)` for a small integer, which is how a counting loop builds a dictionary
+    // key. Read against `dict/set` and `dict/get`, whose keys are built the same way,
+    // this is the part of them that is the conversion rather than the table.
+    Case {
+        name: "string/str-int",
+        source: "var s = 0;\nfor (var i = 0; i < 200000; ++i) { s += len(str(i % 50)); }\nprint(s);",
+        operations: 200_000,
+    },
+    // The same shape with a result too long for the handle, so the buffer is real.
+    Case {
+        name: "string/concat-long",
+        source: "const a = \"abcdefghij\";\nconst b = \"klmnopqrst\";\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += len(a + b); }\nprint(s);",
+        operations: 200_000,
+    },
+    // A method on a string, which is a property access and then a call. Read against
+    // `call/builtin` (`s += len("abc")`), the difference is what `.upper()` costs; read against
+    // `call/method-index`, the difference is the index read the protocol's `methods` section
+    // does before it.
+    Case {
+        name: "call/str-method",
+        source: "const w = \"abc\";\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += len(w.upper()); }\nprint(s);",
+        operations: 200_000,
+    },
+    Case {
+        name: "call/method-index",
+        source: "const words = [\"abc\"];\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += len(words[0].upper()); }\nprint(s);",
+        operations: 200_000,
+    },
+    // The read-modify-write the protocol's `dicts` section is made of: a membership check, a read
+    // through the index, and a store back into the same entry. The store is where a remembered
+    // position pays, and `dict/set` beside it builds a fresh key every time and cannot use one.
+    Case {
+        name: "dict/read-modify-write",
+        source: "const d = {};\nfor (var i = 0; i < 64; ++i) { d[\"k\" + str(i)] = 0; }\nfor (var i = 0; i < 200000; ++i) { const key = \"k\" + str(i % 64); if key in d { d[key] += 1; } }\nprint(len(d));",
+        operations: 200_000,
+    },
 ];
 
 /// Runs `source` once on `engine` and returns how long it took, in milliseconds.

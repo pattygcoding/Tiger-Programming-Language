@@ -62,8 +62,15 @@ fn comprehension_scope_and_order() {
         ),
         // A later clause sees the variables of the ones before it.
         ("print([x + y for x in [1] for y in [x, x * 10]]);", "[2, 11]\n"),
+        // A repeated clause name rebinds one variable: the clauses still nest left to
+        // right, and each outer pass evaluates the inner iterable against the value
+        // the outer clause left in place.
+        ("print([x for x in [1, 2] for x in [x, x * 10]]);", "[1, 10, 2, 20]\n"),
         // A closure made by the element keeps the clause variable alive.
         ("const f = [function() { return x; } for x in [7]][0]; print(f());", "7\n"),
+        // The clause variable is one binding written in place, so closures made on
+        // different passes share it and see the value the comprehension finished with.
+        ("const f = [function() { return x; } for x in [1, 2]]; print(f[0](), f[1]());", "2 2\n"),
     ]);
 }
 
@@ -75,6 +82,10 @@ fn comprehension_errors() {
         ("{[x]: x for x in [1]};", "list cannot be a dictionary key"),
         ("[x for x in [1]]; print(x);", "undefined name"),
         ("[x for y in [1]];", "undefined name"),
+        // A clause variable belongs to the clause that binds it, and the compiler records
+        // it when that clause is compiled — so a later clause's variable read before its
+        // loop is an error rather than a `null` the compiler would otherwise have placed.
+        ("[b for a in [1] for b in [b]];", "undefined name"),
         ("[x for x in [1] if x.nope];", "number has no properties"),
     ]);
 }

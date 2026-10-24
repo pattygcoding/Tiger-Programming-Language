@@ -72,6 +72,7 @@ fn category(instruction: &Instr) -> usize {
 
         Instr::StoreFlat { .. }
         | Instr::DefineFlat { .. }
+        | Instr::StoreScratch(_)
         | Instr::BinaryStore { .. }
         | Instr::FlatBinaryFlatStore { .. }
         | Instr::FlatBinaryConstantStore { .. }
@@ -109,7 +110,7 @@ fn category(instruction: &Instr) -> usize {
         | Instr::FlatJumpUnlessFlat { .. }
         | Instr::FlatJumpUnlessConstant { .. } => 8,
 
-        Instr::Call { .. } | Instr::CallName { .. } => 9,
+        Instr::Call { .. } | Instr::CallName { .. } | Instr::CallMethod { .. } => 9,
 
         Instr::MakeFunction(_) | Instr::Class(_) | Instr::Import { .. } | Instr::ApplyFormat(_) | Instr::Format => 10,
 
@@ -118,6 +119,8 @@ fn category(instruction: &Instr) -> usize {
         | Instr::BuildSet(_)
         | Instr::BuildDict(_)
         | Instr::Comprehension(_)
+        | Instr::Collect(_)
+        | Instr::CollectPair(_)
         | Instr::Generator(_)
         | Instr::Slice(_) => 11,
 
