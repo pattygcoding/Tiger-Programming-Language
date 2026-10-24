@@ -53,7 +53,7 @@ The underlying Wasm build command is:
 cargo build -p tiger-wasm --release --target wasm32-unknown-unknown
 ```
 
-The release profile strips symbols, and if Binaryen's `wasm-opt` is on `PATH`, `cargo run -p tiger-web` also runs `wasm-opt -Oz --converge`. The browser build keeps `regex` and the host clock out, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 950 KB but about 293 KB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
+The release profile strips symbols, and if Binaryen's `wasm-opt` is on `PATH`, `cargo run -p tiger-web` also runs `wasm-opt -Oz --converge`. The browser build keeps `regex` and the host clock out, so `tiger.wasm` stays small. Serve it with gzip or Brotli: the binary is about 960 KB but about 300 KB compressed. See [Wasm Size](docs/running-and-building.md#wasm-size).
 
 For static deployment, publish the contents of `web/` along with an `examples/` subdirectory containing the Tiger examples and a `portfolio-features/` subdirectory for the Portfolio menu entries. Serve over HTTP(S), not `file://`, and send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so `input()` can wait for a line. `tigerRun(source, filename)` returns `{output, error}` inside the Wasm worker; output streams as it prints, and `input()` waits for a line typed into the output pane. Generated Wasm is ignored by Git.
 
@@ -153,7 +153,8 @@ process startup in the numbers, `make compare` times a paired Tiger/Python
 workload on identical work, and `make protocol` times the same workload in
 process on both sides and fails while any section is slower than CPython. See
 the [performance guide](docs/performance.md) for the two engines, what the
-compiler recognizes, and how a change is measured.
+compiler recognizes, what a site learns about its operands as the program runs,
+and how a change is measured.
 
 ## Layout
 

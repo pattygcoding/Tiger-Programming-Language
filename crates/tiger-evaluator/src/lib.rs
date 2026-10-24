@@ -3098,6 +3098,90 @@ mod tests {
         Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
+    /// Runs `source` on one engine and returns what it printed, or its diagnostic.
+    fn capture_on(source: &str, engine: Engine) -> Result<String, String> {
+        let buffer = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let program = tiger_parser::parse(source)?;
+        let mut evaluator = Evaluator::new(Box::new(Shared(buffer.clone())));
+        evaluator.engine = engine;
+        evaluator.execute(&program)?;
+        let bytes = buffer.borrow().clone();
+        Ok(String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    /// Whether an instruction is one the engine only ever writes at run time, by
+    /// specializing a site onto two numbers.
+    fn is_numeric_site(instruction: &tiger_object::bytecode::Instr) -> bool {
+        use tiger_object::bytecode::Instr::*;
+        matches!(
+            instruction,
+            BinaryNumber { .. }
+                | BinaryConstantNumber { .. }
+                | BinaryStoreNumber { .. }
+                | FlatBinaryFlatNumber { .. }
+                | FlatBinaryConstantNumber { .. }
+                | FlatBinaryFlatStoreNumber { .. }
+                | FlatBinaryConstantStoreNumber { .. }
+                | FlatJumpUnlessFlatNumber { .. }
+                | FlatJumpUnlessConstantNumber { .. }
+        )
+    }
+
+    /// Every adaptive site must decide exactly what the interpreter decides, whichever
+    /// way it settles — and it must settle: the first assertion is that nothing is
+    /// specialized before the program has run.
+    ///
+    /// The sources are the shapes that make a site change its mind: a numeric site that
+    /// later sees strings, a settled comparison called with strings, a numeric site that
+    /// reaches a division by zero, and a loop whose bound is a variable.
+    #[test]
+    fn an_adaptive_site_settles_the_way_the_interpreter_decides() {
+        let sources = [
+            // A site that is numeric in one call and a string in the next, so it
+            // specializes and then has to put its general instruction back — and has to
+            // keep the accumulator's in-place append when it does. `total` takes the
+            // first element, so the string call really concatenates rather than raising
+            // where a number met a string.
+            "function fold(values) {\n    var total = values[0];\n    for (var i = 1; i < len(values); ++i) {\n        total = total + values[i];\n    }\n    return total;\n}\nprint(fold([1, 2, 3]));\nprint(fold([\"a\", \"b\"]));\n",
+            // A site that settles numeric and then divides by zero, where the arithmetic
+            // has no answer and the interpreter's own diagnostic is the one that runs.
+            "function average(values) {\n    var total = 0;\n    for (var i = 0; i < len(values); ++i) {\n        total = total + values[i];\n    }\n    return total / len(values);\n}\nprint(average([2, 4]));\nprint(average([]));\n",
+            // A comparison settled on numbers and then called with strings: `"a" < "b"`
+            // is not a number and must not be decided as one.
+            "function first_less(a, b) {\n    return a < b;\n}\nvar flag = true;\nfor (var i = 0; i < 40; ++i) {\n    flag = first_less(i, 100);\n}\nprint(flag, first_less(\"a\", \"b\"));\n",
+            // An operator whose two operands both arrive on the operand stack, because
+            // neither is a flat local: two index reads. It is the one settled form that
+            // takes what it needs off the stack, so it is the one whose fallback has to
+            // put it back before the general instruction runs.
+            "function pick(first, second) {\n    const left = [first];\n    const right = [second];\n    return left[0] + right[0];\n}\nvar total = 0;\nfor (var i = 0; i < 40; ++i) {\n    total = total + pick(i, 1);\n}\nprint(total);\nprint(pick(\"a\", \"b\"));\n",
+            // A loop whose bound is a variable, and a remainder whose divisor can be zero.
+            "var total = 0;\nvar bound = 50;\nfor (var i = 0; i < bound; ++i) {\n    total = total + i % 7;\n}\nprint(total, 10 % 0);\n",
+            // A site that is never numeric at all, so it must settle as a general one and
+            // keep the operator it was compiled with.
+            "var text = \"\";\nfor (var i = 0; i < 40; ++i) {\n    text = text + \"ab\";\n}\nprint(len(text));\nprint(3 < 5, \"a\" == \"a\", [1] == [1]);\n",
+        ];
+        for source in sources {
+            assert_eq!(capture_on(source, Engine::Tree), capture_on(source, Engine::Auto), "the two engines must agree on:\n{source}");
+        }
+
+        let program =
+            tiger_parser::parse("var total = 0;\nfor (var index = 0; index < 500; ++index) {\n    total += index;\n}\nprint(total);")
+                .expect("the fixture must parse");
+        let compiled = Evaluator::compile(&program, "").expect("the fixture must lower");
+        let specialized = compiled.0.code.iter().filter(|slot| is_numeric_site(&slot.get())).count();
+        assert_eq!(specialized, 0, "a site's operands are only known once it has seen them");
+        let mut evaluator = Evaluator::new(Box::new(Shared(Rc::new(std::cell::RefCell::new(Vec::new())))));
+        evaluator.execute_compiled(&compiled).expect("the fixture must run");
+        // The loop's condition, its step's comparison, and its accumulator.
+        let specialized = compiled.0.code.iter().filter(|slot| is_numeric_site(&slot.get())).count();
+        assert!(specialized >= 2, "want the loop's condition and its accumulator specialized, got {specialized}");
+        assert!(
+            compiled.0.code.iter().all(|slot| is_numeric_site(&slot.get())
+                || !matches!(slot.get(), tiger_object::bytecode::Instr::FlatJumpUnlessConstant { settled: false, .. })),
+            "every site in this program is numeric, so none should be left counting"
+        );
+    }
+
     /// Prints the instruction list a program compiles to.
     ///
     /// The shape of that list is what the engine's cost is made of, so a fusion
@@ -3149,8 +3233,8 @@ mod tests {
                 continue;
             };
             println!("== {} ({} instructions)", name, chunk.code.len());
-            for (index, instr) in chunk.code.iter().enumerate() {
-                println!("  {:>3}  {:?}", index, instr);
+            for (index, instruction) in chunk.code.iter().enumerate() {
+                println!("  {:>3}  {:?}", index, instruction.get());
             }
         }
     }

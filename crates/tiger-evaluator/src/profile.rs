@@ -74,8 +74,11 @@ fn category(instruction: &Instr) -> usize {
         | Instr::DefineFlat { .. }
         | Instr::StoreScratch(_)
         | Instr::BinaryStore { .. }
+        | Instr::BinaryStoreNumber { .. }
         | Instr::FlatBinaryFlatStore { .. }
+        | Instr::FlatBinaryFlatStoreNumber { .. }
         | Instr::FlatBinaryConstantStore { .. }
+        | Instr::FlatBinaryConstantStoreNumber { .. }
         | Instr::FlatStoreIndex { .. }
         | Instr::UpdateFlat { .. }
         | Instr::UpdateFlatJump { .. }
@@ -96,9 +99,13 @@ fn category(instruction: &Instr) -> usize {
         | Instr::UpdateProperty { .. } => 6,
 
         Instr::Binary { .. }
+        | Instr::BinaryNumber { .. }
         | Instr::BinaryConstant { .. }
+        | Instr::BinaryConstantNumber { .. }
         | Instr::FlatBinaryFlat { .. }
+        | Instr::FlatBinaryFlatNumber { .. }
         | Instr::FlatBinaryConstant { .. }
+        | Instr::FlatBinaryConstantNumber { .. }
         | Instr::Unary(_)
         | Instr::Equal => 7,
 
@@ -108,7 +115,9 @@ fn category(instruction: &Instr) -> usize {
         | Instr::JumpIfFalseOrPop(_)
         | Instr::JumpIfTrueOrPop(_)
         | Instr::FlatJumpUnlessFlat { .. }
-        | Instr::FlatJumpUnlessConstant { .. } => 8,
+        | Instr::FlatJumpUnlessFlatNumber { .. }
+        | Instr::FlatJumpUnlessConstant { .. }
+        | Instr::FlatJumpUnlessConstantNumber { .. } => 8,
 
         Instr::Call { .. } | Instr::CallName { .. } | Instr::CallMethod { .. } => 9,
 

@@ -15,8 +15,8 @@ it serves and is checked against.
 ## Wasm size guardrails
 
 `web/tiger.wasm` bundles the whole interpreter, so every crate linked into
-`crates/tiger-wasm` ships to the browser. It currently builds to about 950 KB
-stripped (~293 KB gzip). The ceiling is **2.5 MB**, enforced by CI: it is a guard
+`crates/tiger-wasm` ships to the browser. It currently builds to about 960 KB
+stripped (~300 KB gzip). The ceiling is **2.5 MB**, enforced by CI: it is a guard
 against a runaway — a dependency that drags in something large — and not a budget to
 tune a change against. The reasons below are what keep the browser runtime small, and
 they are worth keeping for their own sake rather than for the number.
@@ -30,7 +30,7 @@ they are worth keeping for their own sake rather than for the number.
 
 Run `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` before
 finishing. `cargo test` runs the unit tests, the language suites, the 44
-benchmark programs, the 176 documentation examples, the example and portfolio
+benchmark programs, the 188 documentation examples, the example and portfolio
 programs, the standalone-build integration tests, the differential test that runs
 every one of those programs on both engines and checks that they agree, and the
 browser runtime under Node. The browser tests skip with a message until `cargo

@@ -6,7 +6,7 @@
 //! operations (`Value`, environments, operators), so a compiled program has
 //! exactly the semantics of the tree-walking interpreter.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::{Env, Value};
@@ -97,7 +97,9 @@ pub enum Instr {
     ReadPropertyTarget(u32),
     /// Pop two values and push `left <op> right`. `op` selects an inlined fast
     /// path; `chunk.names[i]` is the operator for the fallback and diagnostics.
-    Binary { op: Op, name: u32 },
+    /// `settled` is the adaptive state [`FlatBinaryFlat`](Instr::FlatBinaryFlat)
+    /// describes.
+    Binary { op: Op, name: u32, settled: bool },
     /// Push flat slot `a`, push flat slot `b`, then apply the tagged operator.
     ///
     /// This is the fused form of `LoadFlat(a)`, `LoadFlat(b)`, and
@@ -105,17 +107,77 @@ pub enum Instr {
     /// three in place and the engine steps over the other two, so a pair of loads
     /// feeding one operator costs a single dispatch and touches the operand stack
     /// not at all.
-    FlatBinaryFlat { a: u32, b: u32, op: Op, name: u32 },
+    ///
+    /// `settled` is the site's adaptive state: false while it is still counting the
+    /// operand types it sees, and true once it has given up on specializing. Every
+    /// fused numeric site carries one, and the engine reads it from the instruction it
+    /// has already copied, so a site that has settled costs nothing to skip. See
+    /// [`SPECIALIZE_AFTER`].
+    FlatBinaryFlat { a: u32, b: u32, op: Op, name: u32, settled: bool },
     /// Push flat slot `a`, take constant `b`, then apply the tagged operator.
     ///
     /// The fused form of `LoadFlat(a)`, `Constant(b)`, and `Binary { op, name }`.
-    FlatBinaryConstant { a: u32, b: u32, op: Op, name: u32 },
+    FlatBinaryConstant { a: u32, b: u32, op: Op, name: u32, settled: bool },
     /// Apply the tagged operator to constant `b` and the value below it, pushing the
     /// result.
     ///
     /// The fused form of `Constant(b)` and `Binary { op, name }`, where the left
-    /// operand is whatever the preceding instruction left on the stack.
-    BinaryConstant { b: u32, op: Op, name: u32 },
+    /// operand is whatever the preceding instruction left on the stack. `settled` is the
+    /// adaptive state [`FlatBinaryFlat`](Instr::FlatBinaryFlat) describes.
+    BinaryConstant { b: u32, op: Op, name: u32, settled: bool },
+    /// A [`Binary`](Instr::Binary) whose two operands are known to be numbers.
+    ///
+    /// The operands come off the value stack, so this is the form a numeric operator
+    /// takes when neither side is a flat local — a sum of two call results, or of two
+    /// index reads. The adaptive counterpart of `FlatBinaryFlatNumber`.
+    BinaryNumber { op: Op, name: u32 },
+    /// A [`BinaryConstant`](Instr::BinaryConstant) whose operands are known to be
+    /// numbers: the value below the top of the stack, and a numeric constant.
+    BinaryConstantNumber { b: u32, op: Op, name: u32 },
+    /// A [`BinaryStore`](Instr::BinaryStore) whose two operands are known to be numbers.
+    ///
+    /// This is `total += items[index]` and `total += f(x)` where the tail has turned out
+    /// to be numeric, and it steps over the string case's in-place append, which two
+    /// numbers can never take. It keeps `reuse` so that a site which deoptimizes onto a
+    /// pair of strings still gets that append.
+    BinaryStoreNumber { op: Op, name: u32, out: u32, reuse: bool },
+    /// A [`FlatBinaryFlat`](Instr::FlatBinaryFlat) whose two operands are known to be
+    /// numbers.
+    ///
+    /// This instruction is never compiled. The engine writes it in place of the one
+    /// it replaces once that site has run [`SPECIALIZE_AFTER`]
+    /// times with both operands numbers, and it is what PEP 659 does in CPython: the
+    /// generic form counts the types it sees, and mutates its own bytecode into a form
+    /// that does not have to ask again. Its fields are the ones it was built from, so a
+    /// site that later sees any other type can be put back exactly where it came from.
+    ///
+    /// What it saves is the type question — the two tag tests and the `Option` the
+    /// general path wraps its answer in — not the operator, which the compiler already
+    /// resolved.
+    FlatBinaryFlatNumber { a: u32, b: u32, op: Op, name: u32 },
+    /// A [`FlatBinaryConstant`](Instr::FlatBinaryConstant) whose operands are known to
+    /// be numbers. The adaptive counterpart of `FlatBinaryFlatNumber`.
+    FlatBinaryConstantNumber { a: u32, b: u32, op: Op, name: u32 },
+    /// A [`FlatJumpUnlessFlat`](Instr::FlatJumpUnlessFlat) whose two operands are known
+    /// to be numbers.
+    ///
+    /// A loop condition is where this pays most: `i < n` between two numbers is
+    /// decided and branched in one instruction without ever building the `bool` the
+    /// unfused form would.
+    FlatJumpUnlessFlatNumber { a: u32, b: u32, op: Op, name: u32, target: u32 },
+    /// A [`FlatJumpUnlessConstant`](Instr::FlatJumpUnlessConstant) whose operands are
+    /// known to be numbers. The adaptive counterpart of `FlatJumpUnlessFlatNumber`.
+    FlatJumpUnlessConstantNumber { a: u32, b: u32, op: Op, name: u32, target: u32 },
+    /// A [`FlatBinaryFlatStore`](Instr::FlatBinaryFlatStore) whose two operands are
+    /// known to be numbers.
+    ///
+    /// A numeric accumulator — `total += step` — is the shape this exists for, and it
+    /// also steps over the string case's in-place append, which two numbers can never
+    /// take.
+    FlatBinaryFlatStoreNumber { a: u32, b: u32, op: Op, name: u32, out: u32 },
+    /// A [`FlatBinaryConstantStore`](Instr::FlatBinaryConstantStore) whose operands are
+    /// known to be numbers. The adaptive counterpart of `FlatBinaryFlatStoreNumber`.
+    FlatBinaryConstantStoreNumber { a: u32, b: u32, op: Op, name: u32, out: u32 },
     /// Push the property `name` of flat slot `value`.
     ///
     /// The fused form of `LoadFlat(value)` and `GetProperty(name)`. `cache` is the
@@ -145,13 +207,15 @@ pub enum Instr {
     ///
     /// The fused form of `LoadFlat(a)`, `LoadFlat(b)`, `Binary { op, name }`, and
     /// `JumpIfFalse`: a counting loop's condition in one dispatch, with the operand
-    /// stack untouched.
-    FlatJumpUnlessFlat { a: u32, b: u32, op: Op, name: u32, target: u32 },
+    /// stack untouched. `settled` is the adaptive state
+    /// [`FlatBinaryFlat`](Instr::FlatBinaryFlat) describes.
+    FlatJumpUnlessFlat { a: u32, b: u32, op: Op, name: u32, target: u32, settled: bool },
     /// Compare flat slot `a` with constant `b` and jump to `target` when falsy.
     ///
     /// The fused form of `LoadFlat(a)`, `Constant(b)`, `Binary { op, name }`, and
-    /// `JumpIfFalse`, which is a loop against a literal bound.
-    FlatJumpUnlessConstant { a: u32, b: u32, op: Op, name: u32, target: u32 },
+    /// `JumpIfFalse`, which is a loop against a literal bound. `settled` is the adaptive
+    /// state [`FlatBinaryFlat`](Instr::FlatBinaryFlat) describes.
+    FlatJumpUnlessConstant { a: u32, b: u32, op: Op, name: u32, target: u32, settled: bool },
     /// For `and`: jump (leaving the value) when falsy, otherwise pop and continue.
     JumpIfFalseOrPop(u32),
     /// For `or`: jump (leaving the value) when truthy, otherwise pop and continue.
@@ -227,20 +291,25 @@ pub enum Instr {
     ///
     /// The fused form of two loads, `Binary`, and `StoreFlat` — an assignment such as
     /// `total = total + value`. A store into a `const` is left to the unfused form.
-    FlatBinaryFlatStore { a: u32, b: u32, op: Op, name: u32, out: u32 },
+    /// `settled` is the adaptive state [`FlatBinaryFlat`](Instr::FlatBinaryFlat)
+    /// describes, and it is what a string accumulator does not need: a site that is not
+    /// numeric keeps its instruction, because the in-place append that shape has is
+    /// worth more than the type question specializing would save.
+    FlatBinaryFlatStore { a: u32, b: u32, op: Op, name: u32, out: u32, settled: bool },
     /// Store `locals[out] = locals[a] <op> constants[b]`, computing an operator whose
     /// right operand is a constant.
     ///
     /// The fused form of a load, `Constant`, `Binary`, and `StoreFlat` — an
-    /// assignment such as `total = total + 1`.
-    FlatBinaryConstantStore { a: u32, b: u32, op: Op, name: u32, out: u32 },
+    /// assignment such as `total = total + 1`. `settled` is the adaptive state
+    /// [`FlatBinaryFlat`](Instr::FlatBinaryFlat) describes.
+    FlatBinaryConstantStore { a: u32, b: u32, op: Op, name: u32, out: u32, settled: bool },
     /// Store `locals[out] = a <op> b` for two operands taken from the value stack.
     ///
     /// The fused form of `Binary` and `StoreFlat` — the tail of any assignment whose
     /// value is computed from a call, an index, or a property, which is the one shape
     /// the both-flat forms above cannot reach. A store into a `const` is left to the
     /// unfused form, which raises the error.
-    BinaryStore { op: Op, name: u32, out: u32, reuse: bool },
+    BinaryStore { op: Op, name: u32, out: u32, reuse: bool, settled: bool },
     /// Push `locals[a][locals[b]]`, reading an index whose collection and key are
     /// both flat locals.
     ///
@@ -448,9 +517,34 @@ pub enum CachedProperty {
     Method { class: Rc<crate::Class>, method: Rc<crate::Method> },
 }
 
+/// How many passes a numeric site runs before it specializes in place.
+///
+/// A site starts generic and counts the passes whose operands were both numbers. The
+/// count is the whole guard against specializing on an atypical first pass — a branch
+/// taken once, a call a program makes only at startup — and it is small because a loop
+/// reaches it in microseconds while a site that never repeats never reaps the benefit.
+/// A site that sees any other type inside the count stops counting and settles as a
+/// general site instead, so a pair of strings or a dictionary operand costs the
+/// counting once and never again.
+pub const SPECIALIZE_AFTER: u16 = 10;
+
 /// A compiled script or function body.
 pub struct Chunk {
-    pub code: Vec<Instr>,
+    /// The instruction stream.
+    ///
+    /// Each slot is a [`Cell`] rather than a bare [`Instr`] because the running engine
+    /// rewrites it: a site that has counted enough passes with the same operand types
+    /// replaces itself with a specialized instruction, and a site that later sees any
+    /// other type puts the general instruction back. Reading a slot is a copy of a
+    /// `Copy` value either way, so the interior mutability costs the dispatch loop
+    /// nothing; only the site that specializes writes.
+    pub code: Vec<Cell<Instr>>,
+    /// How many warmup passes each instruction has counted, indexed by program counter.
+    ///
+    /// An entry is read only from a generic arm that is still deciding, so a site that
+    /// has settled — specialized, or settled as a general one — never touches its
+    /// counter again, and a long loop pays nothing for the machinery.
+    pub warmup: Vec<Cell<u16>>,
     pub constants: Vec<Value>,
     pub names: Vec<Rc<str>>,
     pub functions: Vec<Rc<FunctionProto>>,
@@ -511,6 +605,43 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    /// The instruction at `pc`.
+    ///
+    /// A copy out of the shared stream, which is all a read costs either way. The engine
+    /// never holds a borrow across an instruction, so a site that rewrites itself is
+    /// seen by the pass after the one that wrote it and never by that one.
+    #[inline]
+    pub fn at(&self, pc: usize) -> Instr {
+        self.code[pc].get()
+    }
+
+    /// Replaces the instruction at `pc`, which is how a site specializes and how it is
+    /// put back when it turns out not to be monomorphic after all.
+    ///
+    /// A `pc` past the end is ignored: a jump can only land inside the stream, so this
+    /// cannot happen, and a caller that has one should not panic on it.
+    #[inline]
+    pub fn specialize(&self, pc: usize, instruction: Instr) {
+        if let Some(slot) = self.code.get(pc) {
+            slot.set(instruction);
+        }
+    }
+
+    /// How many warmup passes `pc` has counted, which is
+    /// [`SPECIALIZE_AFTER`] once it has settled.
+    #[inline]
+    pub fn warmup(&self, pc: usize) -> u16 {
+        self.warmup.get(pc).map(Cell::get).unwrap_or(SPECIALIZE_AFTER)
+    }
+
+    /// Records how many warmup passes `pc` has counted.
+    #[inline]
+    pub fn set_warmup(&self, pc: usize, hits: u16) {
+        if let Some(slot) = self.warmup.get(pc) {
+            slot.set(hits);
+        }
+    }
+
     /// The source position of instruction `pc`, for diagnostics.
     pub fn base(&self, pc: usize) -> tiger_ast::Base {
         self.base_at(self.position(pc))

@@ -499,6 +499,11 @@ impl Compiler {
     /// engine steps over the rest, which stay where they were. Nothing moves, so
     /// every jump target still points at what it did, and the only check needed is
     /// that nothing jumps into the middle of a group.
+    ///
+    /// Every site this fuses starts *unsettled*, because what a site's operands will be
+    /// is not something the compiler can know. The engine counts the first few passes and
+    /// settles each one — see `SPECIALIZE_AFTER` — which is why the `settled` field is
+    /// false at every construction below.
     fn fuse(&mut self) {
         if self.code.len() < 2 {
             return;
@@ -520,12 +525,13 @@ impl Compiler {
             // A group's own slots stay where they were, so nothing moves.
             if room >= 4 && !targets[index + 1] && !targets[index + 2] && !targets[index + 3] {
                 let fused = match (&self.code[index], &self.code[index + 1], &self.code[index + 2], &self.code[index + 3]) {
-                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
-                        Some((Instr::FlatJumpUnlessFlat { a: *a, b: *b, op: *op, name: *name, target: *target }, index + 2))
+                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name, .. }, Instr::JumpIfFalse(target)) => {
+                        Some((Instr::FlatJumpUnlessFlat { a: *a, b: *b, op: *op, name: *name, target: *target, settled: false }, index + 2))
                     }
-                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
-                        Some((Instr::FlatJumpUnlessConstant { a: *a, b: *b, op: *op, name: *name, target: *target }, index + 2))
-                    }
+                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name, .. }, Instr::JumpIfFalse(target)) => Some((
+                        Instr::FlatJumpUnlessConstant { a: *a, b: *b, op: *op, name: *name, target: *target, settled: false },
+                        index + 2,
+                    )),
                     // `items[i] = value` with all three in the frame's own locals.
                     (Instr::LoadFlat(value), Instr::LoadFlat(collection), Instr::LoadFlat(key), Instr::SetIndex) => {
                         Some((Instr::FlatStoreIndex { value: *value, collection: *collection, key: *key }, index + 3))
@@ -537,15 +543,17 @@ impl Compiler {
                     (
                         Instr::LoadFlat(a),
                         Instr::LoadFlat(b),
-                        Instr::Binary { op, name },
+                        Instr::Binary { op, name, .. },
                         Instr::StoreFlat { slot, constant: false, .. },
-                    ) => Some((Instr::FlatBinaryFlatStore { a: *a, b: *b, op: *op, name: *name, out: *slot }, index + 2)),
+                    ) => Some((Instr::FlatBinaryFlatStore { a: *a, b: *b, op: *op, name: *name, out: *slot, settled: false }, index + 2)),
                     (
                         Instr::LoadFlat(a),
                         Instr::Constant(b),
-                        Instr::Binary { op, name },
+                        Instr::Binary { op, name, .. },
                         Instr::StoreFlat { slot, constant: false, .. },
-                    ) => Some((Instr::FlatBinaryConstantStore { a: *a, b: *b, op: *op, name: *name, out: *slot }, index + 2)),
+                    ) => {
+                        Some((Instr::FlatBinaryConstantStore { a: *a, b: *b, op: *op, name: *name, out: *slot, settled: false }, index + 2))
+                    }
                     _ => None,
                 };
                 if let Some((fused, position)) = fused {
@@ -557,11 +565,11 @@ impl Compiler {
             }
             if room >= 3 && !targets[index + 1] && !targets[index + 2] {
                 let fused = match (&self.code[index], &self.code[index + 1], &self.code[index + 2]) {
-                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name }) => {
-                        Some((Instr::FlatBinaryFlat { a: *a, b: *b, op: *op, name: *name }, index + 2))
+                    (Instr::LoadFlat(a), Instr::LoadFlat(b), Instr::Binary { op, name, .. }) => {
+                        Some((Instr::FlatBinaryFlat { a: *a, b: *b, op: *op, name: *name, settled: false }, index + 2))
                     }
-                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name }) => {
-                        Some((Instr::FlatBinaryConstant { a: *a, b: *b, op: *op, name: *name }, index + 2))
+                    (Instr::LoadFlat(a), Instr::Constant(b), Instr::Binary { op, name, .. }) => {
+                        Some((Instr::FlatBinaryConstant { a: *a, b: *b, op: *op, name: *name, settled: false }, index + 2))
                     }
                     // `items[index]` and `items[0]`, with the collection in the
                     // frame's own locals.
@@ -586,8 +594,8 @@ impl Compiler {
             }
             if room >= 2 && !targets[index + 1] {
                 let fused = match (&self.code[index], &self.code[index + 1]) {
-                    (Instr::Constant(b), Instr::Binary { op, name }) => {
-                        Some((Instr::BinaryConstant { b: *b, op: *op, name: *name }, index + 1, 2))
+                    (Instr::Constant(b), Instr::Binary { op, name, .. }) => {
+                        Some((Instr::BinaryConstant { b: *b, op: *op, name: *name, settled: false }, index + 1, 2))
                     }
                     (Instr::LoadFlat(a), Instr::GetProperty(name)) => {
                         Some((Instr::FlatProperty { value: *a, name: *name, cache: (index + 1) as u32 }, index + 1, 2))
@@ -615,15 +623,15 @@ impl Compiler {
                     )),
                     // A comparison whose only consumer is the branch: the operand
                     // stack is left alone and the truthiness test is skipped.
-                    (Instr::Binary { op, name }, Instr::JumpIfFalse(target)) => {
+                    (Instr::Binary { op, name, .. }, Instr::JumpIfFalse(target)) => {
                         Some((Instr::JumpUnless { op: *op, name: *name, target: *target }, index, 2))
                     }
                     // The tail of an assignment whose value comes off the operand
                     // stack: the operator and the store in one dispatch, with the
                     // result going straight into its slot. The both-flat forms are
                     // longer, so they have already been tried and lost by here.
-                    (Instr::Binary { op, name }, Instr::StoreFlat { slot, constant: false, reuse, .. }) => {
-                        Some((Instr::BinaryStore { op: *op, name: *name, out: *slot, reuse: *reuse }, index, 2))
+                    (Instr::Binary { op, name, .. }, Instr::StoreFlat { slot, constant: false, reuse, .. }) => {
+                        Some((Instr::BinaryStore { op: *op, name: *name, out: *slot, reuse: *reuse, settled: false }, index, 2))
                     }
                     _ => None,
                 };
@@ -663,7 +671,11 @@ impl Compiler {
         Rc::new(Chunk {
             property_cache: std::cell::RefCell::new(vec![None; slots]),
             name_cache: std::cell::RefCell::new(vec![None; slots]),
-            code: self.code,
+            // The stream is frozen into mutable slots here, which is where it stops being
+            // the compiler's to rearrange and becomes the engine's to specialize. Nothing
+            // is specialized yet: a site has to run before it knows what its operands are.
+            code: self.code.into_iter().map(std::cell::Cell::new).collect(),
+            warmup: vec![std::cell::Cell::new(0); slots],
             constants: self.constants,
             names: self.names,
             functions: self.functions,
@@ -733,7 +745,7 @@ impl Compiler {
                     self.expression(right)?;
                     let index = self.name(operator);
                     let op = operator_code(operator);
-                    self.emit(Instr::Binary { op, name: index }, base);
+                    self.emit(Instr::Binary { op, name: index, settled: false }, base);
                 }
             }
             Expr::Unary { base, operator, right } => {
@@ -935,7 +947,7 @@ impl Compiler {
                     }
                     if position > 0 {
                         let plus = self.name("+");
-                        self.emit(Instr::Binary { op: Op::Add, name: plus }, base);
+                        self.emit(Instr::Binary { op: Op::Add, name: plus, settled: false }, base);
                     }
                 }
             }
@@ -1501,7 +1513,7 @@ impl Compiler {
                                 | Instr::BinaryStore { .. }
                         )
                     });
-                    self.emit(Instr::Binary { op, name: index_of_op }, base);
+                    self.emit(Instr::Binary { op, name: index_of_op, settled: false }, base);
                     self.emit_store_reusable(name, base, !wrote_flat);
                 }
                 // A property or index target is resolved once and read, then the
@@ -1512,7 +1524,7 @@ impl Compiler {
                     let index = self.name(name);
                     self.emit(Instr::ReadPropertyTarget(index), target);
                     self.expression(value)?;
-                    self.emit(Instr::Binary { op, name: index_of_op }, base);
+                    self.emit(Instr::Binary { op, name: index_of_op, settled: false }, base);
                     self.emit(Instr::SetPropertyKeep(index), target);
                 }
                 Expr::Index { base: target, collection, key } => {
@@ -1520,7 +1532,7 @@ impl Compiler {
                     self.expression(key)?;
                     self.emit(Instr::ReadIndexTarget, target);
                     self.expression(value)?;
-                    self.emit(Instr::Binary { op, name: index_of_op }, base);
+                    self.emit(Instr::Binary { op, name: index_of_op, settled: false }, base);
                     self.emit(Instr::SetIndexKeep, target);
                 }
                 _ => return Err(Unsupported),
@@ -1579,9 +1591,15 @@ fn jump_target(instruction: &Instr) -> Option<u32> {
         | Instr::JumpIfFalseOrPop(target)
         | Instr::JumpIfTrueOrPop(target)
         | Instr::IterNext(target) => Some(*target),
-        Instr::JumpUnless { target, .. } | Instr::FlatJumpUnlessFlat { target, .. } | Instr::FlatJumpUnlessConstant { target, .. } => {
-            Some(*target)
-        }
+        Instr::JumpUnless { target, .. }
+        | Instr::FlatJumpUnlessFlat { target, .. }
+        | Instr::FlatJumpUnlessConstant { target, .. }
+        // The specialized forms are written by the engine rather than compiled, so the
+        // fusion pass never meets one; they are listed anyway because the contract above
+        // is that every instruction carrying a target goes through here, and a site the
+        // engine has specialized must not become a hole in a scan that reads a live chunk.
+        | Instr::FlatJumpUnlessFlatNumber { target, .. }
+        | Instr::FlatJumpUnlessConstantNumber { target, .. } => Some(*target),
         Instr::UpdateFlatJump { target, .. } => Some(*target),
         _ => None,
     }

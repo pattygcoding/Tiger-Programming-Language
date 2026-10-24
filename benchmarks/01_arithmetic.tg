@@ -100,6 +100,31 @@ function is_prime(value) {
     return true;
 }
 
+// Adaptive sites. A loop's condition and its accumulator ask what their operands
+// are and then remember the answer, so `fold` has settled on numbers by the time
+// its second call hands it strings. The same instruction sites then fall back to
+// the general path — the operator is kept, so the string case still grows its
+// accumulator in place — and both calls answer the same as they always did.
+function fold(values) {
+    var total = values[0];
+    for (var index = 1; index < len(values); ++index) {
+        total = total + values[index];
+    }
+    return total;
+}
+
+// A loop whose bound is a variable, so its condition compares two numbers the
+// compiler cannot know. The bound decides how many passes the site sees, which is
+// what decides whether it settles at all: twelve passes is past the count, three
+// is not.
+function countdown(bound) {
+    var total = 0;
+    for (var counter = 0; counter < bound; counter = counter + 1) {
+        total = total + counter % 4;
+    }
+    return total;
+}
+
 print(TITLE);
 print("absolute:", absolute(-17), absolute(0), absolute(9));
 print("powers:", power(2, 10), power(3, 4), power(9, 0));
@@ -114,3 +139,5 @@ print("prime:", is_prime(1), is_prime(2), is_prime(29), is_prime(49));
 print("precedence:", 2 + 3 * 4, (2 + 3) * 4, 24 / 3 / 2);
 print("remainders:", -17 % 5, 17 % -5, -17 % -5);
 print("fractions:", 7 / 2, 1.25 + 2.5, 1e2 + 2);
+print("fold:", fold([1, 2, 3, 4]), fold(["a", "b", "c"]));
+print("countdown:", countdown(0), countdown(3), countdown(12));

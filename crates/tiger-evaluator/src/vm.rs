@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use tiger_object as object;
-use tiger_object::bytecode::{CachedProperty, Chunk, Instr, Op, TryProto};
+use tiger_object::bytecode::{CachedProperty, Chunk, Instr, Op, TryProto, SPECIALIZE_AFTER};
 use tiger_object::{Env, FunctionValue, Keyword, Value};
 
 use crate::{builtins, methods, runtime, Evaluator, Signal};
@@ -243,7 +243,18 @@ fn fast_binary(op: Op, left: &Value, right: &Value) -> Option<Result<Value, &'st
     let (Value::Number(a), Value::Number(b)) = (left, right) else {
         return None;
     };
-    let (a, b) = (*a, *b);
+    number_binary(op, *a, *b)
+}
+
+/// The numeric meaning of `op` for two numbers whose tags the caller has already tested.
+///
+/// This is everything [`fast_binary`] does past its two tag tests, which is what an
+/// adaptive site calls once it has learned that its operands are numbers: the same
+/// arithmetic, without asking the question again. `Err` is a result the interpreter
+/// rejects as well, and `None` is the case [`Evaluator::binary`] owns — a divisor of zero,
+/// whose diagnostic is the interpreter's, or an operator with no numeric meaning.
+#[inline]
+fn number_binary(op: Op, a: f64, b: f64) -> Option<Result<Value, &'static str>> {
     let computed = match op {
         Op::Add => Some(a + b),
         Op::Sub => Some(a - b),
@@ -260,11 +271,94 @@ fn fast_binary(op: Op, left: &Value, right: &Value) -> Option<Result<Value, &'st
         Op::Ne => return Some(Ok(Value::Bool(a != b))),
         _ => return None,
     };
-    Some(match computed {
-        Some(value) if !value.is_finite() => Err("non-finite numeric result"),
-        Some(value) => Ok(Value::Number(value)),
-        _ => return None,
-    })
+    match computed {
+        None => None,
+        Some(value) if !value.is_finite() => Some(Err("non-finite numeric result")),
+        Some(value) => Some(Ok(Value::Number(value))),
+    }
+}
+
+/// Whether an operator decides a branch by comparing two numbers.
+///
+/// Only these settle a branch site as numeric. An arithmetic operator in a condition — the
+/// `if (a + b)` shape — has to produce a number and then be tested against zero, which is a
+/// different question from the one a comparison asks, so such a site stays general and
+/// keeps `fast_binary`'s own numeric path.
+#[inline]
+fn compares(op: Op) -> bool {
+    matches!(op, Op::Lt | Op::Le | Op::Gt | Op::Ge | Op::Eq | Op::Ne)
+}
+
+/// `truthy(left <op> right)` for two numbers whose tags the caller has already tested.
+///
+/// The comparison arms are the reachable ones: a branch is only ever settled as numeric
+/// for a comparison. The arithmetic arm is what makes this total.
+#[inline]
+fn number_test(op: Op, a: f64, b: f64) -> bool {
+    match op {
+        Op::Lt => a < b,
+        Op::Le => a <= b,
+        Op::Gt => a > b,
+        Op::Ge => a >= b,
+        Op::Eq => a == b,
+        Op::Ne => a != b,
+        _ => match number_binary(op, a, b) {
+            Some(Ok(value)) => object::truthy(&value),
+            Some(Err(_)) | None => false,
+        },
+    }
+}
+
+/// Whether `op` is one the site can take a narrow path for at all. `Other` is the operator
+/// the compiler gives anything it has no code for, and it is also what a settled site's
+/// general path re-reads, so a site whose operator is `Other` has nothing to learn.
+#[inline]
+fn narrowable(op: Op) -> bool {
+    op != Op::Other
+}
+
+/// A site's two settled forms, which are what the engine writes in place of the instruction
+/// it is replacing.
+///
+/// Both are built by the caller, because both carry the site's own fields — its slots, its
+/// operator, its name, and where it branches or stores. There are two of them because a site
+/// that turns out not to be monomorphic is not put back the way it was found: it is marked
+/// settled, which is what stops it counting again.
+struct Settle {
+    /// The site's own instruction, marked settled.
+    general: Instr,
+    /// What the site becomes when its operands stay numbers.
+    specialized: Instr,
+}
+
+/// One pass of adaptive warmup for the site at `at`, and the whole of what makes a site
+/// specialize.
+///
+/// `comparison` restricts which operators settle as numeric to the six a branch has a form
+/// for. `forms` carries the site's two settled instructions. `op` is used to decide whether
+/// the site has anything to learn at all.
+///
+/// A site that has already settled returns immediately, and the counter is read first: what
+/// its operands are is only worth asking while the site is known to still be deciding, which
+/// in a long loop is ten passes out of many.
+#[inline]
+fn warm_site(chunk: &Chunk, at: usize, op: Op, left: &Value, right: &Value, comparison: bool, forms: Settle) {
+    let hits = chunk.warmup(at);
+    if hits >= SPECIALIZE_AFTER {
+        return;
+    }
+    let narrow = narrowable(op) && matches!((left, right), (Value::Number(_), Value::Number(_))) && (!comparison || compares(op));
+    if !narrow {
+        // Not the shape this site hoped for: settle it and stop counting. The write is for
+        // the next pass, so this one still runs the general path it committed to.
+        chunk.specialize(at, forms.general);
+        return;
+    }
+    let hits = hits + 1;
+    if hits >= SPECIALIZE_AFTER {
+        chunk.specialize(at, forms.specialized);
+    }
+    chunk.set_warmup(at, hits);
 }
 
 impl Evaluator {
@@ -429,7 +523,7 @@ impl Evaluator {
                     return Err(crate::fatal(&chunk.base(pc), "execution step limit exceeded".to_string()));
                 }
             }
-            let instr = chunk.code[pc];
+            let instr = chunk.at(pc);
             #[cfg(feature = "profile")]
             crate::profile::record(instr);
             pc += 1;
@@ -612,10 +706,23 @@ impl Evaluator {
                     stack.push(value);
                 }
                 // Inline the numeric operators the compiler tagged, so an addition
-                // or comparison does not call out to the interpreter.
-                Instr::Binary { op, name } => {
+                // or comparison does not call out to the interpreter. A site that runs
+                // long enough with two numbers is asked once and then remembers; see
+                // `warm_site`.
+                Instr::Binary { op, name, settled } => {
                     let right = stack.pop().expect("stack");
                     let left = stack.pop().expect("stack");
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &left,
+                            &right,
+                            false,
+                            Settle { general: Instr::Binary { op, name, settled: true }, specialized: Instr::BinaryNumber { op, name } },
+                        );
+                    }
                     let value = match fast_binary(op, &left, &right) {
                         Some(Ok(value)) => value,
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
@@ -623,11 +730,58 @@ impl Evaluator {
                     };
                     stack.push(value);
                 }
+                // A numeric site the engine has settled. This is the whole of what an
+                // adaptive site buys: the operand types are not asked again. Everything the
+                // general form can do is still here, because a site that turns out not to be
+                // monomorphic puts its general instruction back and reruns this pass on
+                // that — and the general instruction keeps its operator, so the numeric fast
+                // path and the string accumulator both survive the deoptimization.
+                Instr::BinaryNumber { op, name } => {
+                    let right = stack.pop().expect("stack");
+                    let left = stack.pop().expect("stack");
+                    let (first, second) = match (&left, &right) {
+                        (Value::Number(first), Value::Number(second)) => (*first, *second),
+                        _ => {
+                            // Put back what was popped, in the order the general instruction
+                            // pops it, and let that instruction run this pass.
+                            chunk.specialize(pc - 1, Instr::Binary { op, name, settled: true });
+                            pc -= 1;
+                            stack.push(left);
+                            stack.push(right);
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, first, second) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        // Both operands are numbers, so this is a divisor of zero or an
+                        // operator with no numeric meaning: the interpreter answers it, with
+                        // its own diagnostic, which is what the general path would do.
+                        None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
+                    };
+                    stack.push(value);
+                }
                 // The three fused forms below replace a pair of loads or a constant
-                // and an operator. Each steps over the instructions it replaced.
-                Instr::FlatBinaryFlat { a, b, op, name } => {
+                // and an operator. Each steps over the instructions it replaced, and each
+                // settles itself as numeric once it has seen enough passes with two
+                // numbers.
+                Instr::FlatBinaryFlat { a, b, op, name, settled } => {
                     let left = &locals[a as usize];
                     let right = &locals[b as usize];
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            left,
+                            right,
+                            false,
+                            Settle {
+                                general: Instr::FlatBinaryFlat { a, b, op, name, settled: true },
+                                specialized: Instr::FlatBinaryFlatNumber { a, b, op, name },
+                            },
+                        );
+                    }
                     let value = match fast_binary(op, left, right) {
                         Some(Ok(value)) => value,
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
@@ -639,9 +793,45 @@ impl Evaluator {
                     stack.push(value);
                     pc += 2;
                 }
-                Instr::FlatBinaryConstant { a, b, op, name } => {
+                Instr::FlatBinaryFlatNumber { a, b, op, name } => {
+                    let (left, right) = match (&locals[a as usize], &locals[b as usize]) {
+                        (Value::Number(left), Value::Number(right)) => (*left, *right),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::FlatBinaryFlat { a, b, op, name, settled: true });
+                            pc -= 1;
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, left, right) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => self.binary(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            &chunk.names[name as usize],
+                            Value::Number(left),
+                            Value::Number(right),
+                        )?,
+                    };
+                    stack.push(value);
+                    pc += 2;
+                }
+                Instr::FlatBinaryConstant { a, b, op, name, settled } => {
                     let left = &locals[a as usize];
                     let right = &chunk.constants[b as usize];
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            left,
+                            right,
+                            false,
+                            Settle {
+                                general: Instr::FlatBinaryConstant { a, b, op, name, settled: true },
+                                specialized: Instr::FlatBinaryConstantNumber { a, b, op, name },
+                            },
+                        );
+                    }
                     let value = match fast_binary(op, left, right) {
                         Some(Ok(value)) => value,
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
@@ -649,6 +839,28 @@ impl Evaluator {
                             let (left, right) = (left.clone(), right.clone());
                             self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?
                         }
+                    };
+                    stack.push(value);
+                    pc += 2;
+                }
+                Instr::FlatBinaryConstantNumber { a, b, op, name } => {
+                    let (left, right) = match (&locals[a as usize], &chunk.constants[b as usize]) {
+                        (Value::Number(left), Value::Number(right)) => (*left, *right),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::FlatBinaryConstant { a, b, op, name, settled: true });
+                            pc -= 1;
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, left, right) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => self.binary(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            &chunk.names[name as usize],
+                            Value::Number(left),
+                            Value::Number(right),
+                        )?,
                     };
                     stack.push(value);
                     pc += 2;
@@ -685,15 +897,51 @@ impl Evaluator {
                     };
                     stack.push(value);
                 }
-                Instr::BinaryConstant { b, op, name } => {
+                Instr::BinaryConstant { b, op, name, settled } => {
                     let left = stack.pop().expect("stack");
                     let right = &chunk.constants[b as usize];
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &left,
+                            right,
+                            false,
+                            Settle {
+                                general: Instr::BinaryConstant { b, op, name, settled: true },
+                                specialized: Instr::BinaryConstantNumber { b, op, name },
+                            },
+                        );
+                    }
                     let value = match fast_binary(op, &left, right) {
                         Some(Ok(value)) => value,
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
                         None => {
                             let right = right.clone();
                             self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?
+                        }
+                    };
+                    stack.push(value);
+                    pc += 1;
+                }
+                Instr::BinaryConstantNumber { b, op, name } => {
+                    let left = stack.pop().expect("stack");
+                    let right = &chunk.constants[b as usize];
+                    let (first, second) = match (&left, right) {
+                        (Value::Number(first), Value::Number(second)) => (*first, *second),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::BinaryConstant { b, op, name, settled: true });
+                            pc -= 1;
+                            stack.push(left);
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, first, second) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => {
+                            self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, Value::Number(second))?
                         }
                     };
                     stack.push(value);
@@ -723,7 +971,21 @@ impl Evaluator {
                         pc = target as usize;
                     }
                 }
-                Instr::FlatJumpUnlessFlat { a, b, op, name, target } => {
+                Instr::FlatJumpUnlessFlat { a, b, op, name, target, settled } => {
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &locals[a as usize],
+                            &locals[b as usize],
+                            true,
+                            Settle {
+                                general: Instr::FlatJumpUnlessFlat { a, b, op, name, target, settled: true },
+                                specialized: Instr::FlatJumpUnlessFlatNumber { a, b, op, name, target },
+                            },
+                        );
+                    }
                     let holds = self.test(
                         &chunk.base_at(chunk.position(pc - 1)),
                         op,
@@ -736,7 +998,38 @@ impl Evaluator {
                         pc = target as usize;
                     }
                 }
-                Instr::FlatJumpUnlessConstant { a, b, op, name, target } => {
+                // A loop condition the engine has settled on two numbers: `i < n` decided
+                // and branched with no `bool` built and no operator name of its own.
+                Instr::FlatJumpUnlessFlatNumber { a, b, op, name, target } => {
+                    let (left, right) = match (&locals[a as usize], &locals[b as usize]) {
+                        (Value::Number(left), Value::Number(right)) => (*left, *right),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::FlatJumpUnlessFlat { a, b, op, name, target, settled: true });
+                            pc -= 1;
+                            continue;
+                        }
+                    };
+                    let holds = number_test(op, left, right);
+                    pc += 3;
+                    if !holds {
+                        pc = target as usize;
+                    }
+                }
+                Instr::FlatJumpUnlessConstant { a, b, op, name, target, settled } => {
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &locals[a as usize],
+                            &chunk.constants[b as usize],
+                            true,
+                            Settle {
+                                general: Instr::FlatJumpUnlessConstant { a, b, op, name, target, settled: true },
+                                specialized: Instr::FlatJumpUnlessConstantNumber { a, b, op, name, target },
+                            },
+                        );
+                    }
                     let holds = self.test(
                         &chunk.base_at(chunk.position(pc - 1)),
                         op,
@@ -744,6 +1037,21 @@ impl Evaluator {
                         &locals[a as usize],
                         &chunk.constants[b as usize],
                     )?;
+                    pc += 3;
+                    if !holds {
+                        pc = target as usize;
+                    }
+                }
+                Instr::FlatJumpUnlessConstantNumber { a, b, op, name, target } => {
+                    let (left, right) = match (&locals[a as usize], &chunk.constants[b as usize]) {
+                        (Value::Number(left), Value::Number(right)) => (*left, *right),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::FlatJumpUnlessConstant { a, b, op, name, target, settled: true });
+                            pc -= 1;
+                            continue;
+                        }
+                    };
+                    let holds = number_test(op, left, right);
                     pc += 3;
                     if !holds {
                         pc = target as usize;
@@ -1054,7 +1362,21 @@ impl Evaluator {
                 // An assignment whose value is a computation over flat locals: the
                 // operator and the store in one dispatch, with the result going
                 // straight into its slot instead of through the operand stack.
-                Instr::FlatBinaryFlatStore { a, b, op, name, out } => {
+                Instr::FlatBinaryFlatStore { a, b, op, name, out, settled } => {
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &locals[a as usize],
+                            &locals[b as usize],
+                            false,
+                            Settle {
+                                general: Instr::FlatBinaryFlatStore { a, b, op, name, out, settled: true },
+                                specialized: Instr::FlatBinaryFlatStoreNumber { a, b, op, name, out },
+                            },
+                        );
+                    }
                     // `s += more` with both sides in the frame's own locals, where the
                     // accumulator is its own target: grow the string instead of copying
                     // it whole. `b != out` keeps the two borrows disjoint.
@@ -1078,7 +1400,46 @@ impl Evaluator {
                     locals[out as usize] = value;
                     pc += 3;
                 }
-                Instr::FlatBinaryConstantStore { a, b, op, name, out } => {
+                // A numeric accumulator the engine has settled: `total += step` with both
+                // sides in the frame's own locals, and neither the string case above nor an
+                // operand type left to test.
+                Instr::FlatBinaryFlatStoreNumber { a, b, op, name, out } => {
+                    let (left, right) = match (&locals[a as usize], &locals[b as usize]) {
+                        (Value::Number(left), Value::Number(right)) => (*left, *right),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::FlatBinaryFlatStore { a, b, op, name, out, settled: true });
+                            pc -= 1;
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, left, right) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => self.binary(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            &chunk.names[name as usize],
+                            Value::Number(left),
+                            Value::Number(right),
+                        )?,
+                    };
+                    locals[out as usize] = value;
+                    pc += 3;
+                }
+                Instr::FlatBinaryConstantStore { a, b, op, name, out, settled } => {
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &locals[a as usize],
+                            &chunk.constants[b as usize],
+                            false,
+                            Settle {
+                                general: Instr::FlatBinaryConstantStore { a, b, op, name, out, settled: true },
+                                specialized: Instr::FlatBinaryConstantStoreNumber { a, b, op, name, out },
+                            },
+                        );
+                    }
                     // The same, with the right operand a constant: `s += "ab"` in a loop.
                     if a == out && append_in_place(op, true, &mut locals[out as usize], &chunk.constants[b as usize]) {
                         pc += 3;
@@ -1097,12 +1458,48 @@ impl Evaluator {
                     locals[out as usize] = value;
                     pc += 3;
                 }
+                Instr::FlatBinaryConstantStoreNumber { a, b, op, name, out } => {
+                    let (left, right) = match (&locals[a as usize], &chunk.constants[b as usize]) {
+                        (Value::Number(left), Value::Number(right)) => (*left, *right),
+                        _ => {
+                            chunk.specialize(pc - 1, Instr::FlatBinaryConstantStore { a, b, op, name, out, settled: true });
+                            pc -= 1;
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, left, right) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => self.binary(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            &chunk.names[name as usize],
+                            Value::Number(left),
+                            Value::Number(right),
+                        )?,
+                    };
+                    locals[out as usize] = value;
+                    pc += 3;
+                }
                 // The tail of an assignment whose value comes off the operand stack:
                 // the operator and the store in one dispatch, so `total += items[i]`
                 // and `total += f(x)` write their result straight into its slot.
-                Instr::BinaryStore { op, name, out, reuse } => {
+                Instr::BinaryStore { op, name, out, reuse, settled } => {
                     let right = stack.pop().expect("stack");
                     let left = stack.pop().expect("stack");
+                    if !settled {
+                        warm_site(
+                            &chunk,
+                            pc - 1,
+                            op,
+                            &left,
+                            &right,
+                            false,
+                            Settle {
+                                general: Instr::BinaryStore { op, name, out, reuse, settled: true },
+                                specialized: Instr::BinaryStoreNumber { op, name, out, reuse },
+                            },
+                        );
+                    }
                     let value = match (left, right, reuse) {
                         // `x += items[i]`: the compiler proved the operand wrote none
                         // of the frame's own slots, so what is on the stack is still the
@@ -1119,6 +1516,31 @@ impl Evaluator {
                             Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
                             None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
                         },
+                    };
+                    locals[out as usize] = value;
+                    pc += 1;
+                }
+                // A numeric accumulator whose value comes off the operand stack — the
+                // settled form of `total += items[index]` and `total += f(x)`.
+                Instr::BinaryStoreNumber { op, name, out, reuse } => {
+                    let right = stack.pop().expect("stack");
+                    let left = stack.pop().expect("stack");
+                    let (first, second) = match (&left, &right) {
+                        (Value::Number(first), Value::Number(second)) => (*first, *second),
+                        _ => {
+                            // Put back what was popped, in the order the general instruction
+                            // pops it, and let that instruction run this pass.
+                            chunk.specialize(pc - 1, Instr::BinaryStore { op, name, out, reuse, settled: true });
+                            pc -= 1;
+                            stack.push(left);
+                            stack.push(right);
+                            continue;
+                        }
+                    };
+                    let value = match number_binary(op, first, second) {
+                        Some(Ok(value)) => value,
+                        Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                        None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
                     };
                     locals[out as usize] = value;
                     pc += 1;

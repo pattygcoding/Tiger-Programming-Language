@@ -113,7 +113,7 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 950 KB, about 293 KB with gzip, and smaller still
+The stripped binary is about 960 KB, about 300 KB with gzip, and smaller still
 with Brotli. There is no size target to hold a change to: CI fails the build if the
 raw artifact passes 2.5 MB, which is a ceiling on a runaway rather than a budget.
 Most static hosts compress `.wasm` automatically; otherwise enable
@@ -234,7 +234,7 @@ See the [performance guide](performance.md) and
 
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty-four 100-200-line benchmark programs
-against fixed output files, the 176 documentation examples, every example and
+against fixed output files, the 188 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, the
 differential test that runs every one of those programs on both engines and
 checks that the results match, and the

@@ -12,3 +12,5 @@ prime: false true true false
 precedence: 14 20 4
 remainders: 3 -3 -2
 fractions: 3.5 3.75 102
+fold: 10 abc
+countdown: 0 3 18

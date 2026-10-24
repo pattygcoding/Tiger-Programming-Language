@@ -221,6 +221,96 @@ remembered as a position in the class's field layout rather than as a value,
 because a field is mutable state. A receiver whose members cannot be remembered
 cheaply, such as a string or a tuple, skips the cache entirely.
 
+## A site learns its operand types
+
+The compiled engine changes its own bytecode while it runs. A numeric site counts the passes
+whose two operands were both numbers, and once it has counted enough of them it replaces
+itself, in place, with an instruction that does not have to ask again. This is PEP 659's
+specializing adaptive interpreter, applied to the sites the compiler had already fused:
+
+- `Binary`, `BinaryConstant`, `FlatBinaryFlat`, `FlatBinaryConstant` — an operator on two
+  operands, which becomes its `Number` form and reaches the arithmetic directly.
+- `FlatJumpUnlessFlat` and `FlatJumpUnlessConstant` — a fused comparison and branch, which
+  is a loop's condition and the most-executed instruction in any loop.
+- `FlatBinaryFlatStore`, `FlatBinaryConstantStore`, `BinaryStore` — an accumulator, whose
+  `Number` form also steps over the string case's in-place append, which two numbers can
+  never take.
+
+The count is [`SPECIALIZE_AFTER`](../crates/tiger-object/src/bytecode.rs), ten passes. A
+site that sees anything else inside the count stops counting and settles as a general site —
+with its operator left exactly as the compiler wrote it, so the numeric fast path and the
+in-place string append both survive. Either way the site is left with an instruction the
+engine will not count again, which is why the machinery costs a long loop nothing: the state
+lives in the instruction, and reading it is a field of an instruction the dispatch had
+already copied.
+
+A site specializes, and a site can then be put back. Ten passes of numbers and then a string
+is exactly that, and the answer is the interpreter's either way:
+
+```tg
+function fold(values) {
+    var total = values[0];
+    for (var index = 1; index < len(values); ++index) {
+        total = total + values[index];
+    }
+    return total;
+}
+print(fold([1, 2, 3, 4]));
+print(fold(["a", "b", "c"]));
+```
+
+```text
+10
+abc
+```
+
+The second call runs the instruction sites the first call specialized, meets two values that
+are not numbers, and puts the general instruction back — settled, not removed. The
+comparison is a loop's own: a condition on two numbers is decided and branched without ever
+building the `bool` the unfused form would, and the branch is taken on the result.
+
+`benchmarks/01_arithmetic.tg` carries the same shape — a `fold` that is called with numbers
+and then with strings, and a `countdown` whose bound decides whether its sites see enough
+passes to settle at all — and the differential test runs it on both engines.
+
+### What specializing is worth
+
+A micro case at this scale moves more between two builds of the *same* source than this
+change is worth, so a before-and-after across builds cannot read it. Two measurements can.
+Each is one build against another that differs in one constant, which is the only way to know
+that what moved is the specialization:
+
+- With the count set out of reach — every instruction and guard present, nothing ever
+  specializing — the protocol's section times are the same as with the count at ten. That is
+  what says the section deltas a build-to-build comparison reports are layout rather than
+  work.
+- The micro cases then read as the count's own contribution. Best of 60, in release:
+
+| micro case | never settles | settles | what the site is |
+| --- | --- | --- | --- |
+| `loop/count` | 12.0 ns | **9.8 ns** | a loop's condition and its accumulator |
+| `list/write-collide` | 14.5 | **11.7** | a condition and an index store |
+| `list/write` | 14.3 | **11.7** | |
+| `string/concat` | 18.8 | **12.9** | the condition only; the accumulator settles general |
+| `operator/mod-small` | 21.8 | **20.0** | a condition, a product, and a remainder |
+| `list/read` | 28.5 | **25.1** | a condition and an index read |
+| `field/read` | 30.1 | **26.7** | |
+| `call/alias` | 38.8 | **35.3** | a condition, with a built-in call beside it |
+| `recursion/fib20` | 51.1 | **46.7** | two calls and an add per frame |
+| `dict/set` | 111.7 | **110.1** | a condition, which is a fraction of the work |
+| `dict/read-modify-write` | 239.6 | **238.3** | |
+
+Every case is faster and none is slower. What the count buys is the type question the general
+path asks on every pass: a fused comparison and branch replaces a call that built a `bool`
+only to test it, and an accumulator replaces the two tag tests and the `Option` its answer
+came wrapped in. What it does not buy is the operator, which the compiler had already
+resolved, or the `Value` moves, which are still 16 bytes each — and that is why the gain is
+5–30% of a site's cost rather than a step change in the engine. A number is already inline
+in the `Value` that carries it, so there is no pointer to chase and nothing for a packed
+representation to remove here; that is what the `disassembles` test reports `Value` at 16
+bytes for, and `Instr` at 20 — the same 20 the adaptive state fits inside, because every
+field it added landed in padding the instruction already had.
+
 ## Measuring
 
 Three harnesses report timings. The first two are diagnostics; the third is a
@@ -290,11 +380,11 @@ per-operation costs the micro harness reports are roughly:
 
 | Operation | Cost |
 | --- | --- |
-| A loop iteration, counting | ~13 ns |
-| A list read or write through a flat index | ~15–27 ns |
-| A field read or write | ~25–28 ns |
-| A built-in call | ~41 ns |
-| A function call | ~73 ns |
+| A loop iteration, counting | ~10 ns |
+| A list read or write through a flat index | ~12–25 ns |
+| A field read or write | ~22–27 ns |
+| A built-in call | ~40 ns |
+| A function call | ~56 ns |
 | A string method call (`len(w.upper())` over the call it sits on) | ~39 ns |
 | A small integer through `str()` | ~71 ns |
 | A comprehension element over a range | ~51 ns |
@@ -308,6 +398,9 @@ and the two hundred and fifty nanoseconds above it are the shape `counts[key] +=
 building, a membership check, a read and a store. The string-method, `str` and dictionary rows were
 re-measured, best of 15, after the two changes recorded under "A method call builds no callable" and
 "A small integer becomes a string without a buffer"; the other rows are as the earlier pass left them.
+The loop-iteration, index, field, call, and modulo rows were then re-measured, best of 60, with the
+builds described under [a site learns its operand types](#a-site-learns-its-operand-types); the loop
+row is the one that change moved, and the rest are this machine's reading of the same cases.
 
 The per-run floor is 4 µs, and two measurements say what it is **not**. Removing a run's copy of the
 process environment takes it to 3 µs; stubbing the `random` and `secrets` module objects leaves it at
@@ -1020,8 +1113,8 @@ instruction list a program compiles to, which is the measurement that matters he
 A counting loop runs three instructions per iteration and takes ~13 ns, which reads
 like 4.5 ns of dispatch each — but fusing one instruction out of a six-instruction
 list read moved it by only 0.9 ns. Dispatch is about a nanosecond; **the work in the
-handler is the other three or four.** A `Value` is 24 bytes, so every read and write
-of a local or a stack slot moves 24 bytes and re-tests its tag, and an index read
+handler is the other three or four.** A `Value` is 16 bytes, so every read and write
+of a local or a stack slot moves 16 bytes and re-tests its tag, and an index read
 borrows a `RefCell` twice. That is what the remaining time is, and it is why fusing
 instructions is close to exhausted as a strategy.
 

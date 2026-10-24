@@ -16,7 +16,7 @@ TIGER_BENCH_FILTER=08_graphs cargo test -p tiger-conformance --test benchmarks -
 
 | Program | Coverage |
 | --- | --- |
-| `01_arithmetic.tg` | Arithmetic, precedence, GCD, primes, numeric boundaries |
+| `01_arithmetic.tg` | Arithmetic, precedence, GCD, primes, numeric boundaries, and an accumulator whose sites are specialized onto numbers and then fall back when a later call gives them strings |
 | `02_recursion.tg` | Recursive sequences, combinatorics, trees, strings |
 | `03_sorting_search.tg` | Three sorting algorithms, binary search, duplicates |
 | `04_matrices.tg` | Nested indexing, multiplication, transposition, matrix identities |
