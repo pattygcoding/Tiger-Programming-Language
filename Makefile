@@ -31,7 +31,11 @@ compare:
 
 # Times the same paired workload in process on both sides and fails while any
 # section is slower than CPython with the program's own compile removed from both.
-# Nothing about process startup is in either number.
+# Nothing about process startup is in either number. The assertion is asked for rather
+# than assumed — the ratio is against whatever CPython the host has on `PATH` — so this
+# target is what sets the flag that makes it a gate, and a bare `cargo test`, in debug
+# or release, reports the table and passes.
+protocol: export TIGER_PROTOCOL_ASSERT = 1
 protocol:
 	$(CARGO) test -p tiger-conformance --test protocol --release -- --nocapture
 

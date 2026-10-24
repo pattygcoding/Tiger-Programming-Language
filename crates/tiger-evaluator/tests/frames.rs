@@ -56,6 +56,34 @@ fn a_result_lands_where_the_call_left_room_for_it() {
 }
 
 #[test]
+fn every_argument_lands_in_its_own_parameter() {
+    // A frame's first slots are its parameters, and a call now moves the arguments into
+    // them in one slice operation. What that rests on is the slots being `0..n`, so this
+    // pins the shapes around it: no parameters, one, several, and arguments that are
+    // themselves values the caller is still holding on the operand stack.
+    assert_eq!(
+        output(
+            "function mix(a, b) {\n    return str(a) + \"/\" + str(b);\n}\nfunction none() {\n    return 7;\n}\nvar held = mix(1, 2);\nprint(mix(1, 2));\nprint(mix(\"x\", 3.5));\nprint(mix(none(), mix(3, 4)));\nprint(mix(mix(1, 2), none()));\nprint(none(), none(), held);"
+        ),
+        "1/2\nx/3.5\n7/3/4\n1/2/7\n7 7 1/2\n"
+    );
+}
+
+#[test]
+fn a_return_out_of_a_body_that_opened_scopes_leaves_them_behind() {
+    // A body with a `for` in it pushes scopes and an iterator on the frame's own stacks,
+    // and a `return` from inside one leaves them standing. The frame that returns unwinds
+    // exactly what it pushed: the caller is holding a `for` of its own across the call,
+    // and it has to still be reading the right element afterwards.
+    assert_eq!(
+        output(
+            "function pick(value) {\n    for i in [1, 2, 3] {\n        var scaled = i * 10;\n        if i == value {\n            return scaled;\n        }\n    }\n    return -1;\n}\nvar seen = \"\";\nfor outer in [1, 2, 4] {\n    seen = seen + str(pick(outer)) + \",\";\n}\nprint(seen);"
+        ),
+        "10,20,-1,\n"
+    );
+}
+
+#[test]
 fn a_return_inside_a_try_leaves_the_frame_a_call_entered() {
     // A `return` in a try body is compiled into a separate chunk and reaches the
     // enclosing function as a signal, so it arrives at the call's frame rather than at

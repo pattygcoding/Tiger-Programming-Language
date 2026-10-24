@@ -241,9 +241,12 @@ checks that the results match, and the
 browser runtime under Node. The documentation suite checks Tiger examples against
 the output shown in Markdown, and the benchmark suite checks the programs against
 their `.txt` files; neither is a performance threshold test. The protocol test is
-the one performance threshold: it is measured in release builds only, so
-`cargo test` reports its table and asserts nothing, and `make protocol` is what
-fails. The standalone integration tests build and execute real executables.
+the one performance threshold: it is measured in release builds only, and it asserts
+only when it is asked for — the ratio it reports is against whatever CPython the host
+has on `PATH`, which is not a property of this repository — so `cargo test` reports
+its table and asserts nothing, and `make protocol`, which sets
+`TIGER_PROTOCOL_ASSERT`, is what fails. The standalone integration tests build and
+execute real executables.
 
 `make build`, `make run`, `make test`, `make benchmarks`, `make timing`,
 `make compare`, `make protocol`, `make wasm`, `make wasm-check`, `make startup`,

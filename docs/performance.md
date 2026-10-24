@@ -233,8 +233,10 @@ cargo test -p tiger-evaluator --test micro --release -- --ignored --nocapture
 # Every benchmark program, in process, with no process startup in the numbers.
 cargo test -p tiger-conformance --test timing --release -- --ignored --nocapture
 
-# The paired Tiger/Python workload, in process on both sides, asserted.
-cargo test -p tiger-conformance --test protocol --release -- --nocapture
+# The paired Tiger/Python workload, in process on both sides, asserted. The assertion
+# is asked for, because the ratio is against whatever CPython the host has on `PATH`:
+# without the flag the same run reports its table and passes.
+TIGER_PROTOCOL_ASSERT=1 cargo test -p tiger-conformance --test protocol --release -- --nocapture
 
 # One program, on either engine.
 TIGER_BENCH_FILE=benchmarks/24_algo.tg TIGER_BENCH_ITERATIONS=200 \
@@ -1368,6 +1370,45 @@ function the tree-walker runs — move no section at all.
 What is left of the locals indirection is the `Vec` the loop indexes rather than a slice
 it keeps in two registers, which is what the next change — a frame whose locals come from
 the same shared stack as its operands — is for.
+
+### Binding an argument is one slice operation
+
+A parked call binds its arguments slot by slot, and those slots are exactly `0..n`: a
+flat callable's frame is seeded with its parameters first, so nothing can take a slot
+below them. The loop that did it read an `Option` out of the layout, checked it, and
+indexed two vectors per argument. It is now one `swap_with_slice`, which moves the
+arguments into the frame and leaves `Null` where the truncate that follows discards
+them anyway. The invariant it rests on is a `debug_assert`, and the language suites and
+the whole corpus run with debug assertions on, so a call shape that broke it would fail
+there rather than quietly bind the wrong slot.
+
+A frame's return took the same treatment. `release_scopes_to` and `iters.truncate` now
+sit behind length tests, because a body with no block and no `for` pushed nothing for
+them to unwind, and both calls were two loads and a loop guard to discover that.
+
+| micro case | before | after |
+| --- | --- | --- |
+| `call/two-args` − `call/empty`: the marginal argument | 9.3, 9.3, 8.3 ns | **6.2, 6.8, 6.6 ns** |
+| `call/discard` | 46.6 | **44.8** |
+| `call/empty` | 58.1 | **57.3** |
+| `recursion/fib20` | 49.5 | **48.3** |
+| controls: `call/builtin`, `call/alias`, `loop/count` | 44.0, 42.7, 14.7 | 41.4, 41.3, 13.9 |
+
+Two binaries, one from each revision, run alternately, best of 25, three rounds, each
+round's three measurements shown in order. The controls are the check that matters, and
+here they moved by 2-6%: the whole-call rows are therefore not separable from this
+machine's build-to-build noise. What the change is worth is the difference between two
+cases *in the same binary* — the marginal argument — and that is 9 ns down to 6.5, and
+it held in every round of both shapes.
+
+The protocol's sections are where a call-dominated program is measured. One binary per
+revision, alternating, 200 iterations, best of three: `calls` 2.853 → 2.777 ms,
+`recursion` 1.088 → 1.053, `all` 1.415 → 1.372 — about 3% — while every section the
+change does not touch (`loop`, `lists`, `dicts`, `methods`, `strings`) holds to the
+digit. Against CPython that is 1.22x → 1.19x on `calls` and 2.02x → 1.98x on
+`recursion` — the ratio those same two rounds reported. The deficit these sections
+carry is not in the binding: it is the frame, the dispatch, and the call protocol,
+which is what the sections above left.
 
 ## The biggest program was not the interpreter
 

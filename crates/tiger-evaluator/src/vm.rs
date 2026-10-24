@@ -368,11 +368,16 @@ impl Evaluator {
         // A frame whose flat locals fit a small fixed array keeps them on this activation's own
         // stack, as `run_compiled` does it, so a call allocates nothing.
         let mut locals = self.take_locals(code.flat_count);
-        for (index, slot) in layout.parameters.iter().enumerate() {
-            // The argument moves into the frame: the caller's copy on the operand stack is
-            // dropped when the call returns, so cloning it would be a copy thrown away.
-            locals[slot.expect("a flat parameter has a slot") as usize] = std::mem::replace(&mut arguments[index], Value::Null);
-        }
+        // The argument moves into the frame: the caller's copy is dropped when the call
+        // returns, so cloning it would be a copy thrown away. A flat callable's parameters
+        // own the frame's first slots, so one slice operation moves them all, and what is
+        // left behind in the caller's slice is `Null` for it to drop.
+        let fixed = layout.parameters.len();
+        debug_assert!(
+            layout.parameters.iter().enumerate().all(|(index, slot)| *slot == Some(index as u32)),
+            "a flat call's parameters own the frame's first slots"
+        );
+        locals[..fixed].swap_with_slice(&mut arguments[..fixed]);
         let result = self.run_frame(code, &function.env, locals);
         self.depth -= 1;
         // A `return` inside the body leaves its chunk as a signal, and the function boundary is
@@ -850,14 +855,17 @@ impl Evaluator {
                                     return Err(crate::fatal(&base, "maximum evaluation depth exceeded".to_string()));
                                 }
                                 let mut bound = self.take_locals(code.flat_count);
-                                for (index, slot) in code.call_layout.parameters.iter().enumerate() {
-                                    // The argument moves into the frame, exactly as it
-                                    // does below: the caller's copy is dropped by the
-                                    // truncate that follows, so cloning it would be a
-                                    // copy thrown away.
-                                    bound[slot.expect("a flat parameter has a slot") as usize] =
-                                        std::mem::replace(&mut stack[at + index], Value::Null);
-                                }
+                                // The compiler seeds a flat callable's frame with its parameters
+                                // first, so their slots are exactly `0..n`: one slice operation
+                                // moves the arguments in and leaves `Null` where the truncate
+                                // below discards them anyway, rather than a loop that reads an
+                                // `Option`, checks it, and indexes twice per argument.
+                                let fixed = code.call_layout.parameters.len();
+                                debug_assert!(
+                                    code.call_layout.parameters.iter().enumerate().all(|(index, slot)| *slot == Some(index as u32)),
+                                    "a flat call's parameters own the frame's first slots"
+                                );
+                                bound[..fixed].swap_with_slice(&mut stack[at..at + fixed]);
                                 // The callee's operands take the stack over from here,
                                 // so the caller's arguments go; the frame's own base is
                                 // where they were, and the result lands one slot below
@@ -1368,8 +1376,16 @@ impl Evaluator {
                     // state is loaded back. The result takes the place the call left for
                     // it, which is one slot below this frame's operand base — where the
                     // callee itself was on the caller's stack.
-                    self.release_scopes_to(&mut env, &mut scopes, scope_mark);
-                    iters.truncate(iter_mark);
+                    //
+                    // A frame that pushed no scope and opened no iterator — every call
+                    // whose body has no block and no `for` — has nothing to unwind, and the
+                    // two tests are the loads those calls would make.
+                    if scopes.len() != scope_mark {
+                        self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                    }
+                    if iters.len() != iter_mark {
+                        iters.truncate(iter_mark);
+                    }
                     let mine = std::mem::replace(&mut locals, frame.locals);
                     self.release_locals(mine);
                     self.depth -= 1;
@@ -1421,8 +1437,13 @@ impl Evaluator {
                         // function boundary above this chunk, as it always did.
                         return Err(Signal::Return(value));
                     };
-                    self.release_scopes_to(&mut env, &mut scopes, scope_mark);
-                    iters.truncate(iter_mark);
+                    // The same two guards a plain return uses, for the same reason.
+                    if scopes.len() != scope_mark {
+                        self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                    }
+                    if iters.len() != iter_mark {
+                        iters.truncate(iter_mark);
+                    }
                     let mine = std::mem::replace(&mut locals, frame.locals);
                     self.release_locals(mine);
                     self.depth -= 1;

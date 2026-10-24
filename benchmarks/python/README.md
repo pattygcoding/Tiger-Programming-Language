@@ -7,8 +7,11 @@ formatting. Both runners refuse to report a time unless the checksums match.
 ```sh
 # The measurement: both interpreters in process, no process startup in either
 # number, one pinned section at a time, 300 iterations, the minimum reported.
-# Fails while any section is slower than CPython.
-cargo test -p tiger-conformance --test protocol --release -- --nocapture
+# `TIGER_PROTOCOL_ASSERT` is what makes it the threshold and fails while any section
+# is slower than CPython; without it the same run reports its table and passes, so a
+# bare `cargo test` never fails on a host whose CPython is faster than the one the
+# ratio was read on.
+TIGER_PROTOCOL_ASSERT=1 cargo test -p tiger-conformance --test protocol --release -- --nocapture
 
 # The end-to-end check: one process per run, with each language's startup floor
 # subtracted. Its numbers carry the launcher; see "Reading the result".
@@ -19,8 +22,10 @@ python benchmarks/python/compare.py
 `make protocol` and `make compare` do those two. `TIGER_PROTOCOL_ITERATIONS` sets
 how many times each section runs in the protocol (default 300; 5 in a debug
 build), `TIGER_PROTOCOL_RATIO` sets the ratio the protocol requires (default
-1.00, read as `tiger / cpython`), and `TIGER_PYTHON` names the interpreter to run
-the Python half with. `COMPARE_RUNS` does the same job for `compare.py`.
+1.00, read as `tiger / cpython` — raising it makes the threshold pass without
+anything getting faster, so read it as the bar and not as a knob), and
+`TIGER_PYTHON` names the interpreter to run the Python half with. `COMPARE_RUNS`
+does the same job for `compare.py`.
 
 ## What it measures
 
@@ -53,33 +58,37 @@ same for Tiger through `Evaluator::compile` and `Evaluator::execute_compiled`.
 Both sides report the minimum, and both have the program's own compile removed,
 which is what makes the comparison one between interpreters.
 
-A representative run, with the compile removed from both sides:
+A representative run, with the compile removed from both sides. The ratios are
+against the host's CPython, so this one was taken with 3.14 on `PATH`: the same
+revision reads differently against another release, which is why the assertion is
+asked for rather than assumed.
 
 | Section | Tiger | CPython | Ratio |
 | --- | --- | --- | --- |
-| `all` | 1.97 ms | 0.79 ms | 2.50x |
-| `loop` | 0.047 | 0.029 | 1.60 |
-| `lists` | 0.151 | 0.068 | 2.22 |
-| `dicts` | 0.218 | 0.121 | 1.81 |
-| `strings` | 0.016 | 0.010 | 1.56 |
-| `methods` | 0.054 | 0.020 | 2.75 |
-| `recursion` | 1.537 | 0.534 | 2.87 |
-| `calls` | 3.544 | 2.395 | 1.48 |
+| `all` | 1.37 ms | 0.80 ms | 1.72x |
+| `loop` | 0.039 | 0.033 | 1.20 |
+| `lists` | 0.097 | 0.068 | 1.42 |
+| `dicts` | 0.163 | 0.130 | 1.26 |
+| `strings` | 0.008 | 0.010 | 0.75 |
+| `methods` | 0.029 | 0.020 | 1.44 |
+| `recursion` | 1.054 | 0.535 | 1.97 |
+| `calls` | 2.781 | 2.521 | 1.10 |
 
-The `overhead` probe is on the same two sides: 0.013 ms of a Tiger run, 0.001 ms
+The `overhead` probe is on the same two sides: 0.005 ms of a Tiger run, 0.001 ms
 of a CPython `exec`. A ratio moves by up to a fifth between runs on a machine that
 is doing anything else, so read the column as a magnitude rather than a
 hundredth.
 
-So Tiger is still slower than CPython on every section, which is what the test
-reports until it is not. The probe says where the light sections stand: `strings`
-is 3 µs of work against CPython's 9 — Tiger is *faster* there — and most of its
-1.56 is that 13 µs floor. The heavy sections are the interpreter itself: one pass
-of `calls` — a call, the add it feeds, and the loop around them — is 71 ns against
-CPython's 48, and that is what `recursion` and `methods` are made of. The docs'
-per-operation costs in
+So Tiger is slower than CPython on six of the eight asserted sections.
+`strings` is the one it passes, and the probe says why: 3 µs of work against
+CPython's 9 — Tiger is *faster* there — and most of the 0.75 it reports is the 5 µs
+floor a run costs before it does anything. The heavy sections are the interpreter
+itself: one pass of `calls` — a call, the add it feeds, and the loop around them —
+is 56 ns against CPython's 50, and that is most of what `recursion` and `methods`
+are made of. The docs' per-operation costs in
 [performance.md](../../docs/performance.md#where-the-time-goes) are the place to
-read those from.
+read those from, and the `recursion` ratio is the widest of them: a recursive
+call is where a tree of small frames costs the most against a register machine.
 
 ## Extending it
 

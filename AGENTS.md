@@ -37,6 +37,12 @@ browser runtime under Node. The browser tests skip with a message until `cargo
 build -p tiger-wasm
 --release --target wasm32-unknown-unknown` has run.
 
+The one performance threshold is the paired Tiger/CPython protocol,
+`crates/tiger-conformance/tests/protocol.rs`. It reports its table on every run and
+asserts only when `TIGER_PROTOCOL_ASSERT=1` asks for it, which is what `make protocol`
+sets: the ratio it asserts is against whatever CPython the host has on `PATH`, so a
+bare `cargo test`, in debug or release, reports the table and passes.
+
 When touching runtime or evaluator code, also verify:
 
 ```sh

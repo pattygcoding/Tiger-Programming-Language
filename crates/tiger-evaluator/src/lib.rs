@@ -3135,6 +3135,9 @@ mod tests {
             ("list/append", "const d = {\"a\": 1};\nvar ks = d.keys();\nks += [\"b\"];\nprint(d.keys(), ks);"),
             ("index/accumulate", "const d = {\"x\": 1, \"y\": 2};\nvar sum = 0;\nfor k in d.keys() { sum += d[k]; }\nprint(sum);"),
             ("call", "function f(v) { return v; }\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += f(1); }\nprint(s);"),
+            // The body the paired protocol's `recursion` section runs, where the ratio
+            // against CPython is the widest: two calls and an add per frame.
+            ("recursion", "function fib(n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }\nprint(fib(3));"),
             ("method/call", "class Box { var v = 1; Box() {} function get() { return this.v; } }\nconst b = Box();\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += b.get(); }\nprint(s);"),
             ("method/string", "const w = \"abc\";\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += len(w.upper()); }\nprint(s);"),
             ("field", "class B { var v = 1; B() {} }\nconst b = B();\nvar s = 0;\nfor (var i = 0; i < 3; ++i) { s += b.v; }\nprint(s);"),
