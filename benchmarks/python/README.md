@@ -58,43 +58,45 @@ same for Tiger through `Evaluator::compile` and `Evaluator::execute_compiled`.
 Both sides report the minimum, and both have the program's own compile removed,
 which is what makes the comparison one between interpreters.
 
-A representative run, with the compile removed from both sides. The ratios are
-against the host's CPython, so this one was taken with 3.14 on `PATH`: the same
-revision reads differently against another release, which is why the assertion is
-asked for rather than assumed.
+A representative reading: the best of twelve runs of each side, which is the method
+the [performance guide](../../docs/performance.md#getting-every-protocol-section-under-cpython)
+states its own paired table with, because one run's minimum moves with whatever else
+the host is doing. The ratios are against the host's CPython, so this one was taken
+with 3.14 on `PATH`: the same revision reads differently against another release,
+which is why the assertion is asked for rather than assumed.
 
-| Section | Tiger | CPython | Ratio |
+| Section | Tiger work | CPython `p.exec` | Ratio |
 | --- | --- | --- | --- |
-| `all` | 1.22 ms | 0.80 ms | 1.52x |
-| `loop` | 0.041 | 0.032 | 1.27 |
-| `lists` | 0.102 | 0.075 | 1.37 |
-| `dicts` | 0.165 | 0.124 | 1.33 |
-| `strings` | 0.007 | 0.010 | 0.67 |
-| `methods` | 0.030 | 0.020 | 1.53 |
-| `recursion` | 0.888 | 0.534 | 1.66 |
-| `calls` | 2.425 | 2.464 | 0.98 |
+| `all` | 0.748 ms | 0.808 ms | 0.93x |
+| `loop` | 0.022 ms | 0.031 ms | 0.71 |
+| `lists` | 0.060 ms | 0.075 ms | 0.80 |
+| `dicts` | 0.110 ms | 0.124 ms | 0.89 |
+| `strings` | 0.005 ms | 0.013 ms | 0.38 |
+| `methods` | 0.018 ms | 0.021 ms | 0.86 |
+| `recursion` | 0.505 ms | 0.540 ms | 0.94 |
+| `calls` | 1.709 ms | 2.428 ms | 0.70 |
 
-The `overhead` probe is on the same two sides: 0.005 ms of a Tiger run, 0.001 ms
-of a CPython `exec`. A ratio moves by up to a fifth between runs on a machine that
-is doing anything else, so read the column as a magnitude rather than a
-hundredth.
+Tiger is at or ahead of CPython on all eight asserted sections. The four it wins by
+the widest margin are the ones whose work is large enough to read above the host's
+own jitter: `strings` at 0.38x, `calls` at 0.70, `loop` at 0.71 and `lists` at 0.80.
+`recursion` (0.94) and `dicts` (0.89) are under the line but nearer to it —
+`recursion` is `fib(20)`'s 21,891 calls, and what is left in it once the frame work
+is done is about seven dispatched instructions per invocation against CPython's own
+bytecode loop, which the performance guide measures under
+[a return is one dispatch too](../../docs/performance.md#a-return-is-one-dispatch-too)
+— and `methods` is the section with the least margin: 0.018 ms of Tiger work against
+0.021 ms of CPython's, with no dominant cost left in its profile to remove.
 
-So Tiger is slower than CPython on six of the eight asserted sections. `strings` is
-the one it wins — the probe says why: 3 µs of work against CPython's 9, and most of
-the 0.68 it reports is the 5 µs floor a run costs before it does anything — and
-`calls` is where it now sits at parity, at 1.01. The heavy sections are the
-interpreter itself: one pass of `calls` — a call, the add it feeds, and the loop
-around them — is 49 ns against CPython's 49, and that is most of what `methods` is
-made of. `recursion` is still the widest ratio, and what is left in it is the half
-of a call that is not the frame: a flat frame's slots are the bottom of its own
-region on the value stack, so a recursive call pays no vector, no fill, and no
-argument copy any more (see
-[performance.md](../../docs/performance.md#a-frames-slots-are-the-bottom-of-its-own-stack)).
-What that leaves is about seven dispatched instructions per invocation against
-CPython's own bytecode loop — a recursive call is where a tree of small frames
-meets a register machine. The docs' per-operation costs in
-[performance.md](../../docs/performance.md#where-the-time-goes) are the place to
-read those from.
+The `overhead` probe is on the same two sides: 0.002 ms of a Tiger run, 0.002 ms of
+a CPython `exec`. A ratio moves by up to a fifth between runs on a machine that is
+doing anything else, so read the column as a magnitude rather than a hundredth: the
+four rows with real margin are `strings`, `calls`, `loop` and `lists`, and the rest
+sit close enough to 1.00 that a change to them has to be confirmed over several runs
+before it counts. The light sections are the ones that jitter can carry over the
+line: read on a busy host, `make protocol` passes on most runs and not on every
+one. The reading above came from four passing runs out of twelve; the run that
+produced the performance guide's table passed in 11 of 14 asserted runs, and each of
+its three failures was a light section over the line on that one run.
 
 ## Extending it
 

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <title>Tiger vs CPython: how long the same work takes</title>
+  <style>
+    .n { fill: #e2e8f0; font-size: 28px; }
+    .p { fill: #04281c; font-size: 30px; font-weight: 700; text-anchor: end; }
+    .m { fill: #94a3b8; font-size: 22px; text-anchor: end; }
+    .t { fill: #1b2536; }
+    .a { fill: #64748b; font-size: 18px; text-anchor: middle; }
+  </style>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1f9b69"/>
+      <stop offset="1" stop-color="#4fdca3"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="1350" fill="#0b1120"/>
+
+  <!-- headline -->
+  <text x="64" y="112" font-size="58" font-weight="700" fill="#f8fafc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">Tiger vs CPython</text>
+  <text x="1016" y="104" font-size="62" font-weight="700" fill="#4fdca3" text-anchor="end">8 / 8</text>
+  <text x="1016" y="142" font-size="22" fill="#94a3b8" text-anchor="end">sections at or faster</text>
+  <text x="64" y="166" font-size="25" fill="#94a3b8">One fixed workload &#8212; a loop, lists, dicts, strings,</text>
+  <text x="64" y="200" font-size="25" fill="#94a3b8">methods, recursion and calls &#8212; run in process on</text>
+  <text x="64" y="234" font-size="25" fill="#94a3b8">both sides, each program's own compile removed.</text>
+
+  <!-- legend -->
+  <rect x="64" y="272" width="24" height="24" rx="6" fill="url(#g)"/>
+  <text x="100" y="291" font-size="21" fill="#e2e8f0">Tiger's work</text>
+  <rect x="290" y="272" width="24" height="24" rx="6" fill="#1b2536"/>
+  <text x="326" y="291" font-size="21" fill="#e2e8f0">CPython's work &#8212; the track runs to 100%</text>
+
+  <!-- column headers -->
+  <text x="64" y="372" font-size="17" fill="#64748b">SECTION</text>
+  <text x="230" y="372" font-size="20" fill="#94a3b8">How long the same work takes (CPython = 100%)</text>
+  <text x="1016" y="372" font-size="17" fill="#64748b" text-anchor="end">TIGER / CPYTHON, MS</text>
+
+  <!-- gridlines -->
+  <line x1="377.5" y1="395" x2="377.5" y2="1025" stroke="#1f2937"/>
+  <line x1="525" y1="395" x2="525" y2="1025" stroke="#1f2937"/>
+  <line x1="672.5" y1="395" x2="672.5" y2="1025" stroke="#1f2937"/>
+
+  <!-- strings 38% -->
+  <text class="n" x="64" y="434">strings</text>
+  <rect class="t" x="230" y="407" width="590" height="34" rx="8"/>
+  <rect x="230" y="407" width="224" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="436" y="435">38%</text>
+  <text class="m" x="1016" y="432">0.005 / 0.013</text>
+
+  <!-- calls 70% -->
+  <text class="n" x="64" y="515">calls</text>
+  <rect class="t" x="230" y="488" width="590" height="34" rx="8"/>
+  <rect x="230" y="488" width="413" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="625" y="516">70%</text>
+  <text class="m" x="1016" y="513">1.709 / 2.428</text>
+
+  <!-- loop 71% -->
+  <text class="n" x="64" y="596">loop</text>
+  <rect class="t" x="230" y="569" width="590" height="34" rx="8"/>
+  <rect x="230" y="569" width="419" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="631" y="597">71%</text>
+  <text class="m" x="1016" y="594">0.022 / 0.031</text>
+
+  <!-- lists 80% -->
+  <text class="n" x="64" y="677">lists</text>
+  <rect class="t" x="230" y="650" width="590" height="34" rx="8"/>
+  <rect x="230" y="650" width="472" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="684" y="678">80%</text>
+  <text class="m" x="1016" y="675">0.060 / 0.075</text>
+  <!-- methods 86% -->
+  <text class="n" x="64" y="758">methods</text>
+  <rect class="t" x="230" y="731" width="590" height="34" rx="8"/>
+  <rect x="230" y="731" width="507" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="719" y="759">86%</text>
+  <text class="m" x="1016" y="756">0.018 / 0.021</text>
+
+  <!-- dicts 89% -->
+  <text class="n" x="64" y="839">dicts</text>
+  <rect class="t" x="230" y="812" width="590" height="34" rx="8"/>
+  <rect x="230" y="812" width="525" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="737" y="840">89%</text>
+  <text class="m" x="1016" y="837">0.110 / 0.124</text>
+
+  <!-- all 93% -->
+  <text class="n" x="64" y="920">all</text>
+  <rect class="t" x="230" y="893" width="590" height="34" rx="8"/>
+  <rect x="230" y="893" width="549" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="761" y="921">93%</text>
+  <text class="m" x="1016" y="918">0.748 / 0.808</text>
+
+  <!-- recursion 94% -->
+  <text class="n" x="64" y="1001">recursion</text>
+  <rect class="t" x="230" y="974" width="590" height="34" rx="8"/>
+  <rect x="230" y="974" width="555" height="34" rx="8" fill="url(#g)"/>
+  <text class="p" x="767" y="1002">94%</text>
+  <text class="m" x="1016" y="999">0.505 / 0.540</text>
+
+  <!-- parity line and axis -->
+  <line x1="820" y1="395" x2="820" y2="1025" stroke="#94a3b8" stroke-width="2" stroke-dasharray="7 6"/>
+  <text x="230" y="1046" font-size="18" fill="#64748b">0%</text>
+  <text class="a" x="377.5" y="1046">25%</text>
+  <text class="a" x="525" y="1046">50%</text>
+  <text class="a" x="672.5" y="1046">75%</text>
+  <text class="a" x="820" y="1046">100%</text>
+  <text x="820" y="1074" font-size="18" fill="#94a3b8" text-anchor="middle">CPython</text>
+
+  <!-- footer -->
+  <line x1="64" y1="1102" x2="1016" y2="1102" stroke="#1f2937"/>
+  <text x="64" y="1136" font-size="21" fill="#94a3b8">Tiger's work against CPython's p.exec, measured in process on both sides,</text>
+  <text x="64" y="1166" font-size="21" fill="#94a3b8">with each program's own compile removed from the timing. Lower is better.</text>
+  <text x="64" y="1200" font-size="19" fill="#64748b">Best of twelve runs each side; CPython 3.14.0, Windows, 64-bit.</text>
+  <text x="64" y="1226" font-size="19" fill="#64748b">methods and recursion sit within the host's jitter of parity.</text>
+  <text x="64" y="1262" font-size="20" fill="#4fdca3">github.com/pattygcoding/Tiger-Programming-Language</text>
+  <text x="64" y="1292" font-size="19" fill="#94a3b8">Tiger &#8212; a dynamically typed language written in Rust</text>
+</svg>
