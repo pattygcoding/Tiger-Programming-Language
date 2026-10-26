@@ -223,8 +223,13 @@ struct Parked {
     iter_mark: usize,
     /// Whether the callee's result is dropped rather than left on the stack.
     discard: bool,
-    /// The caller's flat locals, which the frame leaves with.
-    locals: Vec<Value>,
+    /// Where the caller's flat locals start on the shared value stack.
+    ///
+    /// A frame's own slots are the bottom of its region on that stack, so a caller's
+    /// slots are already where they belong when the callee's frame goes: what the frame
+    /// records is the index, not a buffer to hand back. That is what a call stops
+    /// paying for here — no vector leaves the loop and none returns to it.
+    locals_at: usize,
     /// The caller's environment.
     env: Env,
     /// A scope the callee's frame took for its own call, for the frame's return to
@@ -503,10 +508,20 @@ impl Evaluator {
         let mut scopes: Vec<Env> = Vec::new();
         let mut iters: Vec<IterState> = Vec::new();
         let mut frames: Vec<Parked> = Vec::new();
-        // `base` is where this frame's operands start on the shared stack; the two
-        // marks are how tall the scopes and iterators were when the frame was entered,
-        // so a return unwinds exactly what this frame pushed and no more.
-        let mut base = 0usize;
+        // A frame's slots and its operands share one stack: the slots are the bottom of
+        // the frame's region and `base` is where its operands start, so `locals_at` is
+        // the only thing a flat slot read needs and a call copies no locals at all.
+        // The frame this loop was entered for is placed here, at the bottom, which is
+        // where a Rust-entered frame's slots have always effectively been.
+        let mut locals_at = stack.len();
+        stack.append(&mut locals);
+        // The vector the frame's slots came in is empty now and still owns its buffer,
+        // so it goes straight back to the pool: the frame that just took it is the frame
+        // that gave it up, and the next `take_locals` fills the slots it needs.
+        self.release_locals(locals);
+        let mut base = stack.len();
+        // The two marks are how tall the scopes and iterators were when the frame was
+        // entered, so a return unwinds exactly what this frame pushed and no more.
         let mut scope_mark = 0usize;
         let mut iter_mark = 0usize;
         let mut pc = 0usize;
@@ -558,14 +573,14 @@ impl Evaluator {
                 }
                 // A flat slot belongs to this frame alone, so this is an index into
                 // `locals` with no borrow and no scope to find first.
-                Instr::LoadFlat(slot) => stack.push(locals[slot as usize].clone()),
+                Instr::LoadFlat(slot) => stack.push(stack[locals_at + slot as usize].clone()),
                 Instr::StoreFlat { name, slot, constant, .. } => {
                     if constant {
                         let name = &chunk.names[name as usize];
                         return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), format!("cannot reassign const {:?}", name)));
                     }
                     let value = stack.pop().expect("stack");
-                    locals[slot as usize] = value;
+                    stack[locals_at + slot as usize] = value;
                 }
                 Instr::DefineFlat { name, slot, duplicate } => {
                     if duplicate {
@@ -576,7 +591,7 @@ impl Evaluator {
                         ));
                     }
                     let value = stack.pop().expect("stack");
-                    locals[slot as usize] = value;
+                    stack[locals_at + slot as usize] = value;
                 }
                 Instr::LoadLocal { name, hops, slot } => {
                     let name = &chunk.names[name as usize];
@@ -602,7 +617,7 @@ impl Evaluator {
                     }
                 }
                 Instr::LoadSuper(slot) => match slot {
-                    Some(slot) => stack.push(locals[slot as usize].clone()),
+                    Some(slot) => stack.push(stack[locals_at + slot as usize].clone()),
                     None => match object::get(&env, "super") {
                         Ok(value) => stack.push(value),
                         Err(_) => {
@@ -766,8 +781,8 @@ impl Evaluator {
                 // settles itself as numeric once it has seen enough passes with two
                 // numbers.
                 Instr::FlatBinaryFlat { a, b, op, name, settled } => {
-                    let left = &locals[a as usize];
-                    let right = &locals[b as usize];
+                    let left = &stack[locals_at + a as usize];
+                    let right = &stack[locals_at + b as usize];
                     if !settled {
                         warm_site(
                             &chunk,
@@ -794,7 +809,7 @@ impl Evaluator {
                     pc += 2;
                 }
                 Instr::FlatBinaryFlatNumber { a, b, op, name } => {
-                    let (left, right) = match (&locals[a as usize], &locals[b as usize]) {
+                    let (left, right) = match (&stack[locals_at + a as usize], &stack[locals_at + b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
                             chunk.specialize(pc - 1, Instr::FlatBinaryFlat { a, b, op, name, settled: true });
@@ -816,7 +831,7 @@ impl Evaluator {
                     pc += 2;
                 }
                 Instr::FlatBinaryConstant { a, b, op, name, settled } => {
-                    let left = &locals[a as usize];
+                    let left = &stack[locals_at + a as usize];
                     let right = &chunk.constants[b as usize];
                     if !settled {
                         warm_site(
@@ -844,7 +859,7 @@ impl Evaluator {
                     pc += 2;
                 }
                 Instr::FlatBinaryConstantNumber { a, b, op, name } => {
-                    let (left, right) = match (&locals[a as usize], &chunk.constants[b as usize]) {
+                    let (left, right) = match (&stack[locals_at + a as usize], &chunk.constants[b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
                             chunk.specialize(pc - 1, Instr::FlatBinaryConstant { a, b, op, name, settled: true });
@@ -869,7 +884,8 @@ impl Evaluator {
                 // slot is the one the `GetProperty` it replaced would have used.
                 Instr::FlatProperty { value, name, cache } => {
                     let slot = cache as usize;
-                    let value = self.cached_property(&chunk, slot, name as usize, &locals[value as usize], chunk.position(slot), &env)?;
+                    let value =
+                        self.cached_property(&chunk, slot, name as usize, &stack[locals_at + value as usize], chunk.position(slot), &env)?;
                     stack.push(value);
                     pc += 1;
                 }
@@ -977,8 +993,8 @@ impl Evaluator {
                             &chunk,
                             pc - 1,
                             op,
-                            &locals[a as usize],
-                            &locals[b as usize],
+                            &stack[locals_at + a as usize],
+                            &stack[locals_at + b as usize],
                             true,
                             Settle {
                                 general: Instr::FlatJumpUnlessFlat { a, b, op, name, target, settled: true },
@@ -990,8 +1006,8 @@ impl Evaluator {
                         &chunk.base_at(chunk.position(pc - 1)),
                         op,
                         &chunk.names[name as usize],
-                        &locals[a as usize],
-                        &locals[b as usize],
+                        &stack[locals_at + a as usize],
+                        &stack[locals_at + b as usize],
                     )?;
                     pc += 3;
                     if !holds {
@@ -1001,7 +1017,7 @@ impl Evaluator {
                 // A loop condition the engine has settled on two numbers: `i < n` decided
                 // and branched with no `bool` built and no operator name of its own.
                 Instr::FlatJumpUnlessFlatNumber { a, b, op, name, target } => {
-                    let (left, right) = match (&locals[a as usize], &locals[b as usize]) {
+                    let (left, right) = match (&stack[locals_at + a as usize], &stack[locals_at + b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
                             chunk.specialize(pc - 1, Instr::FlatJumpUnlessFlat { a, b, op, name, target, settled: true });
@@ -1021,7 +1037,7 @@ impl Evaluator {
                             &chunk,
                             pc - 1,
                             op,
-                            &locals[a as usize],
+                            &stack[locals_at + a as usize],
                             &chunk.constants[b as usize],
                             true,
                             Settle {
@@ -1034,7 +1050,7 @@ impl Evaluator {
                         &chunk.base_at(chunk.position(pc - 1)),
                         op,
                         &chunk.names[name as usize],
-                        &locals[a as usize],
+                        &stack[locals_at + a as usize],
                         &chunk.constants[b as usize],
                     )?;
                     pc += 3;
@@ -1043,7 +1059,7 @@ impl Evaluator {
                     }
                 }
                 Instr::FlatJumpUnlessConstantNumber { a, b, op, name, target } => {
-                    let (left, right) = match (&locals[a as usize], &chunk.constants[b as usize]) {
+                    let (left, right) = match (&stack[locals_at + a as usize], &chunk.constants[b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
                             chunk.specialize(pc - 1, Instr::FlatJumpUnlessConstant { a, b, op, name, target, settled: true });
@@ -1162,23 +1178,21 @@ impl Evaluator {
                                     let base = chunk.base_at(chunk.position(pc - 1));
                                     return Err(crate::fatal(&base, "maximum evaluation depth exceeded".to_string()));
                                 }
-                                let mut bound = self.take_locals(code.flat_count);
-                                // The compiler seeds a flat callable's frame with its parameters
-                                // first, so their slots are exactly `0..n`: one slice operation
-                                // moves the arguments in and leaves `Null` where the truncate
-                                // below discards them anyway, rather than a loop that reads an
-                                // `Option`, checks it, and indexes twice per argument.
+                                // A flat callable's parameters own the frame's first slots, and
+                                // a call of it passes one argument per parameter, so the
+                                // arguments are already sitting in those slots when the frame
+                                // starts: nothing is copied and nothing is moved out of the
+                                // way. Only a slot above the parameters needs bringing into
+                                // being, and `Null` is what an unwritten flat slot reads as.
                                 let fixed = code.call_layout.parameters.len();
                                 debug_assert!(
                                     code.call_layout.parameters.iter().enumerate().all(|(index, slot)| *slot == Some(index as u32)),
                                     "a flat call's parameters own the frame's first slots"
                                 );
-                                bound[..fixed].swap_with_slice(&mut stack[at..at + fixed]);
-                                // The callee's operands take the stack over from here,
-                                // so the caller's arguments go; the frame's own base is
-                                // where they were, and the result lands one slot below
-                                // it, which is where the callee was.
-                                stack.truncate(at);
+                                debug_assert_eq!(stack.len(), at + fixed, "a call's arguments are its callee's slots");
+                                if code.flat_count > fixed {
+                                    stack.resize(at + code.flat_count, Value::Null);
+                                }
                                 frames.push(Parked {
                                     chunk: std::mem::replace(&mut chunk, code.clone()),
                                     // A call whose value is dropped had a `Pop` fused
@@ -1188,16 +1202,20 @@ impl Evaluator {
                                     // reason.
                                     pc: if discard { pc + 1 } else { pc },
                                     base,
+                                    locals_at,
                                     scope_mark,
                                     iter_mark,
                                     discard,
-                                    locals: std::mem::replace(&mut locals, bound),
                                     env: std::mem::replace(&mut env, function.env.clone()),
                                     scope: None,
                                 });
                                 scope_mark = scopes.len();
                                 iter_mark = iters.len();
-                                base = at;
+                                // The callee's region starts at the first argument, so its
+                                // operands start above its own slots and its result lands one
+                                // slot below them — which is where the callee itself was.
+                                locals_at = at;
+                                base = at + code.flat_count;
                                 pc = 0;
                                 continue;
                             }
@@ -1246,21 +1264,34 @@ impl Evaluator {
                             self.recycle_keywords(named);
                         }
                         if let Some(prepared) = prepared? {
+                            let prepared = prepared;
+                            let body = prepared.code;
+                            let body_env = prepared.env;
+                            let mut slots = prepared.locals;
+                            let scope = prepared.scope;
                             stack.truncate(at);
+                            let count = slots.len();
                             frames.push(Parked {
-                                chunk: std::mem::replace(&mut chunk, prepared.code.clone()),
+                                chunk: std::mem::replace(&mut chunk, body.clone()),
                                 pc: if discard { pc + 1 } else { pc },
                                 base,
+                                locals_at,
                                 scope_mark,
                                 iter_mark,
                                 discard,
-                                locals: std::mem::replace(&mut locals, prepared.locals),
-                                env: std::mem::replace(&mut env, prepared.env),
-                                scope: prepared.scope,
+                                env: std::mem::replace(&mut env, body_env),
+                                scope,
                             });
+                            // The prepared frame's slots are that frame's bottom, so they
+                            // go on the stack where the arguments were and the body's
+                            // operands start above them. The vector they arrived in is
+                            // empty afterwards and goes back to the pool.
+                            stack.append(&mut slots);
+                            self.release_locals(slots);
                             scope_mark = scopes.len();
                             iter_mark = iters.len();
-                            base = at;
+                            locals_at = at;
+                            base = at + count;
                             pc = 0;
                             continue;
                         }
@@ -1312,21 +1343,33 @@ impl Evaluator {
                             self.recycle_keywords(named);
                         }
                         if let Some(prepared) = prepared? {
+                            let prepared = prepared;
+                            let body = prepared.code;
+                            let body_env = prepared.env;
+                            let mut slots = prepared.locals;
+                            let scope = prepared.scope;
                             stack.truncate(at);
+                            let count = slots.len();
                             frames.push(Parked {
-                                chunk: std::mem::replace(&mut chunk, prepared.code.clone()),
+                                chunk: std::mem::replace(&mut chunk, body.clone()),
                                 pc: if discard { pc + 1 } else { pc },
                                 base,
+                                locals_at,
                                 scope_mark,
                                 iter_mark,
                                 discard,
-                                locals: std::mem::replace(&mut locals, prepared.locals),
-                                env: std::mem::replace(&mut env, prepared.env),
-                                scope: prepared.scope,
+                                env: std::mem::replace(&mut env, body_env),
+                                scope,
                             });
+                            // The prepared frame's slots are that frame's bottom, so they
+                            // go on the stack where the receiver and arguments were, and the
+                            // vector they arrived in goes back to the pool.
+                            stack.append(&mut slots);
+                            self.release_locals(slots);
                             scope_mark = scopes.len();
                             iter_mark = iters.len();
-                            base = at;
+                            locals_at = at;
+                            base = at + count;
                             pc = 0;
                             continue;
                         }
@@ -1343,7 +1386,7 @@ impl Evaluator {
                 // A counting loop's step: the update and the back edge in one
                 // dispatch, with the value the update produced discarded.
                 Instr::UpdateFlatJump { name, slot, decrement, target } => {
-                    let previous = match &locals[slot as usize] {
+                    let previous = match &stack[locals_at + slot as usize] {
                         Value::Number(number) => *number,
                         _ => {
                             return Err(runtime(
@@ -1356,7 +1399,7 @@ impl Evaluator {
                     if !updated.is_finite() {
                         return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), "non-finite numeric result".to_string()));
                     }
-                    locals[slot as usize] = Value::Number(updated);
+                    stack[locals_at + slot as usize] = Value::Number(updated);
                     pc = target as usize;
                 }
                 // An assignment whose value is a computation over flat locals: the
@@ -1368,8 +1411,8 @@ impl Evaluator {
                             &chunk,
                             pc - 1,
                             op,
-                            &locals[a as usize],
-                            &locals[b as usize],
+                            &stack[locals_at + a as usize],
+                            &stack[locals_at + b as usize],
                             false,
                             Settle {
                                 general: Instr::FlatBinaryFlatStore { a, b, op, name, out, settled: true },
@@ -1381,14 +1424,14 @@ impl Evaluator {
                     // accumulator is its own target: grow the string instead of copying
                     // it whole. `b != out` keeps the two borrows disjoint.
                     if a == out && b != out && matches!(op, Op::Add) {
-                        let more = locals[b as usize].clone();
-                        if append_in_place(op, true, &mut locals[out as usize], &more) {
+                        let more = stack[locals_at + b as usize].clone();
+                        if append_in_place(op, true, &mut stack[locals_at + out as usize], &more) {
                             pc += 3;
                             continue;
                         }
                     }
-                    let left = &locals[a as usize];
-                    let right = &locals[b as usize];
+                    let left = &stack[locals_at + a as usize];
+                    let right = &stack[locals_at + b as usize];
                     let value = match fast_binary(op, left, right) {
                         Some(Ok(value)) => value,
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
@@ -1397,14 +1440,14 @@ impl Evaluator {
                             self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?
                         }
                     };
-                    locals[out as usize] = value;
+                    stack[locals_at + out as usize] = value;
                     pc += 3;
                 }
                 // A numeric accumulator the engine has settled: `total += step` with both
                 // sides in the frame's own locals, and neither the string case above nor an
                 // operand type left to test.
                 Instr::FlatBinaryFlatStoreNumber { a, b, op, name, out } => {
-                    let (left, right) = match (&locals[a as usize], &locals[b as usize]) {
+                    let (left, right) = match (&stack[locals_at + a as usize], &stack[locals_at + b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
                             chunk.specialize(pc - 1, Instr::FlatBinaryFlatStore { a, b, op, name, out, settled: true });
@@ -1422,7 +1465,7 @@ impl Evaluator {
                             Value::Number(right),
                         )?,
                     };
-                    locals[out as usize] = value;
+                    stack[locals_at + out as usize] = value;
                     pc += 3;
                 }
                 Instr::FlatBinaryConstantStore { a, b, op, name, out, settled } => {
@@ -1431,7 +1474,7 @@ impl Evaluator {
                             &chunk,
                             pc - 1,
                             op,
-                            &locals[a as usize],
+                            &stack[locals_at + a as usize],
                             &chunk.constants[b as usize],
                             false,
                             Settle {
@@ -1441,11 +1484,11 @@ impl Evaluator {
                         );
                     }
                     // The same, with the right operand a constant: `s += "ab"` in a loop.
-                    if a == out && append_in_place(op, true, &mut locals[out as usize], &chunk.constants[b as usize]) {
+                    if a == out && append_in_place(op, true, &mut stack[locals_at + out as usize], &chunk.constants[b as usize]) {
                         pc += 3;
                         continue;
                     }
-                    let left = &locals[a as usize];
+                    let left = &stack[locals_at + a as usize];
                     let right = &chunk.constants[b as usize];
                     let value = match fast_binary(op, left, right) {
                         Some(Ok(value)) => value,
@@ -1455,11 +1498,11 @@ impl Evaluator {
                             self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?
                         }
                     };
-                    locals[out as usize] = value;
+                    stack[locals_at + out as usize] = value;
                     pc += 3;
                 }
                 Instr::FlatBinaryConstantStoreNumber { a, b, op, name, out } => {
-                    let (left, right) = match (&locals[a as usize], &chunk.constants[b as usize]) {
+                    let (left, right) = match (&stack[locals_at + a as usize], &chunk.constants[b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
                             chunk.specialize(pc - 1, Instr::FlatBinaryConstantStore { a, b, op, name, out, settled: true });
@@ -1477,7 +1520,7 @@ impl Evaluator {
                             Value::Number(right),
                         )?,
                     };
-                    locals[out as usize] = value;
+                    stack[locals_at + out as usize] = value;
                     pc += 3;
                 }
                 // The tail of an assignment whose value comes off the operand stack:
@@ -1507,7 +1550,7 @@ impl Evaluator {
                         // which leaves the string with one — and one is what lets it
                         // grow in place rather than being copied whole.
                         (Value::String(mut text), Value::String(more), true) if matches!(op, Op::Add) => {
-                            locals[out as usize] = Value::Null;
+                            stack[locals_at + out as usize] = Value::Null;
                             text.append(more.as_str());
                             Value::String(text)
                         }
@@ -1517,7 +1560,7 @@ impl Evaluator {
                             None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
                         },
                     };
-                    locals[out as usize] = value;
+                    stack[locals_at + out as usize] = value;
                     pc += 1;
                 }
                 // A numeric accumulator whose value comes off the operand stack — the
@@ -1542,7 +1585,7 @@ impl Evaluator {
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
                         None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
                     };
-                    locals[out as usize] = value;
+                    stack[locals_at + out as usize] = value;
                     pc += 1;
                 }
                 Instr::GetIndex => {
@@ -1558,11 +1601,11 @@ impl Evaluator {
                 // with both sides in the frame's own locals, so no operand is pushed
                 // and popped and no operand stack is touched.
                 Instr::FlatIndexFlat { a, b } => {
-                    let value = match fast_index(&locals[a as usize], &locals[b as usize]) {
+                    let value = match fast_index(&stack[locals_at + a as usize], &stack[locals_at + b as usize]) {
                         Some(value) => value,
                         None => {
-                            let collection = locals[a as usize].clone();
-                            let key = locals[b as usize].clone();
+                            let collection = stack[locals_at + a as usize].clone();
+                            let key = stack[locals_at + b as usize].clone();
                             self.index_value(&chunk.base_at(chunk.position(pc - 1)), collection, key)?
                         }
                     };
@@ -1570,10 +1613,10 @@ impl Evaluator {
                     pc += 2;
                 }
                 Instr::FlatIndexConstant { a, b } => {
-                    let value = match fast_index(&locals[a as usize], &chunk.constants[b as usize]) {
+                    let value = match fast_index(&stack[locals_at + a as usize], &chunk.constants[b as usize]) {
                         Some(value) => value,
                         None => {
-                            let collection = locals[a as usize].clone();
+                            let collection = stack[locals_at + a as usize].clone();
                             let key = chunk.constants[b as usize].clone();
                             self.index_value(&chunk.base_at(chunk.position(pc - 1)), collection, key)?
                         }
@@ -1582,10 +1625,14 @@ impl Evaluator {
                     pc += 2;
                 }
                 Instr::FlatStoreIndex { value, collection, key } => {
-                    if !fast_store_index(&locals[collection as usize], &locals[key as usize], &locals[value as usize]) {
-                        let value = locals[value as usize].clone();
-                        let collection = locals[collection as usize].clone();
-                        let key = locals[key as usize].clone();
+                    if !fast_store_index(
+                        &stack[locals_at + collection as usize],
+                        &stack[locals_at + key as usize],
+                        &stack[locals_at + value as usize],
+                    ) {
+                        let value = stack[locals_at + value as usize].clone();
+                        let collection = stack[locals_at + collection as usize].clone();
+                        let key = stack[locals_at + key as usize].clone();
                         self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
                     }
                     pc += 3;
@@ -1656,7 +1703,7 @@ impl Evaluator {
                 // number, compute, require a finite result, then write — so a write
                 // to a `const` is refused only after the value has been checked.
                 Instr::UpdateFlat { name, slot, constant, decrement, prefix } => {
-                    let previous = match &locals[slot as usize] {
+                    let previous = match &stack[locals_at + slot as usize] {
                         Value::Number(number) => *number,
                         _ => {
                             return Err(runtime(
@@ -1675,7 +1722,7 @@ impl Evaluator {
                             format!("cannot reassign const {:?}", chunk.names[name as usize]),
                         ));
                     }
-                    locals[slot as usize] = Value::Number(updated);
+                    stack[locals_at + slot as usize] = Value::Number(updated);
                     stack.push(Value::Number(if prefix { updated } else { previous }));
                 }
                 Instr::UpdateName { name, decrement, prefix } => {
@@ -1783,35 +1830,39 @@ impl Evaluator {
                     self.release_scopes_to(&mut env, &mut scopes, scope_mark);
                     return Err(Signal::Throw { value, origin: chunk.base_at(chunk.position(pc - 1)).location() });
                 }
-                Instr::Return => {
-                    let value = stack.pop().unwrap_or(Value::Null);
+                // A frame's last act: the value it ends with, read from its own slot or
+                // computed from the two operands below it, and the exit in one dispatch.
+                // The exit is the one `Instr::Return` takes, repeated rather than shared
+                // for the reason the `Try` arm's copy of it gives — routing every call's
+                // return through a call to share it would cost the calls this is for.
+                Instr::ReturnFused { op, name, slot } => {
+                    let value = match op {
+                        Some(op) => {
+                            let right = stack.pop().expect("stack");
+                            let left = stack.pop().expect("stack");
+                            match fast_binary(op, &left, &right) {
+                                Some(Ok(value)) => value,
+                                Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
+                                None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
+                            }
+                        }
+                        None => stack[locals_at + slot as usize].clone(),
+                    };
                     let Some(frame) = frames.pop() else {
-                        // Nothing is parked above this frame, so it is the outermost:
-                        // the value is what the chunk evaluates to.
+                        // Nothing is parked above this frame, so it is the outermost: the
+                        // value is what the chunk evaluates to, and its slots and operands
+                        // stay on the stack, which is the caller's to clear.
                         self.release_scopes_to(&mut env, &mut scopes, scope_mark);
-                        let mine = std::mem::take(&mut locals);
-                        self.release_locals(mine);
                         return Ok(value);
                     };
-                    // Leaving a frame a call entered. Its scopes and iterators are
-                    // unwound, its locals go back to the pool, and the caller's parked
-                    // state is loaded back. The result takes the place the call left for
-                    // it, which is one slot below this frame's operand base — where the
-                    // callee itself was on the caller's stack.
-                    //
-                    // A frame that pushed no scope and opened no iterator — every call
-                    // whose body has no block and no `for` — has nothing to unwind, and the
-                    // two tests are the loads those calls would make.
                     if scopes.len() != scope_mark {
                         self.release_scopes_to(&mut env, &mut scopes, scope_mark);
                     }
                     if iters.len() != iter_mark {
                         iters.truncate(iter_mark);
                     }
-                    let mine = std::mem::replace(&mut locals, frame.locals);
-                    self.release_locals(mine);
                     self.depth -= 1;
-                    stack.truncate(base - 1);
+                    stack.truncate(locals_at - 1);
                     if !frame.discard {
                         stack.push(value);
                     }
@@ -1824,6 +1875,49 @@ impl Evaluator {
                         self.release_scope(scope);
                     }
                     base = frame.base;
+                    locals_at = frame.locals_at;
+                    scope_mark = frame.scope_mark;
+                    iter_mark = frame.iter_mark;
+                }
+                Instr::Return => {
+                    let value = stack.pop().unwrap_or(Value::Null);
+                    let Some(frame) = frames.pop() else {
+                        // Nothing is parked above this frame, so it is the outermost:
+                        // the value is what the chunk evaluates to.
+                        self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                        // Its slots and its operands stay on the stack, which is the
+                        // caller's to clear.
+                        return Ok(value);
+                    };
+                    // Leaving a frame a call entered. Its scopes and iterators are
+                    // unwound and it drops back to the slot below its own, which leaves
+                    // its slots behind along with its operands — a return is where a
+                    // frame's locals stop being anything but part of the stack.
+                    //
+                    // A frame that pushed no scope and opened no iterator — every call
+                    // whose body has no block and no `for` — has nothing to unwind, and the
+                    // two tests are the loads those calls would make.
+                    if scopes.len() != scope_mark {
+                        self.release_scopes_to(&mut env, &mut scopes, scope_mark);
+                    }
+                    if iters.len() != iter_mark {
+                        iters.truncate(iter_mark);
+                    }
+                    self.depth -= 1;
+                    stack.truncate(locals_at - 1);
+                    if !frame.discard {
+                        stack.push(value);
+                    }
+                    chunk = frame.chunk;
+                    pc = frame.pc;
+                    env = frame.env;
+                    // The callee's own call scope, when it took one, goes back to the
+                    // pool now that nothing here still refers to it.
+                    if let Some(scope) = frame.scope {
+                        self.release_scope(scope);
+                    }
+                    base = frame.base;
+                    locals_at = frame.locals_at;
                     scope_mark = frame.scope_mark;
                     iter_mark = frame.iter_mark;
                 }
@@ -1866,10 +1960,8 @@ impl Evaluator {
                     if iters.len() != iter_mark {
                         iters.truncate(iter_mark);
                     }
-                    let mine = std::mem::replace(&mut locals, frame.locals);
-                    self.release_locals(mine);
                     self.depth -= 1;
-                    stack.truncate(base - 1);
+                    stack.truncate(locals_at - 1);
                     if !frame.discard {
                         stack.push(value);
                     }
@@ -1882,6 +1974,7 @@ impl Evaluator {
                         self.release_scope(scope);
                     }
                     base = frame.base;
+                    locals_at = frame.locals_at;
                     scope_mark = frame.scope_mark;
                     iter_mark = frame.iter_mark;
                 }
@@ -1892,13 +1985,13 @@ impl Evaluator {
                 }
                 Instr::StoreScratch(slot) => {
                     let value = stack.pop().expect("stack");
-                    locals[slot as usize] = value;
+                    stack[locals_at + slot as usize] = value;
                 }
                 // The two collection steps of a comprehension: the value the body
                 // computed goes straight into the collection the loop is building.
                 Instr::Collect(slot) => {
                     let value = stack.pop().expect("stack");
-                    let Value::List(elements) = &locals[slot as usize] else {
+                    let Value::List(elements) = &stack[locals_at + slot as usize] else {
                         unreachable!("a list comprehension's accumulator is a list")
                     };
                     elements.borrow_mut().push(value);
@@ -1906,7 +1999,7 @@ impl Evaluator {
                 Instr::CollectPair(slot) => {
                     let value = stack.pop().expect("stack");
                     let key = stack.pop().expect("stack");
-                    let Value::Dict(dict) = &locals[slot as usize] else {
+                    let Value::Dict(dict) = &stack[locals_at + slot as usize] else {
                         unreachable!("a dictionary comprehension's accumulator is a dictionary")
                     };
                     dict.borrow_mut().set(key, value).map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;

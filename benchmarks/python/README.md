@@ -65,30 +65,36 @@ asked for rather than assumed.
 
 | Section | Tiger | CPython | Ratio |
 | --- | --- | --- | --- |
-| `all` | 1.37 ms | 0.80 ms | 1.72x |
-| `loop` | 0.039 | 0.033 | 1.20 |
-| `lists` | 0.097 | 0.068 | 1.42 |
-| `dicts` | 0.163 | 0.130 | 1.26 |
-| `strings` | 0.008 | 0.010 | 0.75 |
-| `methods` | 0.029 | 0.020 | 1.44 |
-| `recursion` | 1.054 | 0.535 | 1.97 |
-| `calls` | 2.781 | 2.521 | 1.10 |
+| `all` | 1.22 ms | 0.80 ms | 1.52x |
+| `loop` | 0.041 | 0.032 | 1.27 |
+| `lists` | 0.102 | 0.075 | 1.37 |
+| `dicts` | 0.165 | 0.124 | 1.33 |
+| `strings` | 0.007 | 0.010 | 0.67 |
+| `methods` | 0.030 | 0.020 | 1.53 |
+| `recursion` | 0.888 | 0.534 | 1.66 |
+| `calls` | 2.425 | 2.464 | 0.98 |
 
 The `overhead` probe is on the same two sides: 0.005 ms of a Tiger run, 0.001 ms
 of a CPython `exec`. A ratio moves by up to a fifth between runs on a machine that
 is doing anything else, so read the column as a magnitude rather than a
 hundredth.
 
-So Tiger is slower than CPython on six of the eight asserted sections.
-`strings` is the one it passes, and the probe says why: 3 µs of work against
-CPython's 9 — Tiger is *faster* there — and most of the 0.75 it reports is the 5 µs
-floor a run costs before it does anything. The heavy sections are the interpreter
-itself: one pass of `calls` — a call, the add it feeds, and the loop around them —
-is 56 ns against CPython's 50, and that is most of what `recursion` and `methods`
-are made of. The docs' per-operation costs in
+So Tiger is slower than CPython on six of the eight asserted sections. `strings` is
+the one it wins — the probe says why: 3 µs of work against CPython's 9, and most of
+the 0.68 it reports is the 5 µs floor a run costs before it does anything — and
+`calls` is where it now sits at parity, at 1.01. The heavy sections are the
+interpreter itself: one pass of `calls` — a call, the add it feeds, and the loop
+around them — is 49 ns against CPython's 49, and that is most of what `methods` is
+made of. `recursion` is still the widest ratio, and what is left in it is the half
+of a call that is not the frame: a flat frame's slots are the bottom of its own
+region on the value stack, so a recursive call pays no vector, no fill, and no
+argument copy any more (see
+[performance.md](../../docs/performance.md#a-frames-slots-are-the-bottom-of-its-own-stack)).
+What that leaves is about seven dispatched instructions per invocation against
+CPython's own bytecode loop — a recursive call is where a tree of small frames
+meets a register machine. The docs' per-operation costs in
 [performance.md](../../docs/performance.md#where-the-time-goes) are the place to
-read those from, and the `recursion` ratio is the widest of them: a recursive
-call is where a tree of small frames costs the most against a register machine.
+read those from.
 
 ## Extending it
 

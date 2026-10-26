@@ -35,6 +35,35 @@ fn is_timed(name: &str) -> bool {
     !matches!(name, "19_file_io.tg" | "21_input.tg" | "36_stdlib.tg" | "42_module_exports.tg")
 }
 
+/// One program of the caller's choosing, which is how the paired workload's sections are
+/// read one at a time: `TIGER_PROFILE_FILE` names it and `TIGER_PROFILE_ARG` becomes its
+/// `sys.argv[1]`. With no file named, this prints nothing.
+#[test]
+#[ignore = "prints a dynamic instruction mix; run with --ignored --nocapture"]
+fn where_one_program_spends_its_instructions() {
+    let Ok(file) = std::env::var("TIGER_PROFILE_FILE") else {
+        return;
+    };
+    // A relative path is read from the workspace root, which is where the corpus
+    // paths resolve from too.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let path = if std::path::Path::new(&file).is_absolute() { PathBuf::from(&file) } else { root.join(&file) };
+    let argument = std::env::var("TIGER_PROFILE_ARG").unwrap_or_else(|_| "all".to_string());
+    let source = std::fs::read_to_string(&path).expect("read the program");
+    let program = tiger_parser::parse(&source).expect("the program must parse");
+    let header: Vec<String> = profile::NAMES.iter().map(|name| format!("{:>6}", name)).collect();
+    println!("{:<28}{:>12}   {}", "program", "instrs", header.join(""));
+    let mut evaluator = tiger_evaluator::Evaluator::new(Box::new(common::Shared::new()));
+    evaluator.arguments = vec![file.clone(), argument.clone()];
+    profile::reset();
+    evaluator.execute(&program).expect("run the program");
+    let counts = profile::counts();
+    let instructions: u64 = counts.iter().sum();
+    let shares: Vec<String> = counts.iter().map(|count| format!("{:>5.1}%", *count as f64 * 100.0 / instructions.max(1) as f64)).collect();
+    let name = format!("{} [{}]", path.file_name().expect("a name").to_string_lossy(), argument);
+    println!("{:<28}{:>12}   {}", name, instructions, shares.join(""));
+}
+
 #[test]
 #[ignore = "prints a dynamic instruction mix; run with --ignored --nocapture"]
 fn where_the_benchmarks_spend_their_instructions() {

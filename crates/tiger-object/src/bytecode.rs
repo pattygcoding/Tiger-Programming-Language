@@ -190,6 +190,18 @@ pub enum Instr {
     /// The fused form of `LoadName(name)` and the call that consumes it, so the two
     /// share one dispatch. The instruction after this one is that call.
     CallName { name: u32 },
+    /// Return the value the frame already has, in one dispatch.
+    ///
+    /// The fused form of `LoadFlat(slot)` and `Return`, and of `Binary { op, name }` and
+    /// `Return` — the two shapes a body's last instruction takes. The value the frame
+    /// ends with is handed back without the push and the pop the intermediate would have
+    /// cost, and the frame's exit happens in the same dispatch, which is what a `return`
+    /// of a computed value otherwise pays for twice.
+    ///
+    /// `op` is `None` for the slot form, in which case `slot` is the frame-local to
+    /// return and `name` is unused; an operator reports its own failures from the
+    /// instruction's position, which is where the `Binary` this replaced stood.
+    ReturnFused { op: Option<Op>, name: u32, slot: u32 },
     /// Pop one value and push `<op> value`; `chunk.names[i]` is the operator.
     Unary(u32),
     /// Unconditional jump to the absolute instruction index `target`.

@@ -621,6 +621,13 @@ impl Compiler {
                         index,
                         2,
                     )),
+                    // The last instruction of a body: the value it returns, read from a
+                    // flat slot or computed from the two operands below it, handed back
+                    // with the frame's exit in the same dispatch.
+                    (Instr::LoadFlat(slot), Instr::Return) => Some((Instr::ReturnFused { op: None, name: 0, slot: *slot }, index, 2)),
+                    (Instr::Binary { op, name, .. }, Instr::Return) => {
+                        Some((Instr::ReturnFused { op: Some(*op), name: *name, slot: 0 }, index, 2))
+                    }
                     // A comparison whose only consumer is the branch: the operand
                     // stack is left alone and the truthiness test is skipped.
                     (Instr::Binary { op, name, .. }, Instr::JumpIfFalse(target)) => {

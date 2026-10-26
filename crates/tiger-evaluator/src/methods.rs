@@ -71,14 +71,41 @@ fn string_implementation(name: &str) -> Option<MemberFn> {
     }
 }
 
+/// How long a string can be for a case conversion to work in a stack buffer.
+///
+/// An ASCII string changes case byte for byte, so the common case needs neither the
+/// `String` that `str::to_uppercase` builds nor the second copy into the `RcStr` that
+/// follows it — and a word, a tag, or an identifier is short enough to fit here.
+const CASE_BUFFER: usize = 64;
+
+/// The value of `text` converted to upper or lower case, when that is a byte-for-byte
+/// mapping of an ASCII string short enough to convert in place.
+///
+/// `None` means the caller takes the general path, which is what a non-ASCII string — whose
+/// mapping can change a character's length — and a long one both need.
+fn ascii_case(text: &str, uppercase: bool) -> Option<Value> {
+    if !text.is_ascii() || text.len() > CASE_BUFFER {
+        return None;
+    }
+    let mut buffer = [0u8; CASE_BUFFER];
+    buffer[..text.len()].copy_from_slice(text.as_bytes());
+    if uppercase {
+        buffer[..text.len()].make_ascii_uppercase();
+    } else {
+        buffer[..text.len()].make_ascii_lowercase();
+    }
+    let converted = std::str::from_utf8(&buffer[..text.len()]).ok()?;
+    Some(Value::string(converted))
+}
+
 fn upper(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
     no_arguments("upper", arguments, keywords)?;
-    Ok(Value::string(&receiver.to_uppercase()))
+    Ok(ascii_case(receiver, true).unwrap_or_else(|| Value::string(&receiver.to_uppercase())))
 }
 
 fn lower(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
     no_arguments("lower", arguments, keywords)?;
-    Ok(Value::string(&receiver.to_lowercase()))
+    Ok(ascii_case(receiver, false).unwrap_or_else(|| Value::string(&receiver.to_lowercase())))
 }
 
 fn trim(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {

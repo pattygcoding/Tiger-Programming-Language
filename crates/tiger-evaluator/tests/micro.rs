@@ -40,6 +40,16 @@ const CASES: &[Case] = &[
         source: "function f(v) { return v; }\nvar s = 0;\nfor (var i = 0; i < 200000; ++i) { s += f(1); }\nprint(s);",
         operations: 200_000,
     },
+    // The same call with the callee reached through a name rather than a flat slot:
+    // `g` is read inside `caller`, so it stays in the environment and no flat slot
+    // holds it, which makes the callee a `LoadName` above an argument instruction. Read
+    // against `call/empty`, the two differ only in how the callee is found, which is
+    // what a name read costs a call.
+    Case {
+        name: "call/named",
+        source: "function g(v) { return v; }\nfunction caller(n) {\n    var s = 0;\n    for (var i = 0; i < n; ++i) { s += g(1); }\n    return s;\n}\nprint(caller(200000));",
+        operations: 200_000,
+    },
     // A call that passes two arguments, so the marginal cost of an argument shows.
     Case {
         name: "call/two-args",

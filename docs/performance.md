@@ -384,7 +384,7 @@ per-operation costs the micro harness reports are roughly:
 | A list read or write through a flat index | ~12–25 ns |
 | A field read or write | ~22–27 ns |
 | A built-in call | ~40 ns |
-| A function call | ~56 ns |
+| A function call | ~50 ns |
 | A string method call (`len(w.upper())` over the call it sits on) | ~39 ns |
 | A small integer through `str()` | ~71 ns |
 | A comprehension element over a range | ~51 ns |
@@ -475,6 +475,21 @@ Two changes that look like the obvious next step were implemented and measured
   thinned `String` but left `Tuple` a fat pointer, so `Value` never actually shrank;
   see [a smaller `Value`](#a-smaller-value-needs-a-thinner-string) for the version
   that does shrink it.
+- **Fusing the whole call site into one instruction** — the name's load, the
+  instructions that compute the arguments, and the `Call` — with a descriptor the engine
+  reads for the name and the arguments, and hands to the `Call` below for the shapes it
+  does not enter as a frame itself. The compiler emitted it for a callee that is a free
+  name and arguments that are reads (a frame-local, a constant, or one of those combined
+  by an operator), and it cut the instructions executed by 28% on the paired workload —
+  33% on its `recursion` section, where `fib` went from six instructions per invocation
+  to four. It was still **slower**: two binaries below alternate, best of 25, and a call
+  with the callee in a name costs 4 ns more than the same call with the callee in a flat
+  slot, where the descriptor version should have gained the two dispatches it removed.
+  What the arm added was a second interpretation of the same work — a descriptor read per
+  call, an argument loop, and a `Result` per argument — and each of those costs more than
+  the dispatch it replaced. The lesson is the one this page keeps meeting: an arm that
+  does one thing with one instruction's worth of state is cheaper than a general one, so
+  a fused instruction has to *remove work*, not read a table that says what to do.
 
 ## What a run costs before it does anything
 
@@ -520,8 +535,8 @@ millisecond process, which is not what makes a process fast or slow; it is what 
 host that runs many programs pays per program, and it is the floor the protocol's
 light sections are read against.
 
-**The protocol test fails on all eight sections today**, and the floor is no longer
-most of the reason. Take it off both sides, since it is a run's own cost and not
+**The protocol test failed on all eight sections when this was written**, and the floor was
+no longer most of the reason. Take it off both sides, since it is a run's own cost and not
 the section's, and `strings` is 3 µs of work against CPython's 9 — faster — with
 the floor making the ratio 1.56; `loop` is 1.2; `lists`, `dicts`, and `calls` are
 1.5 to 2.1; and `methods` (2.2) and `recursion` (2.9) are calls and the work around
@@ -925,6 +940,54 @@ The 20 ns is real, though, and the protocol's `dicts` section is three probes de
 `counts[key] += 1` reads through the index, writes through it, and checks membership before that.
 Cutting it means fewer probes or a remembered slot, not a cheaper hash — which is what the next
 section is.
+
+### The hash *function* was the untried half
+
+The section above changed what the hash is *fed* and left the hash itself alone. Replacing the
+function is the other half, and the language already had the pieces: `NameHasher` is the FxHash
+mixing a scope's names are hashed with, under a fixed seed, because a scope holds the program's own
+identifiers.
+
+Dictionary and set keys use that mixing now, under a seed read once per process from the standard
+hasher's own source of randomness — so a program that indexes values a caller supplied still cannot
+be made to collide them all, which is the only reason the standard hasher was there.
+
+| micro case | before | after |
+| --- | --- | --- |
+| `dict/set-int` | 55.7 ns | **51.3** |
+| `dict/get-int` | 69.5 | **63.7** |
+| `dict/get-held` | 89.7 | **87.6** |
+| `dict/set` | 115.4 | **111.1** |
+| `dict/read-modify-write` | 252.2 | **237.2** |
+| `list/read` (control) | 25.1 | 26.5 |
+
+The integer cases gained the most, and that is the honest reading of it: SipHash's round was worth
+about 4 ns of an integer-key operation and under a nanosecond of a string-key one. So the 20 ns a
+string key costs over an integer key is not the hash either, which leaves the key's own plumbing —
+an `RcStr` clone, the enum, the `RefCell` borrow, the probe, and the evaluator's dispatch around the
+read. Both halves of the hash are measured now, from both directions, and they agree: a dictionary
+operation's remaining cost is the probe and the plumbing around it, and the next attempt at one
+starts there.
+
+### A case conversion needs no string of its own
+
+`upper` and `lower` ran `str::to_uppercase`, which builds a `String`, and then copied that
+into an `RcStr` — two allocations and two copies for one answer, on the path a loop over
+`len(word.upper())` takes on every iteration. An ASCII string changes case byte for byte,
+so the common case now converts in a stack buffer of 64 bytes and builds the `RcStr`
+straight from it: no `String`, and no copy after one. A string that is not ASCII, or is
+longer than the buffer, takes the general path unchanged — which is what keeps a mapping
+that can change a character's length (`ß` upper-casing to `SS`) exactly where it was.
+
+| micro case | before | after |
+| --- | --- | --- |
+| `call/str-method`, `s += len(w.upper())` | 81.3 ns | **72.0** |
+| `call/method-index` | 84.7 | **74.6** |
+| `string/concat` (control) | 13.0 | 13.0 |
+
+Eleven percent on the shape, which for a five-byte word is the allocator and the second
+copy and nothing else. It is the same reading the dictionary's two hash measurements gave:
+what a short string costs is what happens *around* the text.
 
 ### A range steps in place
 
@@ -1502,6 +1565,99 @@ digit. Against CPython that is 1.22x → 1.19x on `calls` and 2.02x → 1.98x on
 `recursion` — the ratio those same two rounds reported. The deficit these sections
 carry is not in the binding: it is the frame, the dispatch, and the call protocol,
 which is what the sections above left.
+
+## A frame's slots are the bottom of its own stack
+
+Where a call's locals used to be a `Vec` the engine took from a pool and handed back —
+moved in and out of the parked frame, filled with `Null` on its way out — a frame's slots
+are now the bottom of its region on the one shared value stack, with its operands above
+them. A call is entered at the first argument it pushed and left by dropping back to the
+slot below its own. Three things follow, and every call takes all three:
+
+- **A flat call copies no arguments.** A flat callable's parameters own the frame's first
+  slots and a call of it passes one argument per parameter, so the arguments are already
+  sitting in the slots they belong to. What is left is a `resize` for the slots above the
+  parameters — and that is usually none of them: `fib` declares one local, its parameter,
+  so its frame is entered by writing the parked frame's fields and nothing else.
+- **No vector leaves the loop and none returns to it.** `Parked` records where the
+  caller's slots start, a `usize` where it used to hold a `Vec`, and a return takes the
+  callee's slots off the stack along with its operands. The pool round trip, the fill, and
+  the two moves into and out of the frame are gone.
+- **A frame that is prepared rather than flat** — a method, a call that passes keywords, a
+  body that needs a scope of its own — still binds its arguments into a vector first, and
+  that vector's values are moved onto the stack where the receiver and arguments were. It
+  is the one shape that still pays a copy, and its vector goes back to the pool empty.
+
+The protocol's `recursion` section is where this reads, because `fib(20)` is 21,891 calls
+of a function that declares exactly one local. Mean of five runs, Tiger work against
+CPython's `p.exec`; the CPython column had not moved:
+
+| section | before | after | against CPython |
+| --- | --- | --- | --- |
+| `recursion` | 1.012 ms | **0.888 ms** | 1.91x → **1.66x** |
+| `calls` | 2.726 | **2.425** | 1.13x → **0.98x** |
+| `methods` | 0.032 | **0.030** | 1.64x → **1.53x** |
+| `strings` | 0.008 | **0.007** | 0.74x → **0.67x** |
+| `all` | 1.331 | **1.219** | 1.67x → **1.52x** |
+| `loop`, `lists`, `dicts` | — | within their own noise (1.14–1.46x on this host) | — |
+
+Two binaries, one per revision, best of 60, single-threaded, same machine:
+
+| micro case | before | after |
+| --- | --- | --- |
+| `recursion/fib20` | 53.1 ns | **41.2** |
+| `call/empty` | 63.7 | **50.1** |
+| `call/two-args` | 64.5 | **55.4** |
+| `call/discard` | 43.6 | **36.8** |
+| `call/method` | 100.2 | 100.7 (a prepared frame pays the one copy it always did) |
+| `call/builtin`, `call/alias` (controls) | 40.2, 36.6 | 43.7, 39.3 |
+| `loop/count`, `list/read`, `dict/set` | 10.8, 25.1, 118.8 | 10.5, 25.8, 115.0 |
+
+The controls are the check that matters: a built-in call enters no frame at all, and this
+change did not touch it — the two rows moved by the 7–12% this harness's own spread is,
+which is why a row has to be stable before a delta is read off it.
+
+That a call's *slots* were not the only cost is now the clearer measurement. `fib` executes
+about seven instructions per invocation and this machine dispatches one for ~3.6 ns — the
+figure `loop/count` gives when its three fused instructions are divided out of its 10.5 ns.
+So of the ~41 ns a recursive call now costs, roughly 25 ns is the instruction loop reading
+its own bytecode, and the frame is the other half. `recursion` against CPython needs both
+halves moved:
+
+```tg
+function fib(n) {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+print(fib(10));
+```
+
+```text
+55
+```
+
+### A return is one dispatch too
+
+The last instruction of a body is one of two shapes — `LoadFlat(slot)` and `Return`, or a
+`Binary` and `Return` — and both end the frame. `ReturnFused` is that pair in one
+dispatch: the slot form hands the frame's own slot back, the operator form computes it
+from the two operands below, and either way the frame's exit happens in the same arm
+rather than a dispatch later.
+
+It is the fusion the measurements above say should pay: nothing about it is general, and
+what it removes is real work — a dispatch, the push of the value the `LoadFlat` or the
+operator produced, and the pop the `Return` would have taken it back with. What it does
+*not* do is read a descriptor that says what to compute; see
+[the fused call site](#two-changes-that-look-like-the-obvious-next-step-were-implemented-and-measured-slower)
+for what happens when a fused instruction does that instead.
+
+The instruction counts are the reliable half of this measurement, because a loaded
+machine moves a time without moving a count. The paired workload executes **164,326
+instructions for `all` before and 142,435 after** — 13% fewer — and its `recursion`
+section, which is where a body's return is the whole of the work, **131,449 → 109,558**,
+which is six instructions per `fib` invocation down to five.
 
 ## The biggest program was not the interpreter
 

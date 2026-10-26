@@ -3239,6 +3239,57 @@ mod tests {
         }
     }
 
+    /// Prints a chunk's instruction list, and every function and method body inside it.
+    ///
+    /// Recursion is the point: the hot shape is usually a body rather than the script —
+    /// `fib` is a chunk of its own — and a listing that stopped at the top chunk could
+    /// not show it.
+    fn print_chunk(chunk: &Rc<tiger_object::bytecode::Chunk>, name: &str) {
+        println!("== {name} ({} instructions, {} flat slots)", chunk.code.len(), chunk.flat_count);
+        for (index, instruction) in chunk.code.iter().enumerate() {
+            println!("  {:>3}  {:?}", index, instruction.get());
+        }
+        for (index, function) in chunk.functions.iter().enumerate() {
+            print_chunk(&function.code, &format!("{name}/function[{index}]"));
+        }
+        for (index, class) in chunk.classes.iter().enumerate() {
+            if let Some(constructor) = &class.constructor {
+                print_chunk(constructor, &format!("{name}/class[{index}]:constructor"));
+            }
+            for (method, body) in class.methods.iter().enumerate() {
+                print_chunk(body, &format!("{name}/class[{index}]:method[{method}]"));
+            }
+        }
+        for (index, tried) in chunk.tries.iter().enumerate() {
+            print_chunk(&tried.body, &format!("{name}/try[{index}]:body"));
+        }
+    }
+
+    /// Prints the instruction list of any file, which is how a section of the paired
+    /// workload is read: `TIGER_DISASSEMBLE_FILE` names it, and the path is taken from
+    /// the workspace root when it is relative.
+    ///
+    /// ```sh
+    /// TIGER_DISASSEMBLE_FILE=benchmarks/python/workload.tg \
+    ///   cargo test -p tiger-evaluator --lib -- --ignored --nocapture disassembles_a_named_file
+    /// ```
+    #[test]
+    #[ignore = "prints a disassembly; run explicitly with --ignored --nocapture"]
+    fn disassembles_a_named_file() {
+        let Ok(file) = std::env::var("TIGER_DISASSEMBLE_FILE") else {
+            return;
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        let path = if std::path::Path::new(&file).is_absolute() { std::path::PathBuf::from(&file) } else { root.join(&file) };
+        let source = std::fs::read_to_string(&path).expect("read the program");
+        let program = tiger_parser::parse(&source).expect("the program must parse");
+        let Ok(chunk) = compiler::compile(&program.statements, "") else {
+            println!("the program does not lower");
+            return;
+        };
+        print_chunk(&chunk, &path.file_name().expect("a name").to_string_lossy());
+    }
+
     #[test]
     fn evaluates_basics() {
         assert_eq!(run_capture("print(1 + 2 * 3);").unwrap(), "7\n");

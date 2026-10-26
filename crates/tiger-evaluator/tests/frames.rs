@@ -2,11 +2,15 @@
 //!
 //! A plain function call does not re-enter the instruction loop. It parks the running
 //! frame inside the loop, loads the callee's state into the loop's own variables, and
-//! carries on, and `return` puts back what the call parked. What is pinned here is
-//! everything that has to stay true across that exchange: the depth a recursive call
-//! still counts toward, the operand stack the caller's pending values are resting on,
-//! the scopes and iterators a frame unwinds and no more, the `Pop` a discarded call
-//! leaves behind it, and the frame a `return` inside a `try` leaves.
+//! carries on, and `return` puts back what the call parked. A frame's own slots are the
+//! bottom of its region on the one shared value stack, with its operands above them —
+//! so the arguments a call already pushed are the slots its parameters own, and a
+//! return drops back to the slot below the frame rather than handing a buffer back.
+//! What is pinned here is everything that has to stay true across that exchange: the
+//! depth a recursive call still counts toward, the operand stack the caller's pending
+//! values are resting on, the caller's slots surviving every call it makes, the scopes
+//! and iterators a frame unwinds and no more, the `Pop` a discarded call leaves behind
+//! it, and the frame a `return` inside a `try` leaves.
 
 mod common;
 
@@ -57,10 +61,12 @@ fn a_result_lands_where_the_call_left_room_for_it() {
 
 #[test]
 fn every_argument_lands_in_its_own_parameter() {
-    // A frame's first slots are its parameters, and a call now moves the arguments into
-    // them in one slice operation. What that rests on is the slots being `0..n`, so this
-    // pins the shapes around it: no parameters, one, several, and arguments that are
-    // themselves values the caller is still holding on the operand stack.
+    // A frame's first slots are its parameters, and the arguments a call pushed are
+    // already in them — the callee's region starts where those arguments were, so no
+    // slice operation and no copy is involved. What that rests on is the slots being
+    // `0..n`, so this pins the shapes around it: no parameters, one, several, and
+    // arguments that are themselves values the caller is still holding on the operand
+    // stack.
     assert_eq!(
         output(
             "function mix(a, b) {\n    return str(a) + \"/\" + str(b);\n}\nfunction none() {\n    return 7;\n}\nvar held = mix(1, 2);\nprint(mix(1, 2));\nprint(mix(\"x\", 3.5));\nprint(mix(none(), mix(3, 4)));\nprint(mix(mix(1, 2), none()));\nprint(none(), none(), held);"
@@ -140,6 +146,20 @@ fn a_call_inside_a_loop_is_between_iterators() {
             "function twice(value) {\n    return value * 2;\n}\nvar seen = [];\nfor item in [1, 2, 3] {\n    seen = seen + [twice(item)];\n    seen = seen + [item];\n}\nprint(seen);"
         ),
         "[2, 1, 4, 2, 6, 3]\n"
+    );
+}
+
+#[test]
+fn a_callers_slots_survive_every_call_it_makes() {
+    // The caller's slots stay on the stack below the callee's region, so a call made in
+    // the middle of an expression — with the caller still holding several locals — must
+    // not disturb them, however many frames open above it. The result has to land in
+    // the slot the callee held, which is one below the callee's own slots.
+    assert_eq!(
+        output(
+            "function inner(a) {\n    var local = a * 2;\n    return local + a;\n}\nfunction outer(x, y) {\n    var first = x + 1;\n    var second = y + 2;\n    var total = first + inner(second) + second + first;\n    return str(total) + \"/\" + str(first) + \"/\" + str(second) + \"/\" + str(inner(inner(x)));\n}\nprint(outer(1, 2));\nprint(outer(inner(2), 3));"
+        ),
+        "20/2/4/9\n34/7/5/54\n"
     );
 }
 

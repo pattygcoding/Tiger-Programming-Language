@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
+use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -174,7 +174,7 @@ fn key_for(value: &Value, role: &str, non_finite: &str) -> Result<Key, String> {
 #[derive(Default, Clone)]
 pub struct Dict {
     pub entries: Vec<(Value, Value)>,
-    pub indices: HashMap<Key, usize>,
+    pub indices: HashMap<Key, usize, KeyHasherBuilder>,
     last: RefCell<Option<(Key, usize)>>,
 }
 
@@ -182,7 +182,11 @@ impl Dict {
     /// An empty dictionary with room for `count` entries, so filling it does not rehash the
     /// index as it grows.
     pub fn with_capacity(count: usize) -> Dict {
-        Dict { entries: Vec::with_capacity(count), indices: HashMap::with_capacity(count), last: RefCell::new(None) }
+        Dict {
+            entries: Vec::with_capacity(count),
+            indices: HashMap::with_capacity_and_hasher(count, KeyHasherBuilder::default()),
+            last: RefCell::new(None),
+        }
     }
 
     pub fn set(&mut self, key: Value, value: Value) -> Result<(), String> {
@@ -267,7 +271,7 @@ impl Dict {
 #[derive(Default)]
 pub struct Set {
     pub entries: Vec<Value>,
-    pub indices: HashMap<Key, usize>,
+    pub indices: HashMap<Key, usize, KeyHasherBuilder>,
 }
 
 impl Set {
@@ -405,8 +409,9 @@ pub fn binding_epoch() -> u64 {
 /// through a scope with enough names to have been indexed. The mixing is FxHash's:
 /// a rotate, an xor, and a multiply per word.
 ///
-/// Dictionary and set keys keep the standard hasher: those are program data, and
-/// a program that indexes untrusted input should not be floodable.
+/// Dictionary and set keys use [`KeyHasher`] instead: those are program data, so the seed
+/// that keeps them from being floodable lives there rather than here.
+
 #[derive(Default)]
 pub struct NameHasher(u64);
 
@@ -428,6 +433,81 @@ impl Hasher for NameHasher {
             state = (state.rotate_left(5) ^ word).wrapping_mul(NAME_HASH_SEED);
         }
         // The length term keeps a name from colliding with its own extension.
+        self.0 = (state.rotate_left(5) ^ bytes.len() as u64).wrapping_mul(NAME_HASH_SEED);
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.write(&[value]);
+    }
+}
+
+/// A fast hasher for dictionary and set keys, seeded once per process.
+///
+/// [`NameHasher`] can start from nothing because a lexical scope holds the program's own
+/// identifiers. A dictionary holds whatever the program was handed, so a blind flooding
+/// attack must not be able to make every key collide: the seed is what stops that, and it
+/// comes from the same source the standard hasher's does.
+///
+/// What the seed does not buy back is SipHash's round over every key, which is the whole
+/// of this hasher's reason to exist. A key is hashed on every probe, an insert hashes it
+/// again, and `counts[key] += 1` is three probes for one key, so the fixed cost of the
+/// round is paid three times on every iteration of a dictionary loop. The mixing here is
+/// [`NameHasher`]'s — a rotate, an xor, and a multiply per word — and the seed is folded
+/// in before the first one.
+#[derive(Clone)]
+pub struct KeyHasherBuilder {
+    seed: u64,
+}
+
+impl KeyHasherBuilder {
+    /// The state every hasher this builds starts from.
+    ///
+    /// Read once per process, so two runs of a program do not collide the same keys and a
+    /// program that indexes values a caller supplied cannot be made to collide them all.
+    fn seed() -> u64 {
+        static SEED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        // The seed is odd so that a zero-length key has not hashed to nothing before the
+        // first word is folded in.
+        *SEED.get_or_init(|| {
+            let mut source = std::collections::hash_map::RandomState::new().build_hasher();
+            source.write_u8(0);
+            source.finish() | 1
+        })
+    }
+}
+
+impl Default for KeyHasherBuilder {
+    fn default() -> KeyHasherBuilder {
+        KeyHasherBuilder { seed: KeyHasherBuilder::seed() }
+    }
+}
+
+impl BuildHasher for KeyHasherBuilder {
+    type Hasher = KeyHasher;
+
+    fn build_hasher(&self) -> KeyHasher {
+        KeyHasher(self.seed)
+    }
+}
+
+/// The hasher [`KeyHasherBuilder`] builds.
+pub struct KeyHasher(u64);
+
+impl Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut state = self.0;
+        for chunk in bytes.chunks(8) {
+            let mut word = 0u64;
+            for (index, byte) in chunk.iter().enumerate() {
+                word |= u64::from(*byte) << (index * 8);
+            }
+            state = (state.rotate_left(5) ^ word).wrapping_mul(NAME_HASH_SEED);
+        }
+        // The length term keeps a key from colliding with its own extension.
         self.0 = (state.rotate_left(5) ^ bytes.len() as u64).wrapping_mul(NAME_HASH_SEED);
     }
 
