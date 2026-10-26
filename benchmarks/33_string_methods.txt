@@ -2,6 +2,7 @@
 TIGER tiger
 spaced | 6
 mixed MIXED
+STRASSE école CAFÉ TIGER
 == split ==
 ["a", "b", "c"]
 ["one", "two", "three", "four"]

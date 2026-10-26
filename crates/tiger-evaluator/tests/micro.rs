@@ -9,6 +9,7 @@
 //! ```
 //!
 //! `TIGER_MICRO_ITERATIONS` sets how many times each case runs (default 25).
+//! `TIGER_MICRO_CASE` keeps only the cases whose name contains the given text.
 //! `TIGER_ENGINE=tree` runs every case on the tree-walker instead, which is how
 //! the compiled engine's share of a workload is measured without a profiler.
 
@@ -140,6 +141,30 @@ const CASES: &[Case] = &[
     Case {
         name: "recursion/fib20",
         source: "function fib(n) { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); }\nprint(fib(20));",
+        operations: 21_891,
+    },
+    // A built-in call in a loop body that declares a local, which gives every pass a scope
+    // of its own. Read against `call/builtin`, which is the same call with no declaration,
+    // the difference is what a per-pass scope costs — the scope's own push and pop, and
+    // whatever it does to the name reads inside it.
+    Case {
+        name: "scope/block-local",
+        source: "var s = 0;\nfor (var i = 0; i < 200000; ++i) { const n = 1; s += len(\"abc\") + n; }\nprint(s);",
+        operations: 200_000,
+    },
+    // The control for the case above: the same body with the declaration removed.
+    Case {
+        name: "scope/block-none",
+        source: "var s = 0;\nfor (var i = 0; i < 200000; ++i) { s += len(\"abc\") + 1; }\nprint(s);",
+        operations: 200_000,
+    },
+    // The same recursion with the callee handed down as a flat parameter, so no call
+    // loads a name. Read against `recursion/fib20`, the difference per call is what the
+    // name load costs a recursive call, plus the extra argument it carries instead
+    // (`call/two-args` minus `call/empty` is that argument's price).
+    Case {
+        name: "recursion/fib20-flat-callee",
+        source: "function fib(n, f) { if n < 2 { return n; } return f(n - 1, f) + f(n - 2, f); }\nprint(fib(20, fib));",
         operations: 21_891,
     },
     // A comprehension, whose clause variable used to be declared afresh on every
@@ -337,7 +362,13 @@ fn hot_paths() {
     };
     println!("{:<18}{:>12}{:>14}", "case", "ms", "ns/op");
     println!("{}", "-".repeat(44));
+    // `TIGER_MICRO_CASE` keeps only the cases whose name contains it, so one shape can be
+    // read many times over without paying for the rest.
+    let only = std::env::var("TIGER_MICRO_CASE").ok();
     for case in CASES {
+        if only.as_deref().is_some_and(|filter| !case.name.contains(filter)) {
+            continue;
+        }
         // One warm-up run, then the best of `iterations`.
         let _ = run_once(case.source, engine);
         let mut best = f64::INFINITY;

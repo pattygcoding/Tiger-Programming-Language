@@ -29,6 +29,8 @@ mod regex_stub;
 mod regexmod;
 mod vm;
 
+use crate::vm::native_call;
+
 pub use files::{parse_file_mode, FileMode, FileSystem, MemoryFileSystem, OsFileSystem};
 pub use modules::{
     algo_module, json_module, math_module, random_module, regex_module, secrets_module, sys_module, time_module, BundleLoader, FileLoader,
@@ -312,6 +314,15 @@ impl Evaluator {
         match self.scope_pool.pop() {
             Some(scope) => {
                 let mut borrowed = scope.borrow_mut();
+                // Releasing an empty scope no longer moves the binding epoch, so a read
+                // remembered through this scope survives its release. That is only sound
+                // while the scope still leads where it did: given a *different* parent it
+                // would answer for the old one. A loop body reuses the same scope under the
+                // same parent on every pass, which is the case that keeps what it remembered.
+                let same_parent = borrowed.parent.as_ref().is_some_and(|old| Rc::ptr_eq(old, &parent));
+                if !same_parent {
+                    object::invalidate_name_reads();
+                }
                 borrowed.parent = Some(parent);
                 borrowed.access_class = None;
                 borrowed.source_path.clear();
@@ -393,9 +404,7 @@ impl Evaluator {
     /// The scope a program's globals are declared in: the built-ins, then a scope
     /// of its own that remembers the file the program came from.
     fn global_scope(&self) -> Env {
-        let builtins = object::Environment::new(None);
-        builtins::install(&builtins, &self.arguments);
-        let env = object::Environment::new(Some(builtins));
+        let env = object::Environment::new(Some(builtins::install(&self.arguments)));
         env.borrow_mut().source_path = self.source_path.clone();
         env
     }
@@ -1602,9 +1611,10 @@ impl Evaluator {
                             materialized.push(argument.clone());
                         }
                     }
-                    return (builtin.call)(self, &materialized, keywords).map_err(|message| runtime(base, message));
+                    return native_call!(&builtin.name, (builtin.call)(self, &materialized, keywords))
+                        .map_err(|message| runtime(base, message));
                 }
-                (builtin.call)(self, arguments, keywords).map_err(|message| runtime(base, message))
+                native_call!(&builtin.name, (builtin.call)(self, arguments, keywords)).map_err(|message| runtime(base, message))
             }
             Value::Function(function) => self.invoke(base, &function, arguments, keywords, None),
             Value::BoundMethod(bound) => {
@@ -3057,9 +3067,7 @@ impl Evaluator {
         let program = tiger_parser::parse_source(&source, &filename).map_err(|message| runtime(base, message))?;
         self.loading.push(filename.clone());
         self.import_depth += 1;
-        let builtins = object::Environment::new(None);
-        builtins::install(&builtins, &self.arguments);
-        let scope = object::Environment::new(Some(builtins));
+        let scope = object::Environment::new(Some(builtins::install(&self.arguments)));
         scope.borrow_mut().source_path = filename.clone();
         let exports: Vec<String> = program.exports.iter().map(|exported| exported.name.clone()).collect();
         let module = Module::with_exports(filename.clone(), scope.clone(), exports);

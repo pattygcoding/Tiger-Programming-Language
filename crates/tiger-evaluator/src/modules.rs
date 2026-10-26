@@ -73,15 +73,17 @@ impl ModuleLoader for BundleLoader {
 }
 
 /// Builds a module from a list of named built-ins.
-fn module(name: &str, definitions: &[(&str, Rc<object::Builtin>)]) -> Rc<Module> {
-    let env = object::Environment::new(None);
-    // A fresh scope takes all its names at once, for the same reason the installer does:
-    // `random` and `secrets` are built again for every run.
-    let entries: Vec<(Rc<str>, object::Binding)> = definitions
+fn bindings_of(definitions: &[(&str, Rc<object::Builtin>)]) -> Vec<(Rc<str>, object::Binding)> {
+    definitions
         .iter()
         .map(|(entry, builtin)| (Rc::from(*entry), object::Binding { value: Value::Builtin(builtin.clone()), constant: true }))
-        .collect();
-    env.borrow_mut().bindings.extend_shared(entries);
+        .collect()
+}
+
+fn module(name: &str, definitions: &[(&str, Rc<object::Builtin>)]) -> Rc<Module> {
+    let env = object::Environment::new(None);
+    // A fresh scope takes all its names at once, for the same reason the installer does.
+    env.borrow_mut().bindings.extend_shared(bindings_of(definitions));
     Module::new(name.to_string(), env)
 }
 
@@ -198,6 +200,12 @@ fn random_fraction(state: &mut u64) -> f64 {
 
 /// The `random` module: a reproducible xorshift64* PRNG with no clock dependency.
 pub fn random_module() -> Rc<Module> {
+    // Built when a program first reads a member: the generator is the run's own, and most programs
+    // never name this module, so a run should not pay for six closures it never calls.
+    Module::lazy("random".to_string(), random_bindings)
+}
+
+fn random_bindings() -> Vec<(Rc<str>, object::Binding)> {
     let state = Rc::new(RefCell::new(DEFAULT_RANDOM_SEED));
     let seed_state = state.clone();
     let seed = object::Builtin::new("random.seed", move |_host, arguments, keywords| {
@@ -277,7 +285,7 @@ pub fn random_module() -> Rc<Module> {
         }
         Ok(Value::Null)
     });
-    module("random", &[("seed", seed), ("random", random), ("int", int), ("uniform", uniform), ("choice", choice), ("shuffle", shuffle)])
+    bindings_of(&[("seed", seed), ("random", random), ("int", int), ("uniform", uniform), ("choice", choice), ("shuffle", shuffle)])
 }
 
 fn random_range(name: &str, arguments: &[Value], keywords: &[tiger_object::Keyword]) -> Result<(i64, i64), String> {
@@ -382,6 +390,13 @@ fn secrets_fraction(value: u64) -> f64 {
 /// The `secrets` module: non-reproducible randomness seeded from the host, so a
 /// program never has to call `seed`.
 pub fn secrets_module() -> Rc<Module> {
+    // Built when a program first reads a member, for the reason `random` is: the generator
+    // is seeded from the host and belongs to the run, and a run that never names it should
+    // not pay for it.
+    Module::lazy("secrets".to_string(), secrets_bindings)
+}
+
+fn secrets_bindings() -> Vec<(Rc<str>, object::Binding)> {
     let state = Rc::new(RefCell::new(secrets_seed()));
     let random_state = state.clone();
     let random = object::Builtin::new("secrets.random", move |_host, arguments, keywords| {
@@ -438,7 +453,7 @@ pub fn secrets_module() -> Rc<Module> {
         }
         Ok(Value::Null)
     });
-    module("secrets", &[("random", random), ("int", int), ("uniform", uniform), ("choice", choice), ("shuffle", shuffle)])
+    bindings_of(&[("random", random), ("int", int), ("uniform", uniform), ("choice", choice), ("shuffle", shuffle)])
 }
 
 /// The `json` module: `parse` and `stringify`.
@@ -985,20 +1000,24 @@ fn environment_variables() -> EnvironmentSnapshot {
 /// changing that dictionary does not change the process. `exit(status)` stops the
 /// program with the status Python's `sys.exit` would use; see [`crate::Exit`].
 pub fn sys_module(arguments: &[String]) -> Rc<Module> {
-    let env = object::Environment::new(None);
-    let argv: Vec<Value> = arguments.iter().map(|argument| Value::string(argument)).collect();
+    // The run's arguments are taken now, because they are the run's; what they are turned
+    // into waits for the first member a program reads. A program that never names `sys`
+    // never pays for the argument list, the copy of the environment, or `sys.exit`.
+    let arguments = arguments.to_vec();
+    let module = Module::lazy("sys".to_string(), move || {
+        let argv: Vec<Value> = arguments.iter().map(|argument| Value::string(argument)).collect();
+        vec![
+            (Rc::from("argv"), object::Binding { value: Value::list(argv), constant: true }),
+            (Rc::from("exit"), object::Binding { value: Value::Builtin(object::Builtin::higher_order("sys.exit", None)), constant: true }),
+        ]
+    });
     // `sys.env` has to be this run's own dictionary — a program may write into it, and the
-    // next run must not see that — so each run gets a copy. What it does not have to do is
-    // build the copy entry by entry: the snapshot is indexed once per thread, and a run
-    // clones it, which is two allocations instead of a rehash at every doubling of the index.
-    let variables = Rc::new(RefCell::new(environment_variables().as_ref().clone()));
-    let entries: Vec<(Rc<str>, object::Binding)> = vec![
-        (Rc::from("argv"), object::Binding { value: Value::list(argv), constant: true }),
-        (Rc::from("env"), object::Binding { value: Value::Dict(variables), constant: true }),
-        (Rc::from("exit"), object::Binding { value: Value::Builtin(object::Builtin::higher_order("sys.exit", None)), constant: true }),
-    ];
-    env.borrow_mut().bindings.extend_shared(entries);
-    Module::new("sys".to_string(), env)
+    // next run must not see that — so each run gets a copy. It is also a hundred variables that
+    // a program reading `sys.argv` never looks at, so the copy is made when something asks for
+    // `env` by name. What it does not have to do is build the copy entry by entry: the snapshot
+    // is indexed once per thread, and a run clones it.
+    module.defer("env", || Value::Dict(Rc::new(RefCell::new(environment_variables().as_ref().clone()))));
+    module
 }
 
 /// The `regex` module: regular expressions via the standard RE2 engine.

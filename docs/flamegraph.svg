@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="484" viewBox="0 0 1500 484" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+<rect width="1500" height="484" fill="#0b1120"/>
+<text x="10.00" y="34.00" font-size="22.0" fill="#f8fafc" font-weight="600">Tiger: where the time goes</text><text x="10.00" y="56.00" font-size="12.5" fill="#94a3b8" font-weight="400">Every frame's width is a measured time. Release build, in process, one machine — the numbers are this host's, not a specification.</text><text x="10.00" y="82.00" font-size="14.0" fill="#e2e8f0" font-weight="600">The paired workload, one section at a time — 7 sections</text><text x="10.00" y="101.00" font-size="11.5" fill="#64748b" font-weight="400">Each section is a language feature on its own: a counting loop, list indexing and in-place stores, dictionary insert and lookup, string building, method calls, recursion, and plain calls. `workload.tg &lt;section&gt;` runs one of them.</text><rect x="10.00" y="117.00" width="1480.00" height="16.00" fill="hsl(12, 45%, 22.0%)"><title>paired workload, 7 sections
+the measured sum of one run of each section, in process, with the program's own compile counted into each
+time: 3.067 ms (3066800 ns)
+share of the panel: 100.00%
+share of its parent: 100.00%</title></rect><text x="13.00" y="129.50" font-size="11.5" fill="#f8fafc" font-weight="400">paired workload, 7 sections  3.067 ms</text><rect x="10.00" y="134.00" width="894.19" height="16.00" fill="hsl(38, 88%, 50.3%)"><title>calls 1.853 ms
+benchmarks/python/workload.tg calls — 400106 instructions, 1.792 ms of execution
+time: 1.853 ms (1852900 ns)
+share of the panel: 60.42%
+share of its parent: 60.42%</title></rect><text x="13.00" y="146.50" font-size="11.5" fill="#f8fafc" font-weight="400">calls 1.853 ms  1.853 ms</text><rect x="904.19" y="134.00" width="310.59" height="16.00" fill="hsl(38, 88%, 56.6%)"><title>recursion 0.644 ms
+benchmarks/python/workload.tg recursion — 109558 instructions, 0.582 ms of execution
+time: 643.60 µs (643600 ns)
+share of the panel: 20.99%
+share of its parent: 20.99%</title></rect><text x="907.19" y="146.50" font-size="11.5" fill="#0b1120" font-weight="400">recursion 0.644 ms  643.60 µs</text><rect x="1214.78" y="134.00" width="88.17" height="16.00" fill="hsl(38, 88%, 59.0%)"><title>dicts 0.183 ms
+benchmarks/python/workload.tg dicts — 10765 instructions, 0.119 ms of execution
+time: 182.70 µs (182700 ns)
+share of the panel: 5.96%
+share of its parent: 5.96%</title></rect><text x="1217.78" y="146.50" font-size="11.5" fill="#0b1120" font-weight="400">dicts 0.183…</text><rect x="1302.95" y="134.00" width="66.11" height="16.00" fill="hsl(38, 88%, 59.3%)"><title>lists 0.137 ms
+benchmarks/python/workload.tg lists — 10927 instructions, 0.074 ms of execution
+time: 137.00 µs (137000 ns)
+share of the panel: 4.47%
+share of its parent: 4.47%</title></rect><text x="1305.95" y="146.50" font-size="11.5" fill="#0b1120" font-weight="400">lists 0.…</text><rect x="1369.06" y="134.00" width="46.38" height="16.00" fill="hsl(38, 88%, 59.5%)"><title>loop 0.096 ms
+benchmarks/python/workload.tg loop — 3706 instructions, 0.026 ms of execution
+time: 96.10 µs (96100 ns)
+share of the panel: 3.13%
+share of its parent: 3.13%</title></rect><text x="1372.06" y="146.50" font-size="11.5" fill="#0b1120" font-weight="400">loop …</text><rect x="1415.44" y="134.00" width="41.74" height="16.00" fill="hsl(38, 88%, 59.5%)"><title>methods 0.086 ms
+benchmarks/python/workload.tg methods — 2474 instructions, 0.028 ms of execution
+time: 86.50 µs (86500 ns)
+share of the panel: 2.82%
+share of its parent: 2.82%</title></rect><text x="1418.44" y="146.50" font-size="11.5" fill="#0b1120" font-weight="400">meth…</text><rect x="1457.18" y="134.00" width="32.82" height="16.00" fill="hsl(38, 88%, 59.6%)"><title>strings 0.068 ms
+benchmarks/python/workload.tg strings — 715 instructions, 0.007 ms of execution
+time: 68.00 µs (68000 ns)
+share of the panel: 2.22%
+share of its parent: 2.22%</title></rect><rect x="10.00" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 0.09%</title></rect><rect x="10.82" y="151.00" width="28.57" height="16.00" fill="hsl(203, 62%, 55.8%)"><title>parse + compile 59.20 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 59.20 µs.
+time: 59.20 µs (59200 ns)
+share of the panel: 1.93%
+share of its parent: 3.19%</title></rect><rect x="39.39" y="151.00" width="864.80" height="16.00" fill="hsl(30, 12%, 63.3%)"><title>execute 1.792 ms
+everything after the source was lowered
+time: 1.792 ms (1792000 ns)
+share of the panel: 58.43%
+share of its parent: 96.71%</title></rect><text x="42.39" y="163.50" font-size="11.5" fill="#0b1120" font-weight="400">execute 1.792 ms  1.792 ms</text><rect x="904.19" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 0.26%</title></rect><rect x="905.01" y="151.00" width="29.15" height="16.00" fill="hsl(203, 62%, 55.8%)"><title>parse + compile 60.40 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 60.40 µs.
+time: 60.40 µs (60400 ns)
+share of the panel: 1.97%
+share of its parent: 9.38%</title></rect><rect x="934.16" y="151.00" width="280.62" height="16.00" fill="hsl(30, 12%, 66.5%)"><title>execute 581.50 µs
+everything after the source was lowered
+time: 581.50 µs (581500 ns)
+share of the panel: 18.96%
+share of its parent: 90.35%</title></rect><text x="937.16" y="163.50" font-size="11.5" fill="#0b1120" font-weight="400">execute 581.50 µs  581.50 µs</text><rect x="1214.78" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 0.93%</title></rect><rect x="1215.60" y="151.00" width="29.92" height="16.00" fill="hsl(203, 62%, 55.8%)"><title>parse + compile 62.00 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 62.00 µs.
+time: 62.00 µs (62000 ns)
+share of the panel: 2.02%
+share of its parent: 33.94%</title></rect><rect x="1245.52" y="151.00" width="57.43" height="16.00" fill="hsl(30, 12%, 67.7%)"><title>execute 119.00 µs
+everything after the source was lowered
+time: 119.00 µs (119000 ns)
+share of the panel: 3.88%
+share of its parent: 65.13%</title></rect><text x="1248.52" y="163.50" font-size="11.5" fill="#0b1120" font-weight="400">execut…</text><rect x="1302.95" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 1.24%</title></rect><rect x="1303.77" y="151.00" width="29.58" height="16.00" fill="hsl(203, 62%, 55.8%)"><title>parse + compile 61.30 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 62.40 µs.
+time: 61.30 µs (61300 ns)
+share of the panel: 2.00%
+share of its parent: 44.74%</title></rect><rect x="1333.35" y="151.00" width="35.71" height="16.00" fill="hsl(30, 12%, 67.8%)"><title>execute 74.00 µs
+everything after the source was lowered
+time: 74.00 µs (74000 ns)
+share of the panel: 2.41%
+share of its parent: 54.01%</title></rect><text x="1336.35" y="163.50" font-size="11.5" fill="#0b1120" font-weight="400">exe…</text><rect x="1369.06" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 1.77%</title></rect><rect x="1369.88" y="151.00" width="33.01" height="16.00" fill="hsl(203, 62%, 55.8%)"><title>parse + compile 68.40 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 76.40 µs.
+time: 68.40 µs (68400 ns)
+share of the panel: 2.23%
+share of its parent: 71.18%</title></rect><rect x="1402.89" y="151.00" width="12.55" height="16.00" fill="hsl(30, 12%, 67.9%)"><title>execute 26.00 µs
+everything after the source was lowered
+time: 26.00 µs (26000 ns)
+share of the panel: 0.85%
+share of its parent: 27.06%</title></rect><rect x="1415.44" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 1.97%</title></rect><rect x="1416.26" y="151.00" width="27.36" height="16.00" fill="hsl(203, 62%, 55.9%)"><title>parse + compile 56.70 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 56.70 µs.
+time: 56.70 µs (56700 ns)
+share of the panel: 1.85%
+share of its parent: 65.55%</title></rect><rect x="1443.62" y="151.00" width="13.56" height="16.00" fill="hsl(30, 12%, 67.9%)"><title>execute 28.10 µs
+everything after the source was lowered
+time: 28.10 µs (28100 ns)
+share of the panel: 0.92%
+share of its parent: 32.49%</title></rect><rect x="1457.18" y="151.00" width="0.82" height="16.00" fill="hsl(220, 10%, 56.0%)"><title>floor: Evaluator::new 1.70 µs
+the cost of a run before it does anything: a global scope built, the built-ins installed into it, the host services set up
+time: 1.70 µs (1700 ns)
+share of the panel: 0.06%
+share of its parent: 2.50%</title></rect><rect x="1458.00" y="151.00" width="28.52" height="16.00" fill="hsl(203, 62%, 55.8%)"><title>parse + compile 59.10 µs
+read, lex, parse, and lower to instructions — what a program pays before its first statement runs. Measured alone, the parse and the lowering are 61.50 µs.
+time: 59.10 µs (59100 ns)
+share of the panel: 1.93%
+share of its parent: 86.91%</title></rect><rect x="1486.53" y="151.00" width="3.47" height="16.00" fill="hsl(30, 12%, 68.0%)"><title>execute 7.20 µs
+everything after the source was lowered
+time: 7.20 µs (7200 ns)
+share of the panel: 0.23%
+share of its parent: 10.59%</title></rect><rect x="39.39" y="168.00" width="856.61" height="16.00" fill="hsl(215, 40%, 36.1%)"><title>the engine's instructions 1.775 ms
+the instruction loop: the execute time less every measured native call. 400106 instructions ran — LoadFlat 100013, Constant 50012, Call 50008, FlatJumpUnlessFlatNumber 50001, BinaryStoreNumber 50000, ReturnFused 50000. What each of those shapes costs is not measurable here: see the notes.
+time: 1.775 ms (1775040 ns)
+share of the panel: 57.88%
+share of its parent: 99.05%</title></rect><text x="42.39" y="180.50" font-size="11.5" fill="#f8fafc" font-weight="400">the engine's instructions 1.775 ms  1.775 ms</text><rect x="896.00" y="168.00" width="8.18" height="16.00" fill="hsl(152, 55%, 69.7%)"><title>native calls 16.96 µs
+built-ins and string methods, each timed as it ran: 0.9% of the execute time. One call in 64 is timed and scaled back up, which is an estimate of the group its sample stands for.
+time: 16.96 µs (16960 ns)
+share of the panel: 0.55%
+share of its parent: 0.95%</title></rect><rect x="934.16" y="168.00" width="277.07" height="16.00" fill="hsl(215, 40%, 36.1%)"><title>the engine's instructions 574.14 µs
+the instruction loop: the execute time less every measured native call. 109558 instructions ran — LoadName 21906, Call 21899, FlatJumpUnlessConstantNumber 21891, ReturnFused 21891, FlatBinaryConstantNumber 21890, LoadFlat 14. What each of those shapes costs is not measurable here: see the notes.
+time: 574.14 µs (574140 ns)
+share of the panel: 18.72%
+share of its parent: 98.73%</title></rect><text x="937.16" y="180.50" font-size="11.5" fill="#f8fafc" font-weight="400">the engine's instructions 574.14 µs</text><rect x="1211.23" y="168.00" width="3.55" height="16.00" fill="hsl(152, 55%, 69.6%)"><title>native calls 7.36 µs
+built-ins and string methods, each timed as it ran: 1.3% of the execute time. One call in 64 is timed and scaled back up, which is an estimate of the group its sample stands for.
+time: 7.36 µs (7360 ns)
+share of the panel: 0.24%
+share of its parent: 1.27%</title></rect><rect x="1245.52" y="168.00" width="44.15" height="16.00" fill="hsl(215, 40%, 37.9%)"><title>the engine's instructions 91.48 µs
+the instruction loop: the execute time less every measured native call. 10765 instructions ran — LoadFlat 1363, Constant 713, LoadName 666, Call 658, Binary 656, UpdateFlatJump 650. What each of those shapes costs is not measurable here: see the notes.
+time: 91.48 µs (91480 ns)
+share of the panel: 2.98%
+share of its parent: 76.87%</title></rect><text x="1248.52" y="180.50" font-size="11.5" fill="#f8fafc" font-weight="400">the …</text><rect x="1289.67" y="168.00" width="13.28" height="16.00" fill="hsl(152, 55%, 62.6%)"><title>native calls 27.52 µs
+built-ins and string methods, each timed as it ran: 23.1% of the execute time. One call in 64 is timed and scaled back up, which is an estimate of the group its sample stands for.
+time: 27.52 µs (27520 ns)
+share of the panel: 0.90%
+share of its parent: 23.13%</title></rect><rect x="1333.35" y="168.00" width="34.32" height="16.00" fill="hsl(215, 40%, 36.3%)"><title>the engine's instructions 71.12 µs
+the instruction loop: the execute time less every measured native call. 10927 instructions ran — LoadFlat 1815, FlatJumpUnlessFlatNumber 1202, BinaryConstantNumber 1201, FlatIndexFlat 1200, UpdateFlatJump 1200, Jump 602. What each of those shapes costs is not measurable here: see the notes.
+time: 71.12 µs (71120 ns)
+share of the panel: 2.32%
+share of its parent: 96.11%</title></rect><text x="1336.35" y="180.50" font-size="11.5" fill="#f8fafc" font-weight="400">the…</text><rect x="1367.67" y="168.00" width="1.39" height="16.00" fill="hsl(152, 55%, 68.8%)"><title>native calls 2.88 µs
+built-ins and string methods, each timed as it ran: 3.9% of the execute time. One call in 64 is timed and scaled back up, which is an estimate of the group its sample stands for.
+time: 2.88 µs (2880 ns)
+share of the panel: 0.09%
+share of its parent: 3.89%</title></rect><rect x="1402.89" y="168.00" width="10.85" height="16.00" fill="hsl(215, 40%, 37.1%)"><title>the engine's instructions 22.48 µs
+the instruction loop: the execute time less every measured native call. 3706 instructions ran — LoadFlat 613, BinaryConstantNumber 601, FlatJumpUnlessFlatNumber 601, BinaryStoreNumber 600, FlatBinaryConstantNumber 600, UpdateFlatJump 600. What each of those shapes costs is not measurable here: see the notes.
+time: 22.48 µs (22480 ns)
+share of the panel: 0.73%
+share of its parent: 86.46%</title></rect><rect x="1413.74" y="168.00" width="1.70" height="16.00" fill="hsl(152, 55%, 65.7%)"><title>native calls 3.52 µs
+built-ins and string methods, each timed as it ran: 13.5% of the execute time. One call in 64 is timed and scaled back up, which is an estimate of the group its sample stands for.
+time: 3.52 µs (3520 ns)
+share of the panel: 0.11%
+share of its parent: 13.54%</title></rect><rect x="1443.62" y="168.00" width="8.34" height="16.00" fill="hsl(152, 55%, 50.3%)"><title>native calls 17.28 µs
+built-ins and string methods, each timed as it ran: 61.5% of the execute time. One call in 64 is timed and scaled back up, which is an estimate of the group its sample stands for.
+time: 17.28 µs (17280 ns)
+share of the panel: 0.56%
+share of its parent: 61.49%</title></rect><rect x="1451.96" y="168.00" width="5.22" height="16.00" fill="hsl(215, 40%, 40.9%)"><title>the engine's instructions 10.82 µs
+the instruction loop: the execute time less every measured native call. 2474 instructions ran — LoadFlat 573, LoadName 376, Call 368, JumpUnless 200, UpdateFlatJump 200, BinaryStoreNumber 160. What each of those shapes costs is not measurable here: see the notes.
+time: 10.82 µs (10820 ns)
+share of the panel: 0.35%
+share of its parent: 38.51%</title></rect><rect x="1486.53" y="168.00" width="2.86" height="16.00" fill="hsl(215, 40%, 37.4%)"><title>the engine's instructions 5.92 µs
+the instruction loop: the execute time less every measured native call. 715 instructions ran — FlatJumpUnlessConstantNumber 201, FlatBinaryConstantStore 200, UpdateFlatJump 200, LoadName 17, LoadFlat 15, Constant 13. What each of those shapes costs is not measurable here: see the notes.
+time: 5.92 µs (5920 ns)
+share of the panel: 0.19%
+share of its parent: 82.22%</title></rect><rect x="896.00" y="185.00" width="8.18" height="16.00" fill="hsl(152, 55%, 38.0%)"><title>len
+the native call `len`, 0.9% of the execute time
+time: 16.96 µs (16960 ns)
+share of the panel: 0.55%
+share of its parent: 100.00%</title></rect><rect x="1211.23" y="185.00" width="3.55" height="16.00" fill="hsl(152, 55%, 38.0%)"><title>len
+the native call `len`, 1.3% of the execute time
+time: 7.36 µs (7360 ns)
+share of the panel: 0.24%
+share of its parent: 100.00%</title></rect><rect x="1289.67" y="185.00" width="12.20" height="16.00" fill="hsl(152, 55%, 40.6%)"><title>str
+the native call `str`, 21.2% of the execute time
+time: 25.28 µs (25280 ns)
+share of the panel: 0.82%
+share of its parent: 91.86%</title></rect><rect x="1301.87" y="185.00" width="1.08" height="16.00" fill="hsl(152, 55%, 67.4%)"><title>len
+the native call `len`, 1.9% of the execute time
+time: 2.24 µs (2240 ns)
+share of the panel: 0.07%
+share of its parent: 8.14%</title></rect><rect x="1367.67" y="185.00" width="1.39" height="16.00" fill="hsl(152, 55%, 38.0%)"><title>len
+the native call `len`, 3.9% of the execute time
+time: 2.88 µs (2880 ns)
+share of the panel: 0.09%
+share of its parent: 100.00%</title></rect><rect x="1413.74" y="185.00" width="1.70" height="16.00" fill="hsl(152, 55%, 38.0%)"><title>len
+the native call `len`, 13.5% of the execute time
+time: 3.52 µs (3520 ns)
+share of the panel: 0.11%
+share of its parent: 100.00%</title></rect><rect x="1443.62" y="185.00" width="5.10" height="16.00" fill="hsl(152, 55%, 50.4%)"><title>len
+the native call `len`, 37.6% of the execute time
+time: 10.56 µs (10560 ns)
+share of the panel: 0.34%
+share of its parent: 61.11%</title></rect><rect x="1448.72" y="185.00" width="3.24" height="16.00" fill="hsl(152, 55%, 57.6%)"><title>upper
+the native call `upper`, 23.9% of the execute time
+time: 6.72 µs (6720 ns)
+share of the panel: 0.22%
+share of its parent: 38.89%</title></rect><line x1="10" y1="206.00" x2="1490.00" y2="206.00" stroke="#1f2937" stroke-width="1"/><text x="10.00" y="220.00" font-size="11.5" fill="#64748b" font-weight="400">whole panel: 3.067 ms</text><text x="10.00" y="248.00" font-size="13.0" fill="#e2e8f0" font-weight="600">Reading it</text><text x="10.00" y="266.00" font-size="11.5" fill="#94a3b8" font-weight="400">The heaviest native calls, measured as they ran: len 0.045 ms, str 0.025 ms, upper 0.007 ms. These are the places a change can be measured against, because each one was timed rather than modelled.</text><text x="10.00" y="281.00" font-size="11.5" fill="#94a3b8" font-weight="400">The loop is made of what these counts say: LoadFlat 19.4%, Call 13.6%, ReturnFused 13.4%, UpdateFlatJump 9.8%, FlatJumpUnlessFlatNumber 9.7%, BinaryStoreNumber 9.6%, Constant 9.4%, FlatBinaryConstantNumber 4.3%. Over the 7 units</text><text x="10.00" y="296.00" font-size="11.5" fill="#94a3b8" font-weight="400">drawn, 538251 instructions ran; the graph has no frame per shape because what each shape costs is not measurable on this host — three attempts are recorded in `docs/performance.md`, and all three failed measurably.</text><text x="10.00" y="311.00" font-size="11.5" fill="#94a3b8" font-weight="400">Reading the two levels that are fully measured: 0.427 ms was spent parsing and lowering (the first child of every unit) against 2.628 ms of execution. For a light program the parse is most of the run; for a heavy one it is a few</text><text x="10.00" y="326.00" font-size="11.5" fill="#94a3b8" font-weight="400">percent.</text><text x="10.00" y="341.00" font-size="11.5" fill="#94a3b8" font-weight="400">The floor of a run — building an evaluator and installing the built-ins — is 1.70 µs and is the same for every program, which is why it is a frame of its own in each unit rather than folded into the execute time.</text><text x="10.00" y="356.00" font-size="11.5" fill="#94a3b8" font-weight="400">Every unit lowered to the compiled engine, so every unit has an instruction count.</text><text x="10.00" y="371.00" font-size="11.5" fill="#94a3b8" font-weight="400">Both panels together measured 3.067 ms. To regenerate: `cd tools/flamegraph &amp;&amp; cargo run --release`. The tool sits outside the workspace, so `cargo test` at the root never builds the profiler into anything else.</text><rect x="10" y="384.00" width="12" height="12" fill="hsl(38, 88%, 55.2%)"/><text x="28.00" y="394.00" font-size="11.5" fill="#94a3b8" font-weight="400">a unit: one program, or one workload section</text><rect x="10" y="400.00" width="12" height="12" fill="hsl(30, 12%, 65.6%)"/><text x="28.00" y="410.00" font-size="11.5" fill="#94a3b8" font-weight="400">measured: the floor, parse + compile, execute</text><rect x="10" y="416.00" width="12" height="12" fill="hsl(152, 55%, 60.4%)"/><text x="28.00" y="426.00" font-size="11.5" fill="#94a3b8" font-weight="400">measured: a native call — a built-in, or a string method</text><rect x="10" y="432.00" width="12" height="12" fill="hsl(215, 40%, 41.6%)"/><text x="28.00" y="442.00" font-size="11.5" fill="#94a3b8" font-weight="400">measured: the instruction loop, whose mix of shapes is a count</text><rect x="10" y="448.00" width="12" height="12" fill="hsl(220, 8%, 32.0%)"/><text x="28.00" y="458.00" font-size="11.5" fill="#94a3b8" font-weight="400">measured time no child accounted for</text>
+</svg>

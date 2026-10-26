@@ -100,11 +100,17 @@ fn ascii_case(text: &str, uppercase: bool) -> Option<Value> {
 
 fn upper(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
     no_arguments("upper", arguments, keywords)?;
+    if let Some(mapped) = receiver.ascii_case_inline(true) {
+        return Ok(Value::String(mapped));
+    }
     Ok(ascii_case(receiver, true).unwrap_or_else(|| Value::string(&receiver.to_uppercase())))
 }
 
 fn lower(receiver: &RcStr, arguments: &[Value], keywords: &[Keyword]) -> Result<Value, String> {
     no_arguments("lower", arguments, keywords)?;
+    if let Some(mapped) = receiver.ascii_case_inline(false) {
+        return Ok(Value::String(mapped));
+    }
     Ok(ascii_case(receiver, false).unwrap_or_else(|| Value::string(&receiver.to_lowercase())))
 }
 

@@ -619,3 +619,105 @@ fn a_modulo_agrees_on_both_engines() {
         ("var total = 0; for (var i = 0; i < 12; ++i) { total += i * 3 % 7; } print(total);", "37\n"),
     ]);
 }
+
+#[test]
+fn a_pooled_scope_reused_under_another_parent_does_not_answer_for_the_old_one() {
+    // `x` is read by name from inside a block that declares a local, so the block opens a scope
+    // on every call and the scope is returned to the pool empty — which no longer moves the
+    // binding epoch. The next call hands the same scope out again, and when it sits under a
+    // *different* closure's environment the read remembered for it must not be used: it was
+    // resolved through the other parent. Calling the two closures alternately is what would
+    // show a stale answer.
+    expect_both_outputs(&[
+        (
+            "function make(v) {\n    var x = v;\n    return function() {\n        if true {\n            const t = 0;\n            return x + t;\n        }\n    };\n}\nconst a = make(1);\nconst b = make(10);\nprint(a(), b(), a(), b(), a());",
+            "1 10 1 10 1\n",
+        ),
+        // The same, with the outer binding changing between the calls rather than the parent: a
+        // write is what moves the epoch, so a read must see it.
+        (
+            "function make(v) {\n    var x = v;\n    return [function() {\n        if true {\n            const t = 0;\n            return x + t;\n        }\n    }, function(n) {\n        x = n;\n    }];\n}\nconst pair = make(1);\nconst read = pair[0];\nconst write = pair[1];\nprint(read());\nwrite(5);\nprint(read());\nwrite(9);\nprint(read(), read());",
+            "1\n5\n9 9\n",
+        ),
+    ]);
+}
+
+#[test]
+fn a_name_a_lowered_comprehension_reads_keeps_its_flat_slot() {
+    // `limit` is read by a comprehension's iterable, its filter, and its element, and by nothing
+    // that runs later. The comprehension is a loop of this frame, so it reads `limit` the way
+    // the code around it does and the name stays a flat local. What has to be true either way is
+    // that every read sees the value the program gave it, including after it changes.
+    expect_both_outputs(&[
+        ("const limit = 4;\nprint([n * limit for n in range(limit) if n < limit]);\nvar i = 0;\nwhile i < limit { i += 1; }\nprint(i);", "[0, 4, 8, 12]\n4\n"),
+        ("var limit = 3;\nconst before = [n for n in range(limit)];\nlimit = 5;\nconst after = [n for n in range(limit)];\nprint(before, after);", "[0, 1, 2] [0, 1, 2, 3, 4]\n"),
+        // A dictionary comprehension reads the same way.
+        ("const scale = 10;\nprint({n: n * scale for n in range(3)});", "{0: 0, 1: 10, 2: 20}\n"),
+        // A comprehension in a function reads the function's own locals.
+        ("function f(limit) {\n    var total = 0;\n    for (var i = 0; i < limit; ++i) {\n        total += len([n for n in range(limit)]);\n    }\n    return total;\n}\nprint(f(4));", "16\n"),
+    ]);
+    // What a function *inside* the comprehension mentions still has to stay reachable by name,
+    // because it runs later in the scope it captured. Narrowing the scan must not lose that.
+    expect_both_outputs(&[
+        ("var factor = 2;\nconst fs = [function() { return n * factor; } for n in range(3)];\nfactor = 10;\nprint(fs[0](), fs[1](), fs[2]());", "20 20 20\n"),
+        ("function make(step) {\n    return [function() { return step + n; } for n in range(2)];\n}\nconst fs = make(5);\nprint(fs[0](), fs[1]());", "6 6\n"),
+        // A generator expression runs later, so what it reads is captured as well.
+        ("var k = 1;\nconst g = (n + k for n in range(3));\nk = 100;\nprint(list(g));", "[100, 101, 102]\n"),
+    ]);
+}
+
+#[test]
+fn case_conversion_agrees_across_the_inline_boundary_on_both_engines() {
+    // A string of up to seven ASCII bytes lives in its handle and is mapped there; eight bytes
+    // or more is allocated, and anything non-ASCII has a mapping that can change its length.
+    // Every one of those has to give what the general conversion gives.
+    expect_both_outputs(&[
+        ("print(\"alpha\".upper(), \"BETA\".lower(), \"MiXeD12\".upper(), \"\".upper());", "ALPHA beta MIXED12 \n"),
+        ("print(\"exactly8\".upper(), \"a longer string than any handle holds\".upper());", "EXACTLY8 A LONGER STRING THAN ANY HANDLE HOLDS\n"),
+        ("print(\"stra\u{df}e\".upper(), \"\u{c9}COLE\".lower(), len(\"\u{df}\".upper()));", "STRASSE \u{e9}cole 2\n"),
+        // The receiver is not changed, and a result is its own value.
+        ("const word = \"gamma\"; const big = word.upper(); print(word, big, word.upper() == big);", "gamma GAMMA true\n"),
+        ("var total = 0; const words = [\"alpha\", \"beta\", \"gamma\", \"delta\"]; for (var i = 0; i < len(words); ++i) { total += len(words[i].upper()); } print(total);", "19\n"),
+    ]);
+    // A call that does not fit the method is still reported where it was, by either spelling.
+    expect_both_errors(&[
+        ("print(\"abc\".upper(1));", "upper expects 0 arguments, got 1"),
+        ("print(\"abc\".lower(1, 2));", "lower expects 0 arguments, got 2"),
+    ]);
+}
+
+#[test]
+fn a_computed_value_stored_through_a_flat_index_agrees_on_both_engines() {
+    // `items[i] = <computed>` leaves the value on the operand stack and the collection and key
+    // are flat locals, which is the shape one fused instruction stores. Every collection it
+    // can meet has to behave as the interpreter's own store does.
+    expect_both_outputs(&[
+        ("const a = [1, 2, 3]; var i = 1; a[i] = a[i] + 10; print(a);", "[1, 12, 3]\n"),
+        ("const a = [1, 2, 3]; var i = 0; a[i] = len(a) * 2; print(a);", "[6, 2, 3]\n"),
+        // A negative key counts from the end, which the fast store declines and the full path takes.
+        ("const a = [1, 2, 3]; var i = -1; a[i] = a[0] + 40; print(a);", "[1, 2, 41]\n"),
+        // A dictionary is stored by key, inserting or replacing.
+        ("const d = {\"a\": 1}; var k = \"a\"; d[k] = d[k] + 1; k = \"b\"; d[k] = 5 * 2; print(d);", "{\"a\": 2, \"b\": 10}\n"),
+        // The value is evaluated before the key is used, so a key changed by the value's own
+        // computation is read afterwards, exactly as the unfused order does it.
+        ("const a = [0, 0, 0]; var i = 0; function bump() { return 7; }\ni = 2; a[i] = bump() + 1; print(a);", "[0, 0, 8]\n"),
+        ("var total = 0; const a = [1, 2, 3, 4]; for (var i = 0; i < len(a); ++i) { a[i] = a[i] * a[i] + 1; total += a[i]; } print(a, total);", "[2, 5, 10, 17] 34\n"),
+    ]);
+    // Everything the fast store declines keeps the diagnostic and the position it had.
+    for (source, message, position) in [
+        ("const a = [1]; var i = 5; a[i] = a[0] + 1;", "index out of range", "1:"),
+        ("const a = [1]; var i = 0.5; a[i] = a[0] + 1;", "index must be an integer", "1:"),
+        ("const a = [1]; var i = \"x\"; a[i] = a[0] + 1;", "index must be an integer", "1:"),
+        ("const t = (1, 2); var i = 0; t[i] = i + 1;", "cannot assign an index of tuple", "1:"),
+        ("const s = \"abc\"; var i = 0; s[i] = i + 1;", "cannot assign an index of string", "1:"),
+        ("const d = {}; var k = []; d[k] = 1 + 1;", "list cannot be a dictionary key", "1:"),
+    ] {
+        let (_, outcome) = both(source);
+        let error = match outcome {
+            Ok(_) => panic!("{:?} must fail", source),
+            Err(error) => error,
+        };
+        assert!(error.contains(message), "{:?}: expected {:?}, got {}", source, message, error);
+        assert!(error.starts_with(position), "{:?}: expected a position, got {}", source, error);
+    }
+}

@@ -4,13 +4,33 @@
 //! recursively walking the AST. Every operation delegates to the same runtime
 //! helpers the interpreter uses, so the two engines agree exactly.
 
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use tiger_object as object;
 use tiger_object::bytecode::{CachedProperty, Chunk, Instr, Op, TryProto, SPECIALIZE_AFTER};
 use tiger_object::{Env, FunctionValue, Keyword, Value};
 
 use crate::{builtins, methods, runtime, Evaluator, Signal};
+
+/// Runs a native call — a built-in, or a string method — timing it when the profiler is
+/// on and calling it straight through when it is off.
+///
+/// The `cfg` split is the point rather than the closure: with the feature off,
+/// the expansion is the call itself, so a release build's hot path is the code it was.
+/// See [`profile::sampled`](crate::profile::sampled) for what a timed call measures.
+macro_rules! native_call {
+    ($name:expr, $call:expr) => {{
+        #[cfg(feature = "profile")]
+        {
+            crate::profile::sampled($name, || $call)
+        }
+        #[cfg(not(feature = "profile"))]
+        {
+            $call
+        }
+    }};
+}
+pub(crate) use native_call;
 
 /// A `for ... in` iteration in progress.
 ///
@@ -208,19 +228,22 @@ impl<'a> CallSite<'a> {
 /// variable of the loop and is never routed through this struct, which is the
 /// difference between a frame stack that pays for itself and one that does not.
 struct Parked {
-    /// The chunk the caller was running.
-    chunk: Rc<Chunk>,
+    /// The chunk the caller was running, or `None` when the callee runs the same one.
+    ///
+    /// A recursive call enters the chunk it is already in, and parking an `Rc` of it only
+    /// to put the same one back costs a count up and a count down for nothing.
+    chunk: Option<Rc<Chunk>>,
     /// The instruction the caller resumes at: the one after its call, or after the
     /// `Pop` that a discarded result had fused into it.
-    pc: usize,
+    pc: u32,
     /// The caller's operand base on the shared value stack.
-    base: usize,
+    base: u32,
     /// How tall the caller's scopes were when it was entered. A frame releases
     /// everything above its own mark, so a call's scopes are its own to unwind.
-    scope_mark: usize,
+    scope_mark: u32,
     /// The same for the caller's iterators, which a `for` loop pushes and a return
     /// leaves behind.
-    iter_mark: usize,
+    iter_mark: u32,
     /// Whether the callee's result is dropped rather than left on the stack.
     discard: bool,
     /// Where the caller's flat locals start on the shared value stack.
@@ -229,14 +252,83 @@ struct Parked {
     /// slots are already where they belong when the callee's frame goes: what the frame
     /// records is the index, not a buffer to hand back. That is what a call stops
     /// paying for here — no vector leaves the loop and none returns to it.
-    locals_at: usize,
-    /// The caller's environment.
-    env: Env,
+    locals_at: u32,
+    /// The caller's environment, or `None` when the callee runs in the same one.
+    ///
+    /// Every function declared at the top level and called from there, or from another
+    /// such function, captured the same environment, so the swap would put back what it
+    /// took out and cost a count up and a count down to do it.
+    env: Option<Env>,
     /// A scope the callee's frame took for its own call, for the frame's return to
     /// release. A plain function whose body needs no scope has none; a method, or a
     /// function that captured a name, has the scope `bind_call` bound `this`, the
     /// parameters, and the keywords into.
     scope: Option<Env>,
+}
+
+/// Makes sure the next [`put`] has room, and does it *before* the value to push is computed.
+///
+/// `Vec::push` tests the capacity after its argument exists, with a call to grow in
+/// between, so the compiler keeps a half-built `Value` in a stack temporary — a tag byte
+/// and a payload stored separately — across that call and then copies it into the vector
+/// with one 16-byte load. A load that straddles two smaller stores cannot be forwarded from
+/// them, so every push waited for the stores to reach the cache: about a third of a
+/// recursive call's samples sat on those copies. With the room made first nothing sits
+/// between computing the value and writing it, and the value goes straight to its slot.
+#[inline(always)]
+fn room<T>(vector: &mut Vec<T>) {
+    if vector.len() == vector.capacity() {
+        grow(vector);
+    }
+}
+
+/// The cold half of [`room`], kept out of line so the test above stays two instructions.
+#[cold]
+#[inline(never)]
+fn grow<T>(vector: &mut Vec<T>) {
+    vector.reserve(32);
+}
+
+/// Pushes without testing the capacity.
+///
+/// The caller has made room since the last time the vector shrank or grew: either it called
+/// [`room`] on this vector, or it truncated the vector, which can only free slots. Nothing
+/// between that and this call may push, which is why each use sits in a single arm.
+#[inline(always)]
+fn put<T>(vector: &mut Vec<T>, item: T) {
+    debug_assert!(vector.len() < vector.capacity(), "put needs room made first");
+    let length = vector.len();
+    // SAFETY: `length < capacity`, so the slot is allocated, and it is past the end, so it
+    // holds nothing that needs dropping. The length is raised only after the write.
+    unsafe {
+        vector.as_mut_ptr().add(length).write(item);
+        vector.set_len(length + 1);
+    }
+}
+
+/// A copy of `value`, made without a call when it owns nothing.
+///
+/// A number, a bool, and null are plain data, so their clone is a bitwise copy; reading it
+/// straight from the slot is one 16-byte load and one 16-byte store. `Value::clone` is an
+/// out-of-line call that builds its result a tag and a payload at a time in memory, and the
+/// 16-byte load that follows cannot be forwarded from those two smaller stores, so each
+/// `LoadFlat` stalled until they reached the cache.
+#[inline(always)]
+fn copy_of(value: &Value) -> Value {
+    match value {
+        // SAFETY: these variants own no heap data, so a bitwise copy is a valid clone and
+        // there is nothing to double-drop.
+        Value::Number(_) | Value::Bool(_) | Value::Null => unsafe { std::ptr::read(value) },
+        // The handle kinds a name read or a local read most often meets. Each is a count
+        // raised on a pointer, written straight into the destination, which is what the
+        // out-of-line `Value::clone` cannot be inlined to do.
+        Value::Function(function) => Value::Function(Rc::clone(function)),
+        Value::Builtin(builtin) => Value::Builtin(Rc::clone(builtin)),
+        Value::List(list) => Value::List(Rc::clone(list)),
+        Value::Dict(dict) => Value::Dict(Rc::clone(dict)),
+        Value::Instance(instance) => Value::Instance(Rc::clone(instance)),
+        other => other.clone(),
+    }
 }
 
 /// The inline numeric path for a binary operator the compiler tagged.
@@ -540,7 +632,7 @@ impl Evaluator {
             }
             let instr = chunk.at(pc);
             #[cfg(feature = "profile")]
-            crate::profile::record(instr);
+            crate::profile::record(&instr);
             pc += 1;
             match instr {
                 Instr::Constant(index) => stack.push(chunk.constants[index as usize].clone()),
@@ -551,29 +643,31 @@ impl Evaluator {
                     // of the scope chain, so the value it resolved to is remembered
                     // against the binding epoch — see `name_cache`.
                     let epoch = object::binding_epoch();
-                    let remembered = {
-                        let cache = chunk.name_cache.borrow();
-                        match cache.get(pc - 1).and_then(|slot| slot.as_ref()) {
-                            Some((scope, at, value)) if *at == epoch && Rc::ptr_eq(scope, &env) => Some(value.clone()),
-                            _ => None,
+                    // A settled read pushes the remembered value and moves on. It does not
+                    // build an `Option<Value>` to match on afterwards: that round trip was
+                    // measured at about 3 ns of every call whose callee is a name.
+                    room(stack);
+                    if let Some(Some((scope, at, value))) = chunk.name_cache.borrow().get(pc - 1) {
+                        if *at == epoch && std::ptr::eq(Weak::as_ptr(scope), Rc::as_ptr(&env)) {
+                            let value = copy_of(value);
+                            put(stack, value);
+                            continue;
                         }
-                    };
-                    let value = match remembered {
-                        Some(value) => value,
-                        None => {
-                            let value = object::get(&env, &chunk.names[index as usize])
-                                .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
-                            if let Some(slot) = chunk.name_cache.borrow_mut().get_mut(pc - 1) {
-                                *slot = Some((env.clone(), epoch, value.clone()));
-                            }
-                            value
-                        }
-                    };
+                    }
+                    let value = object::get(&env, &chunk.names[index as usize])
+                        .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                    if let Some(slot) = chunk.name_cache.borrow_mut().get_mut(pc - 1) {
+                        *slot = Some((Rc::downgrade(&env), epoch, value.clone()));
+                    }
                     stack.push(value);
                 }
                 // A flat slot belongs to this frame alone, so this is an index into
                 // `locals` with no borrow and no scope to find first.
-                Instr::LoadFlat(slot) => stack.push(stack[locals_at + slot as usize].clone()),
+                Instr::LoadFlat(slot) => {
+                    room(stack);
+                    let value = copy_of(&stack[locals_at + slot as usize]);
+                    put(stack, value);
+                }
                 Instr::StoreFlat { name, slot, constant, .. } => {
                     if constant {
                         let name = &chunk.names[name as usize];
@@ -859,6 +953,7 @@ impl Evaluator {
                     pc += 2;
                 }
                 Instr::FlatBinaryConstantNumber { a, b, op, name } => {
+                    room(stack);
                     let (left, right) = match (&stack[locals_at + a as usize], &chunk.constants[b as usize]) {
                         (Value::Number(left), Value::Number(right)) => (*left, *right),
                         _ => {
@@ -877,7 +972,7 @@ impl Evaluator {
                             Value::Number(right),
                         )?,
                     };
-                    stack.push(value);
+                    put(stack, value);
                     pc += 2;
                 }
                 // The fused property read: the receiver is a flat slot, and the cache
@@ -893,24 +988,19 @@ impl Evaluator {
                 // this only has to put the callee where that call expects to find it.
                 Instr::CallName { name } => {
                     let epoch = object::binding_epoch();
-                    let remembered = {
-                        let cache = chunk.name_cache.borrow();
-                        match cache.get(pc - 1).and_then(|slot| slot.as_ref()) {
-                            Some((scope, at, value)) if *at == epoch && Rc::ptr_eq(scope, &env) => Some(value.clone()),
-                            _ => None,
+                    room(stack);
+                    if let Some(Some((scope, at, value))) = chunk.name_cache.borrow().get(pc - 1) {
+                        if *at == epoch && std::ptr::eq(Weak::as_ptr(scope), Rc::as_ptr(&env)) {
+                            let value = copy_of(value);
+                            put(stack, value);
+                            continue;
                         }
-                    };
-                    let value = match remembered {
-                        Some(value) => value,
-                        None => {
-                            let value = object::get(&env, &chunk.names[name as usize])
-                                .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
-                            if let Some(slot) = chunk.name_cache.borrow_mut().get_mut(pc - 1) {
-                                *slot = Some((env.clone(), epoch, value.clone()));
-                            }
-                            value
-                        }
-                    };
+                    }
+                    let value = object::get(&env, &chunk.names[name as usize])
+                        .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                    if let Some(slot) = chunk.name_cache.borrow_mut().get_mut(pc - 1) {
+                        *slot = Some((Rc::downgrade(&env), epoch, value.clone()));
+                    }
                     stack.push(value);
                 }
                 Instr::BinaryConstant { b, op, name, settled } => {
@@ -1129,6 +1219,82 @@ impl Evaluator {
                     // stack, so the call reads them straight out of it: no buffer and no
                     // copy. A call that passes keywords materializes those, which is the
                     // only call that allocates anything.
+                    // A plain function is entered without taking the callee out of its slot.
+                    // Moving it out writes a `Null` into the slot, and that write is built as
+                    // one byte and read back as sixteen, which the processor cannot forward:
+                    // about a tenth of a recursive call's samples were spent waiting on it. The
+                    // function stays where it is, the frame takes what it needs from a borrow,
+                    // and the return's `truncate` drops the callee along with the slots above it.
+                    if keyword_count == 0 {
+                        if let Value::Function(function) = &stack[at - 1] {
+                            if let Some(code) = &function.code {
+                                if code.flat_callable && positional as usize == code.call_layout.parameters.len() {
+                                    if self.depth >= 511 {
+                                        let base = chunk.base_at(chunk.position(pc - 1));
+                                        return Err(crate::fatal(&base, "maximum evaluation depth exceeded".to_string()));
+                                    }
+                                    self.depth += 1;
+                                    let fixed = code.call_layout.parameters.len();
+                                    debug_assert!(
+                                        code.call_layout.parameters.iter().enumerate().all(|(index, slot)| *slot == Some(index as u32)),
+                                        "a flat call's parameters own the frame's first slots"
+                                    );
+                                    debug_assert_eq!(stack.len(), at + fixed, "a call's arguments are its callee's slots");
+                                    let flat_count = code.flat_count;
+                                    let enter_chunk = if Rc::ptr_eq(&chunk, code) { None } else { Some(code.clone()) };
+                                    let enter_env = if Rc::ptr_eq(&env, &function.env) { None } else { Some(function.env.clone()) };
+                                    if flat_count > fixed {
+                                        stack.resize(at + flat_count, Value::Null);
+                                    }
+                                    room(&mut frames);
+                                    put(
+                                        &mut frames,
+                                        Parked {
+                                            chunk: match enter_chunk {
+                                                Some(entered) => Some(std::mem::replace(&mut chunk, entered)),
+                                                None => None,
+                                            },
+                                            pc: (if discard { pc + 1 } else { pc }) as u32,
+                                            base: base as u32,
+                                            locals_at: locals_at as u32,
+                                            scope_mark: scope_mark as u32,
+                                            iter_mark: iter_mark as u32,
+                                            discard,
+                                            env: match enter_env {
+                                                Some(entered) => Some(std::mem::replace(&mut env, entered)),
+                                                None => None,
+                                            },
+                                            scope: None,
+                                        },
+                                    );
+                                    scope_mark = scopes.len();
+                                    iter_mark = iters.len();
+                                    locals_at = at;
+                                    base = at + flat_count;
+                                    pc = 0;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    // A built-in is called without taking it out of its slot, for the reason a
+                    // plain function is above: moving it out writes a `Null` that is read back
+                    // as a whole value, and the callee is dropped by the `truncate` below anyway.
+                    if keyword_count == 0 {
+                        if let Value::Builtin(builtin) = &stack[at - 1] {
+                            if !builtin.higher_order && !builtin.consumes_iterables {
+                                let value = native_call!(&builtin.name, (builtin.call)(self, &stack[at..at + positional as usize], &[]))
+                                    .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                                stack.truncate(at - 1);
+                                if discard {
+                                    pc += 1;
+                                } else {
+                                    put(stack, value);
+                                }
+                                continue;
+                            }
+                        }
+                    }
                     let callee = std::mem::replace(&mut stack[at - 1], Value::Null);
                     // A built-in called with positional arguments is the shape most of
                     // a standard-library-heavy program's work takes — `len`, `math.max`,
@@ -1139,13 +1305,15 @@ impl Evaluator {
                     if keyword_count == 0 {
                         if let Value::Builtin(builtin) = &callee {
                             if !builtin.higher_order && !builtin.consumes_iterables {
-                                let value = (builtin.call)(self, &stack[at..at + positional as usize], &[])
+                                let value = native_call!(&builtin.name, (builtin.call)(self, &stack[at..at + positional as usize], &[]))
                                     .map_err(|message| runtime(&chunk.base_at(chunk.position(pc - 1)), message))?;
+                                // The truncate freed the callee slot at least, so the result has
+                                // somewhere to go and the write needs no capacity test.
                                 stack.truncate(at - 1);
                                 if discard {
                                     pc += 1;
                                 } else {
-                                    stack.push(value);
+                                    put(stack, value);
                                 }
                                 continue;
                             }
@@ -1194,19 +1362,23 @@ impl Evaluator {
                                     stack.resize(at + code.flat_count, Value::Null);
                                 }
                                 frames.push(Parked {
-                                    chunk: std::mem::replace(&mut chunk, code.clone()),
+                                    chunk: if Rc::ptr_eq(&chunk, code) { None } else { Some(std::mem::replace(&mut chunk, code.clone())) },
                                     // A call whose value is dropped had a `Pop` fused
                                     // out of it, and that instruction is still in the
                                     // code for the loop to step over — which is what the
                                     // general path's own `pc += 1` does for the same
                                     // reason.
-                                    pc: if discard { pc + 1 } else { pc },
-                                    base,
-                                    locals_at,
-                                    scope_mark,
-                                    iter_mark,
+                                    pc: (if discard { pc + 1 } else { pc }) as u32,
+                                    base: base as u32,
+                                    locals_at: locals_at as u32,
+                                    scope_mark: scope_mark as u32,
+                                    iter_mark: iter_mark as u32,
                                     discard,
-                                    env: std::mem::replace(&mut env, function.env.clone()),
+                                    env: if Rc::ptr_eq(&env, &function.env) {
+                                        None
+                                    } else {
+                                        Some(std::mem::replace(&mut env, function.env.clone()))
+                                    },
                                     scope: None,
                                 });
                                 scope_mark = scopes.len();
@@ -1232,11 +1404,13 @@ impl Evaluator {
                                     &[],
                                     None,
                                 )?;
+                                // The truncate freed the callee slot at least, so the result has
+                                // somewhere to go and the write needs no capacity test.
                                 stack.truncate(at - 1);
                                 if discard {
                                     pc += 1;
                                 } else {
-                                    stack.push(value);
+                                    put(stack, value);
                                 }
                                 continue;
                             }
@@ -1272,14 +1446,14 @@ impl Evaluator {
                             stack.truncate(at);
                             let count = slots.len();
                             frames.push(Parked {
-                                chunk: std::mem::replace(&mut chunk, body.clone()),
-                                pc: if discard { pc + 1 } else { pc },
-                                base,
-                                locals_at,
-                                scope_mark,
-                                iter_mark,
+                                chunk: Some(std::mem::replace(&mut chunk, body.clone())),
+                                pc: (if discard { pc + 1 } else { pc }) as u32,
+                                base: base as u32,
+                                locals_at: locals_at as u32,
+                                scope_mark: scope_mark as u32,
+                                iter_mark: iter_mark as u32,
                                 discard,
-                                env: std::mem::replace(&mut env, body_env),
+                                env: Some(std::mem::replace(&mut env, body_env)),
                                 scope,
                             });
                             // The prepared frame's slots are that frame's bottom, so they
@@ -1302,7 +1476,7 @@ impl Evaluator {
                     if discard {
                         pc += 1;
                     } else {
-                        stack.push(value);
+                        put(stack, value);
                     }
                 }
                 // A method call: the member is resolved and the call made in one
@@ -1351,14 +1525,14 @@ impl Evaluator {
                             stack.truncate(at);
                             let count = slots.len();
                             frames.push(Parked {
-                                chunk: std::mem::replace(&mut chunk, body.clone()),
-                                pc: if discard { pc + 1 } else { pc },
-                                base,
-                                locals_at,
-                                scope_mark,
-                                iter_mark,
+                                chunk: Some(std::mem::replace(&mut chunk, body.clone())),
+                                pc: (if discard { pc + 1 } else { pc }) as u32,
+                                base: base as u32,
+                                locals_at: locals_at as u32,
+                                scope_mark: scope_mark as u32,
+                                iter_mark: iter_mark as u32,
                                 discard,
-                                env: std::mem::replace(&mut env, body_env),
+                                env: Some(std::mem::replace(&mut env, body_env)),
                                 scope,
                             });
                             // The prepared frame's slots are that frame's bottom, so they
@@ -1380,7 +1554,7 @@ impl Evaluator {
                     if discard {
                         pc += 1;
                     } else {
-                        stack.push(value);
+                        put(stack, value);
                     }
                 }
                 // A counting loop's step: the update and the back edge in one
@@ -1566,24 +1740,30 @@ impl Evaluator {
                 // A numeric accumulator whose value comes off the operand stack — the
                 // settled form of `total += items[index]` and `total += f(x)`.
                 Instr::BinaryStoreNumber { op, name, out, reuse } => {
-                    let right = stack.pop().expect("stack");
-                    let left = stack.pop().expect("stack");
-                    let (first, second) = match (&left, &right) {
+                    // The operands are read where they lie and dropped by one truncate, rather than
+                    // popped into two owned values whose tags are tested and whose drop glue runs
+                    // for what are two plain numbers.
+                    let top = stack.len();
+                    let (first, second) = match (&stack[top - 2], &stack[top - 1]) {
                         (Value::Number(first), Value::Number(second)) => (*first, *second),
                         _ => {
-                            // Put back what was popped, in the order the general instruction
-                            // pops it, and let that instruction run this pass.
+                            // Nothing was popped, so the general instruction runs this pass
+                            // over the operands exactly as they are.
                             chunk.specialize(pc - 1, Instr::BinaryStore { op, name, out, reuse, settled: true });
                             pc -= 1;
-                            stack.push(left);
-                            stack.push(right);
                             continue;
                         }
                     };
+                    stack.truncate(top - 2);
                     let value = match number_binary(op, first, second) {
                         Some(Ok(value)) => value,
                         Some(Err(message)) => return Err(runtime(&chunk.base_at(chunk.position(pc - 1)), message.to_string())),
-                        None => self.binary(&chunk.base_at(chunk.position(pc - 1)), &chunk.names[name as usize], left, right)?,
+                        None => self.binary(
+                            &chunk.base_at(chunk.position(pc - 1)),
+                            &chunk.names[name as usize],
+                            Value::Number(first),
+                            Value::Number(second),
+                        )?,
                     };
                     stack[locals_at + out as usize] = value;
                     pc += 1;
@@ -1636,6 +1816,15 @@ impl Evaluator {
                         self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
                     }
                     pc += 3;
+                }
+                Instr::StoreIndexFlat { collection, key } => {
+                    let value = stack.pop().expect("stack");
+                    if !fast_store_index(&stack[locals_at + collection as usize], &stack[locals_at + key as usize], &value) {
+                        let collection = stack[locals_at + collection as usize].clone();
+                        let key = stack[locals_at + key as usize].clone();
+                        self.set_index(&chunk.base_at(chunk.position(pc - 1)), collection, key, value)?;
+                    }
+                    pc += 2;
                 }
                 Instr::GetProperty(index) => {
                     let receiver = stack.pop().expect("stack");
@@ -1864,20 +2053,24 @@ impl Evaluator {
                     self.depth -= 1;
                     stack.truncate(locals_at - 1);
                     if !frame.discard {
-                        stack.push(value);
+                        put(stack, value);
                     }
-                    chunk = frame.chunk;
-                    pc = frame.pc;
-                    env = frame.env;
+                    if let Some(parked) = frame.chunk {
+                        chunk = parked;
+                    }
+                    pc = frame.pc as usize;
+                    if let Some(parked) = frame.env {
+                        env = parked;
+                    }
                     // The callee's own call scope, when it took one, goes back to the
                     // pool now that nothing here still refers to it.
                     if let Some(scope) = frame.scope {
                         self.release_scope(scope);
                     }
-                    base = frame.base;
-                    locals_at = frame.locals_at;
-                    scope_mark = frame.scope_mark;
-                    iter_mark = frame.iter_mark;
+                    base = frame.base as usize;
+                    locals_at = frame.locals_at as usize;
+                    scope_mark = frame.scope_mark as usize;
+                    iter_mark = frame.iter_mark as usize;
                 }
                 Instr::Return => {
                     let value = stack.pop().unwrap_or(Value::Null);
@@ -1906,20 +2099,24 @@ impl Evaluator {
                     self.depth -= 1;
                     stack.truncate(locals_at - 1);
                     if !frame.discard {
-                        stack.push(value);
+                        put(stack, value);
                     }
-                    chunk = frame.chunk;
-                    pc = frame.pc;
-                    env = frame.env;
+                    if let Some(parked) = frame.chunk {
+                        chunk = parked;
+                    }
+                    pc = frame.pc as usize;
+                    if let Some(parked) = frame.env {
+                        env = parked;
+                    }
                     // The callee's own call scope, when it took one, goes back to the
                     // pool now that nothing here still refers to it.
                     if let Some(scope) = frame.scope {
                         self.release_scope(scope);
                     }
-                    base = frame.base;
-                    locals_at = frame.locals_at;
-                    scope_mark = frame.scope_mark;
-                    iter_mark = frame.iter_mark;
+                    base = frame.base as usize;
+                    locals_at = frame.locals_at as usize;
+                    scope_mark = frame.scope_mark as usize;
+                    iter_mark = frame.iter_mark as usize;
                 }
                 Instr::ReturnEscape => {
                     // A `return` in a try body, a catch body, or a `finally`
@@ -1963,20 +2160,24 @@ impl Evaluator {
                     self.depth -= 1;
                     stack.truncate(locals_at - 1);
                     if !frame.discard {
-                        stack.push(value);
+                        put(stack, value);
                     }
-                    chunk = frame.chunk;
-                    pc = frame.pc;
-                    env = frame.env;
+                    if let Some(parked) = frame.chunk {
+                        chunk = parked;
+                    }
+                    pc = frame.pc as usize;
+                    if let Some(parked) = frame.env {
+                        env = parked;
+                    }
                     // The callee's own call scope, when it took one, goes back to the
                     // pool now that nothing here still refers to it.
                     if let Some(scope) = frame.scope {
                         self.release_scope(scope);
                     }
-                    base = frame.base;
-                    locals_at = frame.locals_at;
-                    scope_mark = frame.scope_mark;
-                    iter_mark = frame.iter_mark;
+                    base = frame.base as usize;
+                    locals_at = frame.locals_at as usize;
+                    scope_mark = frame.scope_mark as usize;
+                    iter_mark = frame.iter_mark as usize;
                 }
                 Instr::Comprehension(index) => {
                     let proto = &chunk.comprehensions[index as usize];
@@ -2168,7 +2369,7 @@ impl Evaluator {
         // which makes it the one that would build a callable on every access.
         if site.keywords == 0 {
             if let Value::String(text) = &receiver {
-                if let Some(result) = methods::call_string_method(label, text, &stack[site.arguments()], &[]) {
+                if let Some(result) = native_call!(label, methods::call_string_method(label, text, &stack[site.arguments()], &[])) {
                     return result.map_err(|message| runtime(&site.chunk.base_at(call_position), message));
                 }
             }
@@ -2235,7 +2436,8 @@ impl Evaluator {
         if site.keywords == 0 {
             if let Value::Builtin(builtin) = &callee {
                 if !builtin.higher_order && !builtin.consumes_iterables {
-                    return (builtin.call)(self, &stack[site.arguments()], &[]).map_err(|message| runtime(&site.base(), message));
+                    return native_call!(&builtin.name, (builtin.call)(self, &stack[site.arguments()], &[]))
+                        .map_err(|message| runtime(&site.base(), message));
                 }
             }
         }

@@ -98,3 +98,68 @@ fn a_program_the_compiler_does_not_lower_has_no_compiled_form() {
     assert!(Evaluator::compile(&parsed, "runs.tg").is_none());
     assert_eq!(run(source).expect("run"), "3\n");
 }
+
+#[test]
+fn a_module_that_is_built_on_first_use_behaves_as_one_built_up_front() {
+    // `random`, `secrets`, and `sys` are filled the first time a program reads a member,
+    // not when the run starts. Nothing a program can observe may depend on when.
+    let program = "print(type(sys), type(random), type(secrets));\nprint(len(sys.argv), type(sys.env), type(sys.exit));\nrandom.seed(7);\nconst first = random.int(0, 1000);\nrandom.seed(7);\nprint(first == random.int(0, 1000));\nprint(secrets.int(0, 0), len(secrets.choice([\"a\"])));";
+    assert_eq!(run(program).expect("run"), "module module module\n0 dict builtin\ntrue\n0 1\n");
+    // A module nobody reads is never built, and the run is the same as one that does not name it.
+    assert_eq!(run("print(1 + 1);").expect("run"), "2\n");
+}
+
+#[test]
+fn a_lazy_module_reports_the_same_diagnostics() {
+    // The member that is not there is reported exactly as a module that was built up front would
+    // report it, which means the fill happened before the lookup failed.
+    let error = run("print(sys.nope);").expect_err("a missing member must fail");
+    assert!(error.contains("nope"), "{error}");
+    let error = run("random.seed();").expect_err("a bad call must fail");
+    assert!(error.contains("random.seed expects 1 argument, got 0"), "{error}");
+    // A built-in module is shared by reference once read: two reads see one object, so state a
+    // program keeps in it is the state the next read finds.
+    assert_eq!(
+        run("sys.env[\"TIGER_LAZY_TEST\"] = \"x\";\nprint(sys.env[\"TIGER_LAZY_TEST\"], sys.env == sys.env);").expect("run"),
+        "x true\n"
+    );
+}
+
+#[test]
+fn a_lazy_module_is_still_owned_by_its_run() {
+    // Seeding in one run must not reach the next, and each run's arguments are its own, even
+    // though the module is filled long after the run was set up.
+    assert_eq!(
+        run("random.seed(3);\nprint(random.int(0, 1000000));").expect("run"),
+        run("random.seed(3);\nprint(random.int(0, 1000000));").expect("run")
+    );
+    assert_eq!(run_as("print(sys.argv);", &["a.tg", "one"]).expect("run"), "[\"a.tg\", \"one\"]\n");
+    assert_eq!(run_as("print(sys.argv);", &["b.tg"]).expect("run"), "[\"b.tg\"]\n");
+    // A module imported by name is the same lazily-built one.
+    assert_eq!(run("const kind = type(random);\nprint(kind);").expect("run"), "module\n");
+}
+
+#[test]
+fn a_member_built_on_demand_is_built_once_and_stays_a_constant() {
+    // `sys.env` is the one member that is built when it is named, not when its module is
+    // filled. Reading `argv` first must not change what `env` is, two reads must see one
+    // dictionary, and it must refuse assignment as `argv` does.
+    assert_eq!(
+        run("print(len(sys.argv));\nsys.env[\"TIGER_ON_DEMAND\"] = \"x\";\nprint(sys.env[\"TIGER_ON_DEMAND\"], sys.env == sys.env, len(sys.argv));").expect("run"),
+        "0\nx true 0\n"
+    );
+    let argv_error = run("sys.argv = [];").expect_err("a constant member cannot be assigned");
+    let env_error = run("sys.env = {};").expect_err("a constant member cannot be assigned");
+    assert_eq!(argv_error.replace("argv", "env"), env_error);
+    // The member is built per run: a write in this run is gone in the next.
+    assert_eq!(run("print(\"TIGER_ON_DEMAND\" in sys.env);").expect("run"), "false\n");
+}
+
+#[test]
+fn a_program_can_shadow_a_built_in_module_name() {
+    // The modules live in a scope of their own in front of the shared built-ins, so a program's
+    // own binding of the same name has to win over both, and the next run must not see it.
+    assert_eq!(run("var sys = 5;\nprint(sys + 1);").expect("run"), "6\n");
+    assert_eq!(run("function random() { return 4; }\nprint(random());").expect("run"), "4\n");
+    assert_eq!(run("print(type(sys), type(random));").expect("run"), "module module\n");
+}

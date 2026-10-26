@@ -1,0 +1,4 @@
+# Builds land in the repository's own `target/` (which is ignored) rather than beside
+# this tool, so running it leaves nothing behind that a `git status` would report.
+[build]
+target-dir = "../../target/flamegraph"

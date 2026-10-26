@@ -1659,6 +1659,92 @@ instructions for `all` before and 142,435 after** — 13% fewer — and its `rec
 section, which is where a body's return is the whole of the work, **131,449 → 109,558**,
 which is six instructions per `fib` invocation down to five.
 
+## Getting every protocol section under CPython
+
+`make protocol` asserts that Tiger's work is no more than CPython's in every section. At the
+start of this round `recursion` (1.50x), `dicts` (1.36x), `methods` (1.44x), `loop` and `lists`
+were over the line. Every change below was measured one at a time, on a micro case and then
+on the protocol table, and only the ones that moved a number were kept. The light sections
+spread about ±30% from run to run, so a section was judged on at least ten runs.
+
+### Where the time was
+
+A sampling profiler (`SuspendThread` and `GetThreadContext` on the interpreter thread,
+symbolized with `llvm-symbolizer`, counting only samples inside `execute_compiled`) said
+what the instruction counts could not:
+
+- **Pushes stalled on store forwarding.** `Vec::push` tests the capacity after its argument
+  exists, so the compiler kept a half-built `Value` — a tag byte and a payload, stored
+  separately — in a stack temporary across the call to grow, then copied it into the vector
+  with one 16-byte load. A load that straddles two smaller stores cannot be forwarded from
+  them, so the push waited for the stores to reach the cache. About a third of a recursive
+  call's samples sat on those copies.
+- **Name reads went through an `Option<Value>`**, the same shape, on every `LoadName` hit.
+- **Modules nobody read were built.** A run built `random`, `secrets` and `sys` — including a
+  copy of the process environment — before its first instruction, and the sections that run
+  in tens of microseconds paid for it every time.
+
+### What was kept
+
+| change | measured |
+| --- | --- |
+| `room()` makes capacity first, `put()` writes unchecked, `copy_of()` copies plain data bitwise, in `LoadFlat`, `Constant`, `LoadName`, `FlatBinaryConstantNumber` and the call-result tails | `recursion/fib20` 35.9 → 24.7 ns (CPython about 24 ns) |
+| a name-read hit pushes the remembered value and continues; the cache holds a `Weak` scope | with the line above, `recursion` 1.50x → about 1.0x |
+| a frame parked for a callee that shares the caller's chunk or scope stores `None` for them | a count up and down per recursive call |
+| a flat or built-in callee stays in its stack slot and the return's `truncate` drops it | moving it out wrote a `Null` built as one byte and read back as sixteen |
+| `Parked` keeps its five indices as `u32` | 72 → 48 bytes written per call; `recursion` 1.01x → **0.95x** paired, nothing else in the table moved |
+| clearing an empty scope no longer bumps the binding epoch; a pooled scope reused under a different parent calls `invalidate_name_reads()` | the name cache stopped being flushed by every call that returned |
+| the capture scan skips comprehensions that stay in the chunk | `SIZE` keeps its flat slot, so the `lists` loops need no name lookup |
+| `random`, `secrets` and `sys` are built on the first member read, and `sys.env` only when `env` is named | allocations per run 92 → 48 |
+| the built-ins are one thread-local scope indexed once, with a run's own modules in a scope in front | the per-run index rebuild is gone |
+| `upper` and `lower` convert ASCII in place | `methods` 1.44x → 1.28x → 1.11x, then 1.00x with the lazy modules |
+| `BinaryStoreNumber` reads its operands in place; `StoreIndexFlat` fuses `items[i] = value` | `list/write` moved about 2% — borderline, kept for the section, worth re-checking |
+
+
+The paired table at the end, best of 12 runs, Tiger work against CPython's `p.exec`:
+
+| section | start | now |
+| --- | --- | --- |
+| `all` | over | **0.94x** |
+| `loop` | 1.26–1.64x | **0.76x** |
+| `lists` | 1.04–1.5x | **0.88x** |
+| `dicts` | 1.36x | **0.91x** |
+| `strings` | under | **0.40x** |
+| `methods` | 1.44x | **1.00x** |
+| `recursion` | 1.50x | **0.95x** |
+| `calls` | 0.95x | **0.72x** |
+
+`make protocol` passed in 11 of 14 asserted runs. Each of the three failures was a light
+section over the line on that run: `lists` at 1.06x and at 1.28x, and `loop` at 1.06x
+together with `methods` at 1.01x. Those sections take 18–60 microseconds and one run's
+minimum moves with the host. `methods` is the section with no margin: 0.018 ms of Tiger work
+against 0.018 ms of CPython's, and the profile no longer has one dominant cost left to
+remove. What remains is `CallMethod` dispatch, and about 15% of its samples inside `ntdll`.
+The 0.95x aim was reached for `recursion`, `dicts`, `lists`, `loop` and `calls`, and not for
+`methods`. So the line holds on most runs but not on every one, on this host.
+
+### What was tried and not kept
+
+- **`CallName` for a callee that is not adjacent to its arguments.** It saves nothing: the
+  arm is a copy of `LoadName`. Resolving the callee after the arguments instead would change
+  the order of evaluation and the diagnostics.
+- **Removing the depth counter and the return guards.** `fib20` got slower.
+- **`frames.reserve` inline.** No change.
+- **A `len` fast path (`measures_length`).** No gain; reverted.
+- **`copy_of` on the `borrowed[index]` clone.** Reverted.
+- **An in-place compare in `JumpUnless`.** Reverted.
+- **A `u32` fast path in `modulo`.** Reverted.
+- **`room`/`put` across every arithmetic and index arm.** Mixed: `put` on the call-result
+  tails helped and was kept, the `GetIndex` and `FlatIndex*` conversions were reverted.
+
+### Reading the micro harness after these
+
+`TIGER_MICRO_CASE` now runs one case by name, and `recursion/fib20-flat-callee`,
+`scope/block-local` and `scope/block-none` price a name load in a call and a block scope in
+a loop. Two builds that differ only in code layout can move a case, so a micro delta has to
+be confirmed on the protocol table, over at least ten runs, before it counts.
+
+
 ## The biggest program was not the interpreter
 
 A per-program sweep is worth running before trusting an instruction profile. Summing
@@ -1717,6 +1803,82 @@ TIGER_BENCH_FILE=benchmarks/26_algo_rainwater.tg TIGER_BENCH_ITERATIONS=200 \
 The build is tuned for it: `[profile.release]` sets `opt-level = 3`, `lto = "fat"`,
 and `codegen-units = 1`. The last two trade a longer build for a faster binary,
 and they also shrink `web/tiger.wasm`.
+
+## Drawing it
+
+The graph is at [`flamegraph.svg`](flamegraph.svg), and it is generated rather than
+drawn: `tools/flamegraph` measures this machine and writes the file. It is not a
+member of the workspace, so `cargo test` at the root never builds the profiler into
+anything else.
+
+```sh
+cd tools/flamegraph
+cargo run --release
+```
+
+Two panels, because the corpus and the paired workload answer different questions.
+The workload's seven sections are one language feature each — a counting loop, list
+indexing, dictionary insert and lookup, string building, method calls, recursion,
+plain calls — so a frame there is one feature's cost. The corpus is what real
+programs look like, and it is where the parse shows up as a share of a *run* rather
+than of a program.
+
+The tree under a program is built from two kinds of number, and each frame says
+which kind it is when the pointer rests on it.
+
+**Measured.** A unit's width is its whole run — `run_with_options`, which is what a
+host pays — and its children are the floor (an evaluator built, `Evaluator::new`,
+about five microseconds and the same for every program), the parse and the lowering,
+and the execute. The parse and the execute are each measured on their own and then
+composed: a minimum of a part is not a part of a minimum, so the two separate minima
+do not add back up to the whole run, and what the frames are is the measured whole
+run split by the ratio those two measurements found, with the execute never given
+less than its own measurement. Inside execute, every native call — a built-in, or a
+string method — is timed as it runs and charged to the call's own frame, one call in
+sixty-four timed and scaled back up; what is left after them is the instruction
+loop's own time, exactly.
+
+**Counted.** The instruction loop's *mix* — how many times each of the eighty-five
+instruction shapes ran — with the counting in
+`crates/tiger-evaluator/src/profile.rs` behind its `profile` feature, off by default
+so a release build has no trace of it:
+
+```sh
+cargo test -p tiger-evaluator --features profile --test profile -- --ignored --nocapture
+```
+
+**There is no frame per instruction shape, and that is a measurement rather than an
+omission.** Three ways of pricing one shape against another were tried on this
+machine, and all three failed measurably:
+
+- **Sampling the running instruction.** The host clock resolves to a hundred
+  nanoseconds and a read costs twenty-five, so the clock can be read at best every
+  few hundred instructions. An interval of a few hundred instructions charged to
+  whichever instruction the sample landed on says nothing about which instruction
+  inside it was expensive: in a loop of eight instructions every one of them came out
+  at an eighth of the time. That is the count mix again, wearing a clock's clothes.
+- **Timing every instruction with the cycle counter.** `rdtsc` costs about fifteen
+  times what an instruction does, and on an out-of-order core the pipeline overlaps
+  the work around it. Measured on the loop above, the eight shapes came out between
+  36 and 43 nanoseconds each — a call included — where the true spread is an order of
+  magnitude. What was measured was the counter's serialization, not the instruction.
+  `tools/flamegraph/src/bin/clock.rs` is the probe that established the resolution and
+  the cost of each clock (`cargo run --release --bin clock`).
+- **Solving for one cost per shape.** Counts times costs equals time, so a few dozen
+  programs with different mixes are a few dozen equations, and a non-negative
+  least-squares solve gives the costs. It leaves a third of every program
+  unexplained (33% mean error): the engine *specializes* sites as it runs, so one
+  shape is not one cost — a `Binary` that has settled onto numbers is a different
+  instruction from the one that has not, and `Call` covers a built-in, a flat user
+  function, and a bound method.
+
+What that leaves is the two levels above, both fully measured, and the mix as counts.
+For the corpus that is enough to read the shape of the thing: parsing and lowering is
+5.3 ms of the 21.1 ms the forty programs and seven sections take, one program
+(`44_comprehensions`) is 23% of it, and the heaviest single native in the whole
+measurement is `str` at 0.81 ms. `make timing`, `make compare`, `make protocol`, and
+the micro harness are the measurements to act on; the graph is what says where to
+point them.
 
 ## Adding to the corpus
 

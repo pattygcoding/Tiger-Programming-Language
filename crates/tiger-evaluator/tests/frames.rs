@@ -233,3 +233,89 @@ fn a_call_the_frame_cannot_take_reports_as_it_always_did() {
     assert!(error.contains("f expects 1 arguments, got 2"), "{error}");
     assert!(error.starts_with("4:8:"), "{error}");
 }
+
+#[test]
+fn a_recursive_call_enters_the_chunk_and_environment_it_is_already_in() {
+    // A function calling itself runs the same chunk in the same environment, so the frame
+    // it parks records neither and the return puts nothing back. What has to stay true is
+    // everything that is *not* shared: the slots, the operands, and the result.
+    assert_eq!(
+        output("function fib(n) {\n    if n < 2 {\n        return n;\n    }\n    return fib(n - 1) + fib(n - 2);\n}\nprint(fib(15), fib(1), fib(0));"),
+        "610 1 0\n"
+    );
+    // Two functions calling each other swap chunks on every call but share one environment.
+    assert_eq!(
+        output("function a(n) {\n    if n == 0 {\n        return 0;\n    }\n    return 1 + b(n - 1);\n}\nfunction b(n) {\n    if n == 0 {\n        return 0;\n    }\n    return 1 + a(n - 1);\n}\nprint(a(9), b(9));"),
+        "9 9\n"
+    );
+}
+
+#[test]
+fn a_callee_from_another_environment_restores_the_callers_on_return() {
+    // `make` returns closures that each capture their own environment, so calling one
+    // from the top level swaps the environment in and a return has to swap it back. A
+    // call that skipped the swap when it should not have would read `step` from the
+    // wrong scope on the second call.
+    assert_eq!(
+        output(
+            "function make(step) {\n    function add(value) {\n        return value + step;\n    }\n    return add;\n}\nconst one = make(1);\nconst ten = make(10);\nvar total = 0;\nfor (var i = 0; i < 3; ++i) {\n    total = total + one(i) + ten(i);\n}\nprint(total, one(0), ten(0), one(1));"
+        ),
+        "39 1 10 2\n"
+    );
+}
+
+#[test]
+fn a_rebound_callee_is_called_afresh_every_time() {
+    // The callee is read by name and the read is remembered, so rebinding the name has to
+    // reach the next call. Both bodies are plain functions, which is the shape a call
+    // enters without taking the callee out of its slot.
+    assert_eq!(
+        output(
+            "function one(x) {\n    return x + 1;\n}\nfunction two(x) {\n    return x + 2;\n}\nvar f = one;\nvar total = 0;\nfor (var i = 0; i < 4; ++i) {\n    total += f(10);\n    if i == 1 {\n        f = two;\n    }\n}\nprint(total);"
+        ),
+        "46\n"
+    );
+}
+
+#[test]
+fn the_depth_limit_is_reached_at_the_same_call_by_every_path() {
+    // The flat entry tests the limit before it counts the frame and the older path counted
+    // first and tested after. They have to agree on which call is the one that fails, so a
+    // chain that is exactly one short of the limit runs and one more does not.
+    let program = |depth: u32| {
+        format!("function down(n) {{\n    if n == 0 {{\n        return 0;\n    }}\n    return down(n - 1);\n}}\nprint(down({depth}));")
+    };
+    assert_eq!(output(&program(500)), "0\n");
+    let error = failure(&program(520));
+    assert!(error.contains("maximum evaluation depth exceeded"), "{error}");
+    // The failure is positioned at the call that crossed the limit: the recursive call on
+    // line 5, not the one in `print` and not the function's own declaration.
+    assert!(error.starts_with("5:"), "{error}");
+}
+
+#[test]
+fn a_call_leaves_a_callee_that_is_not_a_function_to_the_general_path() {
+    // A flat function is entered with the callee left in its slot; everything else has to
+    // be taken out of it first. Calling a value that is not callable must still report at
+    // the call, and must not have been mistaken for one of the shapes the entry accepts.
+    let error = failure("const f = 3;\nprint(f(1));");
+    assert!(error.contains("number is not callable"), "{error}");
+    assert!(error.starts_with("2:"), "{error}");
+    // And a callable with the wrong shape of arguments still reaches its own diagnostic.
+    let error = failure("function f(a, b) {\n    return a;\n}\nprint(f(1));");
+    assert!(error.contains("f expects 2 arguments, got 1"), "{error}");
+    assert!(error.starts_with("4:"), "{error}");
+}
+
+#[test]
+fn a_discarded_recursive_call_steps_over_the_pop_it_absorbed() {
+    // The fused call that drops its value parks a resume point one past the `Pop`, and a
+    // recursive call parks no chunk at all, so the resume point is all that is left to
+    // get right.
+    assert_eq!(
+        output(
+            "var calls = 0;\nfunction walk(n) {\n    calls += 1;\n    if n > 0 {\n        walk(n - 1);\n        walk(n - 1);\n    }\n    return n;\n}\nwalk(4);\nprint(calls);"
+        ),
+        "31\n"
+    );
+}

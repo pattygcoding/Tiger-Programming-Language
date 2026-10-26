@@ -12,55 +12,50 @@ use crate::modules;
 ///
 /// `arguments` is the running program's `sys.argv`: its own path first, then each
 /// argument, which is what the host passes in.
-pub(crate) fn install(env: &Env, arguments: &[String]) {
-    // Everything stateless is built once per thread and copied into this scope as an `Rc`
-    // clone per entry. Rebuilding it per run meant rebuilding the module tables and
-    // re-reading the process environment for `sys.env`, and that was most of what a run
-    // cost before it did any work; what follows is what genuinely belongs to one run.
-    //
-    // The scope takes them in one batch. A name insert each would be a borrow of the scope,
-    // a hash of the name, and an atomic bump of the binding epoch — about a hundred of each,
-    // before a program runs its first instruction.
-    let shared = shared();
-    let mut entries: Vec<(Rc<str>, object::Binding)> = Vec::with_capacity(shared.len() + 3);
-    for (name, value) in shared.iter() {
-        entries.push((name.clone(), object::Binding { value: value.clone(), constant: true }));
-    }
-    // `sys.argv` is this run's arguments, and `random` and `secrets` each hold a generator a
-    // program seeds for itself, so they are the three that are built per run.
-    for (name, value) in [
+pub(crate) fn install(arguments: &[String]) -> Env {
+    // The built-ins are one scope per thread, built and indexed once, and every run's scope
+    // sits on top of it. Copying a hundred entries into a fresh scope for each run — and
+    // hashing a hundred names to index them — was most of what a run cost before it did any
+    // work. What belongs to one run is `sys.argv`, and the generators of `random` and
+    // `secrets` that a program seeds for itself, so those three live in a small scope of
+    // their own between the program's globals and the shared one. A program can shadow any of
+    // them, because its own scope is the one it declares into; it cannot write to them,
+    // because every binding in both is a `const`.
+    let run = object::Environment::new(Some(shared()));
+    let entries: Vec<(Rc<str>, object::Binding)> = [
         ("random", Value::Module(modules::random_module())),
         ("secrets", Value::Module(modules::secrets_module())),
         ("sys", Value::Module(modules::sys_module(arguments))),
-    ] {
-        entries.push((Rc::from(name), object::Binding { value, constant: true }));
-    }
-    env.borrow_mut().bindings.extend_shared(entries);
+    ]
+    .into_iter()
+    .map(|(name, value)| (Rc::from(name), object::Binding { value, constant: true }))
+    .collect();
+    run.borrow_mut().bindings.extend_shared(entries);
+    run
 }
 
-/// The stateless half of the top-level scope, shared by every run on a thread: the
-/// binding each scope gets, in the order it is installed.
-type SharedBindings = Rc<Vec<(Rc<str>, Value)>>;
-
-/// The stateless half of the top-level scope: the built-ins and modules that are
-/// built once per thread and shared by every run on it.
+/// The scope of the stateless built-ins and modules, shared by every run on a thread.
 ///
-/// Nothing in here is mutable state or depends on the program, so one copy serves
-/// every scope: every value is immutable, and a scope is only a name-to-value table
-/// that a run may shadow in its own scope. Each thread builds its own, because these
-/// values are `Rc`s and cannot be shared between threads.
-fn shared() -> SharedBindings {
+/// Nothing in here is mutable state or depends on the program: every value is immutable and
+/// every binding is a `const`, so one scope serves every run and a run can only shadow it
+/// from its own scope. Each thread builds its own, because these values are `Rc`s and
+/// cannot be shared between threads.
+fn shared() -> Env {
     thread_local! {
-        static SHARED: RefCell<Option<SharedBindings>> = const { RefCell::new(None) };
+        static SHARED: RefCell<Option<Env>> = const { RefCell::new(None) };
     }
     SHARED.with(|cell| {
         let built = cell.borrow().clone();
         match built {
-            Some(bindings) => bindings,
+            Some(scope) => scope,
             None => {
-                let bindings = Rc::new(build_shared());
-                *cell.borrow_mut() = Some(bindings.clone());
-                bindings
+                let scope = object::Environment::new(None);
+                let entries: Vec<(Rc<str>, object::Binding)> =
+                    build_shared().into_iter().map(|(name, value)| (name, object::Binding { value, constant: true })).collect();
+                // One batch and one index build, for the lot.
+                scope.borrow_mut().bindings.extend_shared(entries);
+                *cell.borrow_mut() = Some(scope.clone());
+                scope
             }
         }
     })

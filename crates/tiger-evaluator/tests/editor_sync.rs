@@ -18,6 +18,9 @@ fn read(path: &str) -> String {
 
 /// The names a module's environment defines, sorted.
 fn members(module: &std::rc::Rc<tiger_object::Module>) -> Vec<String> {
+    // A module built lazily fills its environment on the first read of a member, so a test that
+    // reads the environment directly has to ask for that first.
+    module.force_all();
     let mut names: Vec<String> = module.env.borrow().bindings.keys().map(str::to_string).collect();
     names.sort();
     names

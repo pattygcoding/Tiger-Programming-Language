@@ -7,9 +7,9 @@
 //! exactly the semantics of the tree-walking interpreter.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
-use crate::{Env, Value};
+use crate::{Environment, Value};
 
 /// A binary operator the engine can take a fast path on. `Other` falls back to
 /// the general operator.
@@ -340,6 +340,14 @@ pub enum Instr {
     /// The fused form of three loads and `SetIndex`, which is what `items[i] = n`
     /// lowers to.
     FlatStoreIndex { value: u32, collection: u32, key: u32 },
+    /// Pop a value and store it at locals[collection][locals[key]], for a collection and a key
+    /// that are both flat locals.
+    ///
+    /// The fused form of two flat loads and SetIndex, which is the tail of items[i] = n when
+    /// the value is computed rather than read from a slot — items[i] = items[i] + 1,
+    /// counts[key] = 1. It reports from SetIndex's position, because that is the instruction
+    /// that can fail.
+    StoreIndexFlat { collection: u32, key: u32 },
     /// Pop a receiver, then push its named member.
     GetProperty(u32),
     /// Pop a value, a key, and a collection, then store `collection[key] = value`.
@@ -540,6 +548,10 @@ pub enum CachedProperty {
 /// counting once and never again.
 pub const SPECIALIZE_AFTER: u16 = 10;
 
+/// What a name read remembers: the scope it resolved in, the binding epoch it resolved at, and the
+/// value it found.
+pub type NameRead = (Weak<RefCell<Environment>>, u64, Value);
+
 /// A compiled script or function body.
 pub struct Chunk {
     /// The instruction stream.
@@ -603,7 +615,7 @@ pub struct Chunk {
     /// rest: a hit is only used while no binding anywhere has been written since
     /// the slot was filled, so a `var` that shadows the name, or a scope that
     /// starts holding one, cannot be missed.
-    pub name_cache: RefCell<Vec<Option<(Env, u64, Value)>>>,
+    pub name_cache: RefCell<Vec<Option<NameRead>>>,
     /// One `(line, column)` per instruction, indexed by program counter.
     pub positions: Vec<(u32, u32)>,
     /// The `(line, column)` of each member name a [`Instr::CallMethod`] resolves,

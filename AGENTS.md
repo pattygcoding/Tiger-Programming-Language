@@ -15,7 +15,7 @@ it serves and is checked against.
 ## Wasm size guardrails
 
 `web/tiger.wasm` bundles the whole interpreter, so every crate linked into
-`crates/tiger-wasm` ships to the browser. It currently builds to about 960 KB
+`crates/tiger-wasm` ships to the browser. It currently builds to about 1,000 KB
 stripped (~300 KB gzip). The ceiling is **2.5 MB**, enforced by CI: it is a guard
 against a runaway — a dependency that drags in something large — and not a budget to
 tune a change against. The reasons below are what keep the browser runtime small, and

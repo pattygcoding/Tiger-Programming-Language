@@ -401,6 +401,17 @@ pub fn binding_epoch() -> u64 {
     BINDING_EPOCH.load(Ordering::Relaxed)
 }
 
+/// Moves the binding epoch on, which forgets every remembered name read.
+///
+/// A write to a binding does this itself. What this is for is a change to *where a name
+/// resolves* that is not a write to one: a pooled scope handed out with a different parent
+/// reaches different bindings through the same environment object, and a read remembered
+/// against that object would answer for the parent it used to have.
+#[inline]
+pub fn invalidate_name_reads() {
+    BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
+}
+
 /// A fast hasher for the names in a lexical scope.
 ///
 /// A scope's names are the program's own identifiers, not data a caller supplies,
@@ -647,8 +658,18 @@ impl Bindings {
         // A scope that is emptied can take bindings a remembered name read
         // resolved through, so the epoch moves here too. It is a coarse guard — a
         // released scope invalidates every remembered read, not only the ones that
-        // went through it — but a scope is released once per call and per statement
-        // block, not once per loop pass.
+        // went through it.
+        //
+        // A scope with nothing in it has nothing to take away, so clearing one moves
+        // nothing. That is the block a loop body opens when it declares only flat locals:
+        // it is pushed and released on every pass, and moving the epoch each time made
+        // every global name read in the body — len, str — walk the scope chain again,
+        // which was most of what such a body cost. What a reused scope *can* change is
+        // where its parent leads, and that is what invalidate_name_reads is for.
+        if self.entries.is_empty() {
+            self.index = None;
+            return;
+        }
         BINDING_EPOCH.fetch_add(1, Ordering::Relaxed);
         self.entries.clear();
         self.index = None;
@@ -932,14 +953,104 @@ pub struct Module {
     /// The names other files may reach, in source order. `None` exposes everything
     /// the environment holds, which is how the built-in modules are built.
     pub exports: Option<Vec<String>>,
+    /// What fills `env` the first time something asks the module for a member, for a
+    /// module built with [`Module::lazy`]; `None` once it has run, and from the start for
+    /// every other module.
+    pending: RefCell<Option<LazyBindings>>,
+    /// Whether `pending` has nothing left to run, so a member read is one flag test.
+    ready: std::cell::Cell<bool>,
+    /// Members that are built only when a program reads them by name, for a lazy module that
+    /// has one too costly to build for a program that never mentions it.
+    late: RefCell<Vec<(&'static str, LateValue)>>,
 }
+
+/// What builds one deferred member of a lazy module.
+type LateValue = Box<dyn FnOnce() -> Value>;
+
+/// The bindings a lazy module fills its environment with when it is first read.
+type LazyBindings = Box<dyn FnOnce() -> Vec<(Rc<str>, Binding)>>;
 
 impl Module {
     /// A module that exposes everything its environment holds.
     ///
     /// The built-in modules are built this way: every name they install is public.
     pub fn new(name: String, env: Env) -> Rc<Module> {
-        Rc::new(Module { name, env, exports: None })
+        Rc::new(Module {
+            name,
+            env,
+            exports: None,
+            pending: RefCell::new(None),
+            ready: std::cell::Cell::new(true),
+            late: RefCell::new(Vec::new()),
+        })
+    }
+
+    /// A module whose members are built the first time one is read.
+    ///
+    /// A built-in module that belongs to a run — one with a generator a program seeds, or
+    /// the run's own arguments — has to be built per run, and most programs never name it.
+    /// Building it where it is installed made every run pay for the members of modules it
+    /// never touched; this builds it where it is used. Everything else about it is the
+    /// ordinary module: it exposes all of its bindings, and the run still gets its own.
+    pub fn lazy(name: String, build: impl FnOnce() -> Vec<(Rc<str>, Binding)> + 'static) -> Rc<Module> {
+        Rc::new(Module {
+            name,
+            env: Environment::new(None),
+            exports: None,
+            pending: RefCell::new(Some(Box::new(build))),
+            ready: std::cell::Cell::new(false),
+            late: RefCell::new(Vec::new()),
+        })
+    }
+
+    /// Defers one member of a lazy module until it is read by name.
+    ///
+    /// `sys.env` is the case: it is a copy of the whole process environment, a program that
+    /// reads `sys.argv` has no use for it, and building it with the rest of the module made
+    /// every such program pay for a hundred variables it never looked at.
+    pub fn defer(&self, name: &'static str, build: impl FnOnce() -> Value + 'static) {
+        self.late.borrow_mut().push((name, Box::new(build)));
+    }
+
+    /// Builds every deferred member, for the one reader that wants all of a module's names.
+    pub fn force_all(&self) {
+        self.force();
+        let names: Vec<&'static str> = self.late.borrow().iter().map(|(name, _)| *name).collect();
+        for name in names {
+            self.build_late(name);
+        }
+    }
+
+    /// Builds the deferred member `name` and binds it, or `None` when there is none.
+    #[cold]
+    fn build_late(&self, name: &str) -> Option<Value> {
+        let position = self.late.borrow().iter().position(|(late, _)| *late == name)?;
+        let (late, build) = self.late.borrow_mut().remove(position);
+        let value = build();
+        // A constant, like every binding a built-in module has.
+        let _ = define(&self.env, late, value.clone(), true);
+        Some(value)
+    }
+
+    /// Runs what fills a lazy module's environment, once. A module that is not lazy, or
+    /// that has already been filled, returns after one flag test.
+    #[inline]
+    pub fn force(&self) {
+        if self.ready.get() {
+            return;
+        }
+        self.fill();
+    }
+
+    #[cold]
+    fn fill(&self) {
+        // The flag goes up before the build runs, so a build that read this module back
+        // would see it empty rather than recurse; none does.
+        self.ready.set(true);
+        let build = self.pending.borrow_mut().take();
+        if let Some(build) = build {
+            self.env.borrow_mut().bindings.extend_shared(build());
+        }
     }
 
     /// A module that exposes only `exports`, in source order.
@@ -949,7 +1060,14 @@ impl Module {
     /// records an export only for the declaration it marks, so every name here is
     /// one the module declares.
     pub fn with_exports(name: String, env: Env, exports: Vec<String>) -> Rc<Module> {
-        Rc::new(Module { name, env, exports: Some(exports) })
+        Rc::new(Module {
+            name,
+            env,
+            exports: Some(exports),
+            pending: RefCell::new(None),
+            ready: std::cell::Cell::new(true),
+            late: RefCell::new(Vec::new()),
+        })
     }
 
     /// Reads a member this module exposes, or `None` for a name it does not share.
@@ -958,6 +1076,7 @@ impl Module {
     /// because its functions close over that environment; this is the gate that
     /// keeps those names out of reach from other files.
     pub fn member(&self, name: &str) -> Option<Value> {
+        self.force();
         if let Some(exports) = &self.exports {
             // A module's export list is short, so a scan is cheaper than a set and
             // keeps the source order for diagnostics.
@@ -965,7 +1084,12 @@ impl Module {
                 return None;
             }
         }
-        get_own(&self.env, name)
+        if let Some(value) = get_own(&self.env, name) {
+            return Some(value);
+        }
+        // A deferred member is built the first time it is asked for by name, and bound so the
+        // next read finds it where every other member is.
+        self.build_late(name)
     }
 }
 

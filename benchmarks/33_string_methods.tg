@@ -10,6 +10,7 @@ print("== case and trim ==");
 print("Tiger".upper(), "Tiger".lower());
 print("  spaced  ".trim(), "|", "  spaced  ".trim().size());
 print("MiXeD".upper().lower(), "MiXeD".lower().upper());
+print("straße".upper(), "ÉCOLE".lower(), "café Tiger".upper());
 
 print("== split ==");
 print("a,b,c".split(","));

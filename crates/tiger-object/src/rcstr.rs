@@ -164,6 +164,34 @@ impl RcStr {
         Some(RcStr::inline(std::str::from_utf8(&digits[at..]).expect("digits are ASCII")))
     }
 
+    /// This string with its ASCII letters mapped to upper or lower case, when the text lives
+    /// in the handle and is all ASCII; `None` for anything else, which the caller converts the
+    /// general way.
+    ///
+    /// An inline string is eight bytes that are the text, so the mapping is a copy of the
+    /// handle and a byte loop over what is in it: no buffer, no second copy into a fresh
+    /// string, and no UTF-8 check of text that was just proven to be ASCII. A word, a tag, or
+    /// an identifier is short enough to qualify, which is what a case conversion in a loop
+    /// is applied to.
+    pub fn ascii_case_inline(&self, uppercase: bool) -> Option<RcStr> {
+        if !self.is_inline() {
+            return None;
+        }
+        let mut mapped = RcStr { bytes: self.bytes };
+        let storage = mapped.inline_storage_mut();
+        let len = (storage[0] >> 1) as usize;
+        let text = &mut storage[1..1 + len];
+        if !text.is_ascii() {
+            return None;
+        }
+        if uppercase {
+            text.make_ascii_uppercase();
+        } else {
+            text.make_ascii_lowercase();
+        }
+        Some(mapped)
+    }
+
     /// Whether the text lives in the handle rather than in an allocation.
     fn is_inline(&self) -> bool {
         self.bytes.as_ptr() as usize & 1 == 1
@@ -724,5 +752,42 @@ mod tests {
         assert!(RcStr::ptr_eq(&held, &alias));
         assert!(!RcStr::ptr_eq(&held, &other));
         assert_eq!(held, other);
+    }
+
+    #[test]
+    fn an_inline_string_maps_its_case_in_place_and_nothing_else_does() {
+        // Up to seven ASCII bytes live in the handle, and those are the ones that are mapped
+        // without an allocation, including the empty string and a full handle.
+        for (text, upper, lower) in [
+            ("", "", ""),
+            ("a", "A", "a"),
+            ("Beta", "BETA", "beta"),
+            ("gamma", "GAMMA", "gamma"),
+            ("MiXeD12", "MIXED12", "mixed12"),
+            ("a-b_c.d", "A-B_C.D", "a-b_c.d"),
+        ] {
+            let held = RcStr::new(text);
+            assert_eq!(held.refs(), 0, "{text:?} should be inline");
+            assert_eq!(held.ascii_case_inline(true).expect("inline ASCII").as_str(), upper);
+            assert_eq!(held.ascii_case_inline(false).expect("inline ASCII").as_str(), lower);
+            // The receiver is not the one that was changed: a string is immutable to a program.
+            assert_eq!(held.as_str(), text);
+        }
+    }
+
+    #[test]
+    fn a_string_the_inline_mapping_cannot_take_is_left_to_the_general_path() {
+        // Non-ASCII text has a case mapping that can change its length, and a heap string is
+        // not inline at all: both answer `None` so the caller converts them the long way.
+        for text in ["é", "straße", "日本", "ǆ"] {
+            assert!(RcStr::new(text).ascii_case_inline(true).is_none(), "{text:?}");
+            assert!(RcStr::new(text).ascii_case_inline(false).is_none(), "{text:?}");
+        }
+        let heap = RcStr::new("a string long enough to be allocated");
+        assert!(heap.refs() > 0);
+        assert!(heap.ascii_case_inline(true).is_none());
+        assert!(heap.ascii_case_inline(false).is_none());
+        // And the heap string is untouched by having been asked.
+        assert_eq!(heap.as_str(), "a string long enough to be allocated");
     }
 }

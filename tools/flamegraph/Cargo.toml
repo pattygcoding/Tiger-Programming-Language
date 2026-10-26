@@ -1,0 +1,29 @@
+[package]
+name = "tiger-flamegraph"
+version = "0.1.0"
+edition = "2021"
+publish = false
+# Two binaries: the measuring tool, and `clock`, which probes what this machine's
+# clocks can resolve. `cargo run` runs the tool.
+default-run = "tiger-flamegraph"
+description = "Measures where a Tiger run spends its time and renders `docs/flamegraph.svg`."
+
+# A workspace of its own, deliberately. The interpreter's profiler is behind its
+# `profile` feature and off by default, and a crate inside the repository's workspace
+# that turned it on would turn it on for every other test binary built alongside it —
+# feature unification is per build, not per package. Living outside the workspace keeps
+# `cargo test` at the root exactly what it was.
+[workspace]
+
+[dependencies]
+tiger-ast = { path = "../../crates/tiger-ast" }
+tiger-evaluator = { path = "../../crates/tiger-evaluator", features = ["profile"] }
+tiger-parser = { path = "../../crates/tiger-parser" }
+
+# The same release profile the workspace ships the interpreter with, so the numbers are
+# the numbers the shipped binary would report: LTO fat, one codegen unit, symbols stripped.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

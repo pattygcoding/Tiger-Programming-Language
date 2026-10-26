@@ -577,6 +577,12 @@ impl Compiler {
                     (Instr::LoadFlat(a), Instr::Constant(b), Instr::GetIndex) => {
                         Some((Instr::FlatIndexConstant { a: *a, b: *b }, index + 2))
                     }
+                    // items[index] = value where the value was computed and is already on the
+                    // operand stack: the collection and the key are flat locals, so the two loads
+                    // and the store are one instruction that pops the value.
+                    (Instr::LoadFlat(collection), Instr::LoadFlat(key), Instr::SetIndex) => {
+                        Some((Instr::StoreIndexFlat { collection: *collection, key: *key }, index + 2))
+                    }
                     // A counting loop's step: the update, the discard of its value,
                     // and the back edge, in one instruction. A `const` target is left
                     // alone so the unfused form still raises the error for it.
@@ -1883,6 +1889,29 @@ fn scan_expr(expression: &Expr, inside: bool, out: &mut HashSet<String>) {
         Expr::Tuple { elements, .. } | Expr::Set { elements, .. } => {
             for element in elements {
                 scan_expr(element, inside, out);
+            }
+        }
+        Expr::Comprehension { body, clauses, .. } if !clause_reaches_out(body, clauses) => {
+            // A comprehension the compiler lowers into this chunk is a loop of this frame:
+            // its iterables, filters, and element are read the way any other expression
+            // here is, through a flat slot where the name has one. Only what a function,
+            // class, or generator *inside* it mentions has to stay reachable by name, and
+            // scanning with the enclosing `inside` flag collects exactly that. Treating
+            // every name it mentions as captured pushed `SIZE` out of its flat slot for
+            // the whole program because `range(SIZE)` sat in one comprehension, which
+            // turned every `i < SIZE` loop condition into a scope walk.
+            for clause in clauses {
+                scan_expr(&clause.iterable, inside, out);
+                for filter in &clause.filters {
+                    scan_expr(filter, inside, out);
+                }
+            }
+            match body {
+                ComprehensionBody::List(element) => scan_expr(element, inside, out),
+                ComprehensionBody::Dict(pair) => {
+                    scan_expr(&pair.key, inside, out);
+                    scan_expr(&pair.value, inside, out);
+                }
             }
         }
         Expr::Comprehension { body, clauses, .. } => {

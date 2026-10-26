@@ -64,6 +64,41 @@ fn where_one_program_spends_its_instructions() {
     println!("{:<28}{:>12}   {}", name, instructions, shares.join(""));
 }
 
+/// The shape table and the index match have to agree: an index is a position in
+/// [`profile::SHAPE_NAMES`], so a name that drifted one place out of line would report one
+/// instruction's cost as another's and nothing else would notice.
+///
+/// A representative instruction of each kind is named here — a flat load, a fused store, a
+/// call, a branch, a control instruction — and the index it produces is checked against the
+/// name the table holds at that position.
+#[test]
+fn the_shape_table_names_the_instructions_it_claims_to() {
+    use tiger_object::bytecode::{Instr, Op};
+
+    let samples: [(Instr, &str); 16] = [
+        (Instr::Constant(0), "Constant"),
+        (Instr::LoadName(0), "LoadName"),
+        (Instr::LoadFlat(0), "LoadFlat"),
+        (Instr::Null, "Null"),
+        (Instr::Pop, "Pop"),
+        (Instr::StoreFlat { name: 0, slot: 0, constant: false, reuse: false }, "StoreFlat"),
+        (Instr::BinaryStoreNumber { op: Op::Add, name: 0, out: 0, reuse: false }, "BinaryStoreNumber"),
+        (Instr::FlatBinaryFlatNumber { op: Op::Add, a: 0, b: 1, name: 0 }, "FlatBinaryFlatNumber"),
+        (Instr::FlatJumpUnlessFlatNumber { a: 0, b: 1, op: Op::Lt, name: 0, target: 2 }, "FlatJumpUnlessFlatNumber"),
+        (Instr::UpdateFlatJump { name: 0, slot: 0, decrement: false, target: 2 }, "UpdateFlatJump"),
+        (Instr::FlatIndexFlat { a: 0, b: 1 }, "FlatIndexFlat"),
+        (Instr::Jump(4), "Jump"),
+        (Instr::Call { positional: 1, keywords: 0, discard: false }, "Call"),
+        (Instr::CallMethod { name: 0, positional: 0, keywords: 0, member: 0, discard: false }, "CallMethod"),
+        (Instr::ReturnFused { op: None, name: 0, slot: 0 }, "ReturnFused"),
+        (Instr::PushScope, "PushScope"),
+    ];
+    for (instruction, name) in samples {
+        assert_eq!(profile::shape(&instruction), name, "{instruction:?} should be the shape {name}");
+        assert_eq!(profile::SHAPE_NAMES[profile::shape_index(&instruction)], name);
+    }
+}
+
 #[test]
 #[ignore = "prints a dynamic instruction mix; run with --ignored --nocapture"]
 fn where_the_benchmarks_spend_their_instructions() {

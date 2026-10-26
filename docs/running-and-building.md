@@ -113,7 +113,7 @@ The runtime stays small because of the release profile and the module split:
   releases](https://github.com/WebAssembly/binaryen/releases); without it, the
   step is skipped.
 
-The stripped binary is about 960 KB, about 300 KB with gzip, and smaller still
+The stripped binary is about 1,000 KB, about 300 KB with gzip, and smaller still
 with Brotli. There is no size target to hold a change to: CI fails the build if the
 raw artifact passes 2.5 MB, which is a ceiling on a runaway rather than a budget.
 Most static hosts compress `.wasm` automatically; otherwise enable
