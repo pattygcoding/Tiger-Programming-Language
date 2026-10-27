@@ -1,0 +1,364 @@
+/* The palette is the one docs/tiger-vs-cpython.svg uses, so the dashboard and the
+   checked-in chart read as the same document. */
+
+:root {
+  --bg: #0b1120;
+  --panel: #111a2c;
+  --panel-edge: #1f2937;
+  --text: #e2e8f0;
+  --bright: #f8fafc;
+  --muted: #94a3b8;
+  --dim: #64748b;
+  --tiger: #4fdca3;
+  --tiger-deep: #1a8a5e;
+  --python: #64748b;
+  --slow: #f87171;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--panel-edge);
+  background: #0d1526;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--bright);
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.brand span { color: var(--tiger); }
+
+.environment {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+#status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-edge);
+  color: var(--muted);
+}
+
+#status.ready { color: var(--tiger); border-color: #1f6f52; background: #0d2a20; }
+#status.running { color: #fcd34d; border-color: #7c5a12; background: #2a2109; }
+#status.error { color: var(--slow); border-color: #7f2b2b; background: #2a1010; }
+
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 26px 28px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* Controls -------------------------------------------------------------- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+}
+
+.controls .spacer { flex: 1; }
+
+button {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: #1c2740;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  padding: 9px 18px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { background: #24314e; border-color: #33415c; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+button.primary {
+  color: #04231a;
+  background: linear-gradient(90deg, var(--tiger-deep), var(--tiger));
+  border-color: transparent;
+  padding: 9px 26px;
+}
+
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+button.primary::before { content: "\25B6"; margin-right: 9px; font-size: 12px; }
+button.primary.busy::before { content: "\25A0"; }
+
+.field, .check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+select {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  background: #1c2740;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.check input { accent-color: var(--tiger-deep); width: 15px; height: 15px; }
+
+/* Headline tiles -------------------------------------------------------- */
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+}
+
+.tile-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.tile strong {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.tile strong.good { color: var(--tiger); }
+.tile strong.bad { color: var(--slow); }
+
+.tile-note { font-size: 12px; color: var(--muted); }
+
+/* Panels ---------------------------------------------------------------- */
+
+.panel {
+  padding: 18px 20px 20px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--bright);
+}
+
+.hint { font-size: 12px; color: var(--dim); }
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.legend code { font-family: var(--mono); color: var(--text); }
+
+.swatch {
+  display: inline-block;
+  width: 20px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: -4px;
+}
+
+.swatch.tiger { background: linear-gradient(90deg, var(--tiger-deep), var(--tiger)); }
+.swatch.python { background: linear-gradient(90deg, #3b4759, var(--python)); }
+
+.legend-rule {
+  display: inline-block;
+  width: 2px;
+  height: 13px;
+  background: #cbd5e1;
+  margin-left: 8px;
+  margin-right: -4px;
+}
+
+/* Rows ------------------------------------------------------------------ */
+
+.rows { display: flex; flex-direction: column; }
+
+/* The corpus is forty-four rows, so the panel scrolls rather than pushing the rest
+   of the page off the screen. 480px is ten rows at this row height, so the panel
+   does not clip one in half. */
+.rows.scroll {
+  max-height: 480px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #33415c transparent;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 156px minmax(120px, 1fr) 124px;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 2px;
+  border-radius: 6px;
+}
+
+.row:nth-child(odd) { background: #0e1729; }
+.row.probe .name { color: var(--dim); }
+.row.failed .name { color: var(--slow); }
+
+.name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  position: relative;
+  height: 16px;
+  background: #0a1220;
+  border-radius: 5px;
+}
+
+.bar {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--tiger-deep), var(--tiger));
+  transition: width 0.45s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.bar.slow { background: linear-gradient(90deg, #7f2b2b, var(--slow)); }
+.bar.python { background: linear-gradient(90deg, #3b4759, var(--python)); }
+.bar.tree { background: linear-gradient(90deg, #7a4a12, #fbbf24); }
+
+/* Where 1.00x sits, which is the line a section has to be past. */
+.track .rule {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: #cbd5e1;
+  opacity: 0.8;
+}
+
+.value {
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: right;
+  color: var(--bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.value small { display: block; color: var(--dim); font-size: 11px; }
+
+/* Prose ----------------------------------------------------------------- */
+
+.empty {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.note {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  font-size: 12px;
+  color: #fcd34d;
+  background: #2a2109;
+  border: 1px solid #7c5a12;
+  border-radius: 8px;
+}
+
+#log {
+  margin: 0;
+  max-height: 210px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+#log .ok { color: var(--tiger); }
+#log .warn { color: #fcd34d; }
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-top: 1px solid var(--panel-edge);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar { transition: none; }
+}

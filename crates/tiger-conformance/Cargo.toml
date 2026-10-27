@@ -5,9 +5,10 @@ edition.workspace = true
 
 [dependencies]
 tiger-evaluator = { workspace = true }
+# The protocol measurement parses the paired workload once and runs it many times.
+# It lives in the library rather than in the test so that the threshold test and the
+# performance dashboard in `tools/perf-dashboard` read the same numbers.
+tiger-parser = { workspace = true }
 
 [dev-dependencies]
 tiger-evaluator = { workspace = true }
-# The protocol test parses the paired workload once and runs it many times, so it
-# needs the parser as directly as the timing harness needs the runner.
-tiger-parser = { workspace = true }

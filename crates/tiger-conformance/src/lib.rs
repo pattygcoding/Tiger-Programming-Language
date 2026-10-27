@@ -16,6 +16,8 @@ use std::rc::Rc;
 
 pub use tiger_evaluator::{Engine, FileLoader, FileSystem, MemoryFileSystem, ModuleLoader, RunOptions};
 
+pub mod protocol;
+
 /// The repository root, two directories above this crate's manifest.
 pub fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")

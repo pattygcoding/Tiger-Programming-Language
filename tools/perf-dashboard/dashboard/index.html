@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiger Performance</title>
+  <!-- Inline, so the page makes no request for an icon and a demo's console stays clean. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%230b1120'/%3E%3Cpath d='M4 11.6 8 4.4l4 7.2z' fill='%234fdca3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">Tiger<span>.tg</span></a>
+    <span class="environment">Performance dashboard</span>
+    <span id="status" role="status">Connecting</span>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="Run controls">
+      <button id="play" class="primary">Play</button>
+      <span class="field">
+        <label for="iterations">Iterations</label>
+        <select id="iterations">
+          <option value="25">25 &middot; quick</option>
+          <option value="100" selected>100</option>
+          <option value="300">300 &middot; as the gate</option>
+        </select>
+      </span>
+      <label class="check"><input type="checkbox" id="corpus" checked> Benchmark corpus</label>
+      <label class="check"><input type="checkbox" id="engines"> Compare engines</label>
+      <span class="spacer"></span>
+      <button id="copy" title="Copy the report as JSON">Copy JSON</button>
+    </section>
+
+    <section class="summary" aria-label="Headline numbers">
+      <div class="tile">
+        <span class="tile-label">Sections under CPython</span>
+        <strong id="stat-sections">&mdash;</strong>
+        <span class="tile-note" id="stat-sections-note">nothing measured yet</span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Fastest section</span>
+        <strong id="stat-fastest">&mdash;</strong>
+        <span class="tile-note" id="stat-fastest-note">&mdash;</span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Corpus total</span>
+        <strong id="stat-corpus">&mdash;</strong>
+        <span class="tile-note" id="stat-corpus-note">&mdash;</span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Run took</span>
+        <strong id="stat-time">&mdash;</strong>
+        <span class="tile-note" id="stat-time-note">&mdash;</span>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Tiger against CPython">
+      <div class="panel-head">
+        <h2>Tiger vs CPython</h2>
+        <span class="hint">one fixed workload, in process on both sides, each program's own compile removed</span>
+      </div>
+      <div class="legend">
+        <span class="swatch tiger"></span> Tiger, execute alone
+        <span class="swatch python"></span> CPython, <code>exec</code> alone
+        <span class="legend-rule"></span> 1.00x is the same speed
+      </div>
+      <div id="protocol-rows" class="rows"></div>
+      <p class="empty" id="protocol-empty">Press Play to measure.</p>
+      <p class="note" id="protocol-note" hidden></p>
+    </section>
+
+    <section class="panel" aria-label="Benchmark corpus">
+      <div class="panel-head">
+        <h2>The corpus</h2>
+        <span class="hint">in process, no process startup in the numbers &middot; scroll for all forty-four</span>
+      </div>
+      <div id="corpus-rows" class="rows scroll"></div>
+      <p class="empty" id="corpus-empty">Press Play to measure.</p>
+    </section>
+
+    <section class="panel" id="engines-panel" aria-label="Engines" hidden>
+      <div class="panel-head">
+        <h2>Compiled engine vs the tree-walker</h2>
+        <span class="hint">the same corpus twice; a program that does not lower runs on the tree-walker either way</span>
+      </div>
+      <div id="engines-rows" class="rows scroll"></div>
+    </section>
+
+    <section class="panel" aria-label="Log">
+      <div class="panel-head">
+        <h2>Log</h2>
+        <span class="hint">every phase, and anything that could not be measured</span>
+      </div>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <footer><span>TIGER LANGUAGE</span><span>measured in process</span></footer>
+  <script src="dashboard.js" type="module"></script>
+</body>
+</html>

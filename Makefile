@@ -4,7 +4,7 @@ ifeq ($(OS),Windows_NT)
 EXE := .exe
 endif
 
-.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi timing compare protocol
+.PHONY: build run test benchmarks fmt clippy wasm wasm-check startup web wasi timing compare protocol dashboard
 
 build:
 	$(CARGO) build --release
@@ -38,6 +38,14 @@ compare:
 protocol: export TIGER_PROTOCOL_ASSERT = 1
 protocol:
 	$(CARGO) test -p tiger-conformance --test protocol --release -- --nocapture
+
+# Boots the performance dashboard: it measures the paired protocol and the
+# forty-four benchmark programs in process, serves the numbers, and opens the
+# browser. Press Play on the page to measure again with the controls it offers.
+# The tool is its own Cargo project, so this never builds it into the workspace's
+# tests; `--run-once` measures and prints without serving.
+dashboard:
+	cd tools/perf-dashboard && $(CARGO) run --release
 
 fmt:
 	$(CARGO) fmt --check

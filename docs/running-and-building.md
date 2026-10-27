@@ -234,7 +234,7 @@ See the [performance guide](performance.md) and
 
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty-four 100-200-line benchmark programs
-against fixed output files, the 188 documentation examples, every example and
+against fixed output files, the 189 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, the
 differential test that runs every one of those programs on both engines and
 checks that the results match, and the
@@ -249,11 +249,42 @@ its table and asserts nothing, and `make protocol`, which sets
 execute real executables.
 
 `make build`, `make run`, `make test`, `make benchmarks`, `make timing`,
-`make compare`, `make protocol`, `make wasm`, `make wasm-check`, `make startup`,
-`make web`, and
+`make compare`, `make protocol`, `make dashboard`, `make wasm`, `make wasm-check`,
+`make startup`, `make web`, and
 `make wasi` wrap the commands
 above. `make startup` boots the served playground over HTTP with Node and runs a
 program on it, which is the same path a browser takes.
+
+## Performance Dashboard
+
+`make dashboard` boots a local app that measures the interpreter and draws what it
+measured:
+
+```sh
+make dashboard
+```
+
+It serves `http://127.0.0.1:7171`, falls back to a free port when that one is busy,
+and opens the browser. Pressing **Play** on the page measures with the controls the
+page offers — the batch size, whether the forty-four benchmark programs are timed,
+and whether the corpus is timed a second time on the tree-walker — and the bars fill
+in as each section and each program finishes rather than after the run is over.
+
+The numbers are the numbers the suites report rather than a second implementation of
+them. The Tiger-vs-CPython panel runs `tiger_conformance::protocol`, which is the
+module `crates/tiger-conformance/tests/protocol.rs` asserts on, so a row the page
+draws is a row `make protocol` would fail on; the corpus panel is the measurement
+`cargo test -p tiger-conformance --test timing --release -- --ignored --nocapture`
+reports. Nothing on the page is a threshold: `make protocol` is the gate.
+
+The tool is its own Cargo project under
+[tools/perf-dashboard](../tools/perf-dashboard/README.md), the way `tools/flamegraph`
+is, so `cargo test` at the root never builds it and the interpreter's dependency
+closure is untouched. It has a headless mode as well:
+
+```sh
+cd tools/perf-dashboard && cargo run --release -- --run-once
+```
 
 ## Continuous Integration
 

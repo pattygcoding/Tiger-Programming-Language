@@ -1,6 +1,9 @@
 # Build artifacts.
 /target/
 /bin/
+# `tools/perf-dashboard` redirects its builds into `/target/perf-dashboard`, but a
+# `--manifest-path` invocation from the root does not read that redirect.
+/tools/perf-dashboard/target/
 *.exe
 *.building
 /.tokensave

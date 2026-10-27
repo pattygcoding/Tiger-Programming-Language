@@ -94,7 +94,7 @@ try {
     try {
         open("definitely_missing_file.txt", "r");
     } catch (error) {
-        print("missing file raised an error:", len(error) > 0);
+        print("missing file raised an error:", str(error) != "");
     }
 
     try {
@@ -102,12 +102,12 @@ try {
         try {
             readonly.write("nope");
         } catch (error) {
-            print("write to read-only stream refused:", len(error) > 0);
+            print("write to read-only stream refused:", str(error) != "");
         }
         readonly.close();
         readonly.read();
     } catch (error) {
-        print("reading a closed file refused:", len(error) > 0);
+        print("reading a closed file refused:", str(error) != "");
     }
 } catch (error) {
     print("journal demo failed:", error);

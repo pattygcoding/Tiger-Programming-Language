@@ -1,0 +1,23 @@
+[package]
+name = "tiger-perf-dashboard"
+version = "0.1.0"
+edition = "2021"
+publish = false
+default-run = "tiger-perf-dashboard"
+description = "Measures the corpus and the paired Tiger/CPython protocol, and serves the numbers as a local dashboard."
+
+# A workspace of its own, deliberately, like `tools/flamegraph`. It depends on the
+# conformance harness, which is a test-only crate for every other purpose; keeping it
+# out of the workspace is what leaves `cargo test` at the root exactly what it was.
+[workspace]
+
+[dependencies]
+tiger-conformance = { path = "../../crates/tiger-conformance" }
+
+# The same release profile the workspace ships the interpreter with, so the numbers
+# the dashboard shows are the numbers the shipped binary would report.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

@@ -44,7 +44,7 @@ function is_odd(x) { return x % 2 == 1; }
 function add(a, b) { return a + b; }
 function increment(x) { return x + 1; }
 
-const numbers = range(1, 11);
+const numbers = list(range(1, 11));
 print("squares of odds", map(filter(numbers, is_odd), square));
 print("sum of squares", reduce(map(numbers, square), add, 0));
 

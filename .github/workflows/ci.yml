@@ -31,7 +31,7 @@ jobs:
       - name: Build
         run: cargo build --release
       # Runs the unit tests, the ported Go suites, the 44 benchmark programs,
-      # the 188 documentation examples, the example and portfolio programs, the
+      # the 189 documentation examples, the example and portfolio programs, the
       # standalone-build integration tests, and the browser runtime under Node.
       - name: Test
         run: cargo test --release

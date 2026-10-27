@@ -371,6 +371,19 @@ CPython** with the program's own compile removed from both sides, which is what
 "2.6x slower" means. A debug build reports the table and asserts nothing, because
 the ratio a debug build measures is not a ratio anything is about.
 
+Every one of those measurements has a watchable form. `make dashboard` boots a local
+app that runs the same ones and draws them as they finish, so a run is something to
+watch rather than a wall of text:
+
+```sh
+make dashboard
+```
+
+It reports and asserts nothing — `make protocol` is the gate — and it runs
+`tiger_conformance::protocol` rather than a second copy of the measurement, so what
+the page draws is what the test reads. See
+[tools/perf-dashboard](../tools/perf-dashboard/README.md).
+
 ## Where the time goes
 
 The regression programs are small — under two milliseconds each in process — so
