@@ -1157,6 +1157,7 @@ impl Compiler {
                 self.expression(value)?;
                 self.emit(Instr::Throw, base);
             }
+            Stmt::Assert { base, condition, message } => self.assert_statement(base, condition, message.as_ref())?,
             Stmt::Import { base, path, name, names } => {
                 // The `Import` instruction binds the name itself; record it here so
                 // the declarations that follow in this scope get the right slots.
@@ -1185,6 +1186,28 @@ impl Compiler {
             }
             _ => return self.statement_tail(statement),
         }
+        Ok(())
+    }
+
+    /// Lowers `assert condition, message;` to a branch over a raising instruction.
+    ///
+    /// The message expression sits in the failure block, so a passing assertion
+    /// never evaluates it — the same laziness the interpreter has. `Instr::Assert`
+    /// then builds the error from the `assert` keyword's own position.
+    fn assert_statement(&mut self, base: &Base, condition: &Expr, message: Option<&Expr>) -> Compiled {
+        self.expression(condition)?;
+        let to_failure = self.here();
+        self.emit(Instr::JumpIfFalse(0), condition.base());
+        let to_end = self.here();
+        self.emit(Instr::Jump(0), base);
+        let failure = self.here();
+        self.patch(to_failure, failure);
+        if let Some(message) = message {
+            self.expression(message)?;
+        }
+        self.emit(Instr::Assert { message: message.is_some() }, base);
+        let end = self.here();
+        self.patch(to_end, end);
         Ok(())
     }
 
@@ -1694,6 +1717,12 @@ fn scan_stmt(statement: &Stmt, inside: bool, out: &mut HashSet<String>) {
             scan_expr(value, inside, out);
         }
         Stmt::Throw { value, .. } => scan_expr(value, inside, out),
+        Stmt::Assert { condition, message, .. } => {
+            scan_expr(condition, inside, out);
+            if let Some(message) = message {
+                scan_expr(message, inside, out);
+            }
+        }
         Stmt::Return { value, .. } => {
             if let Some(value) = value {
                 scan_expr(value, inside, out);

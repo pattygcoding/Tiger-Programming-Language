@@ -23,7 +23,7 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 | Declarations | `const var function class extends` | `storage.type.tiger` |
 | Module imports | `import as` | `keyword.control.import.tiger` |
 | Access modifiers | `public private protected` | `storage.modifier.tiger` |
-| Control flow | `if elif else while do for return break continue switch match case default try catch finally throw` | `keyword.control.tiger` |
+| Control flow | `if elif else while do for return break continue switch match case default try catch finally throw assert` | `keyword.control.tiger` |
 | Receiver / parent | `this super` | `variable.language.tiger` |
 | Word operators | `and or not in div` | `keyword.operator.word.tiger` |
 | Symbolic logical operators | `&& \|\| !`, aliases of `and`, `or`, and `not` in any position | `keyword.operator.logical.tiger` |

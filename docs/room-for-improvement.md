@@ -213,43 +213,7 @@ per class, so `hasattr` and a name-based read are small additions. `setattr`
 would have to respect the declared-field rule, which is a deliberate design
 choice, so a read-only reflection surface is the consistent first step.
 
-## 7. Assertions
-
-**Missing:** an `assert` statement, or function, for invariants and quick
-tests.
-
-**Why it matters:** assertions document what a program believes and fail loudly
-at the point the belief breaks, and they are the usual way to write the small
-checks inside a script. Tiger has only `throw`, which is catchable and carries
-no standard "assertion" kind.
-
-**Workaround:** wrap a throw in a helper.
-
-```tg
-function check(condition, message) {
-    if not condition {
-        throw message;
-    }
-}
-try {
-    check(1 > 2, "expected failure");
-} catch (error) {
-    print("caught");
-}
-```
-
-Output:
-
-```text
-caught
-```
-
-**Suggested direction:** `assert condition, message;` is a statement that throws
-a structured error with its own `kind` when the condition is falsey, so existing
-`try`/`catch` and typed guards keep working. Empty blocks are already allowed
-(`if true { }` parses), so no separate no-op statement is needed.
-
-## 8. Exception ergonomics
+## 7. Exception ergonomics
 
 **Missing:** stack traces, a built-in error hierarchy, and exception chaining
 (`raise ... from`).
@@ -280,7 +244,7 @@ evaluator already builds, without changing the value model. A hierarchy needs
 classes that the standard error object can extend, and chaining needs a field on
 that object, so those two depend on deciding what a user-defined error class is.
 
-## 9. Class-system breadth
+## 8. Class-system breadth
 
 **Missing:** static methods and fields, properties (getters and setters),
 operator overloading, interfaces or abstract classes, and multiple inheritance.
@@ -317,7 +281,7 @@ and member-access paths consult; both are larger than they look because they
 change how those paths resolve. Interfaces and multiple inheritance would change
 how method lookup walks parents.
 
-## 10. String and number helper breadth
+## 9. String and number helper breadth
 
 **Missing:** `printf`-style formatting (`"%d" % value`), a `format` method, and
 the smaller string helpers (`lstrip`, `rstrip`, `count`, `capitalize`, `title`),
@@ -351,7 +315,7 @@ existing methods, and the missing built-ins can delegate to the `math` module.
 `%` formatting is the only large piece, and it overlaps f-strings, so it is the
 weakest candidate.
 
-## 11. Enumerations
+## 10. Enumerations
 
 **Missing:** an `enum` type for a fixed set of named constants.
 

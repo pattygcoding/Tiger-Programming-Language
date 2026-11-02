@@ -55,6 +55,7 @@ pub const KEYWORDS: &[&str] = &[
     "try",
     "catch",
     "throw",
+    "assert",
     "import",
     "as",
 ];
@@ -106,6 +107,7 @@ fn keyword_kind(text: &str) -> Option<Kind> {
         "try" => "try",
         "catch" => "catch",
         "throw" => "throw",
+        "assert" => "assert",
         "import" => "import",
         "as" => "as",
         _ => return None,

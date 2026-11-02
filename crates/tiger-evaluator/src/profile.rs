@@ -270,7 +270,7 @@ fn category(instruction: &Instr) -> usize {
 }
 
 /// How many instruction shapes there are to tell apart.
-pub const SHAPE_COUNT: usize = 86;
+pub const SHAPE_COUNT: usize = 87;
 
 /// What each shape is, in the order [`shape_index`] numbers them.
 ///
@@ -364,6 +364,7 @@ pub const SHAPE_NAMES: [&str; SHAPE_COUNT] = [
     "Try",
     "Slice",
     "StoreIndexFlat",
+    "Assert",
 ];
 
 /// How many times each shape has run.
@@ -476,6 +477,7 @@ pub fn shape_index(instruction: &Instr) -> usize {
         Instr::Try { .. } => 83,
         Instr::Slice(_) => 84,
         Instr::StoreIndexFlat { .. } => 85,
+        Instr::Assert { .. } => 86,
     }
 }
 

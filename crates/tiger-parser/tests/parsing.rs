@@ -383,6 +383,28 @@ fn function_ergonomics_parsing() {
 }
 
 #[test]
+fn assert_statements() {
+    let program = parse("assert 1 < 2;");
+    let Stmt::Assert { condition, message, .. } = &program.statements[0] else { panic!("assert") };
+    assert!(matches!(condition, Expr::Binary { operator, .. } if operator == "<"));
+    assert!(message.is_none());
+
+    // The message is optional and may be any expression.
+    let with_message = parse("assert value, \"value must be set\";");
+    let Stmt::Assert { message, .. } = &with_message.statements[0] else { panic!("assert") };
+    assert!(matches!(message, Some(Expr::Literal { .. })));
+
+    parse("assert (1 < 2), [\"why\", 1];");
+
+    // `assert` is a reserved word, and the statement needs a condition and a
+    // terminator.
+    reject("const assert = 1;");
+    reject("assert;");
+    reject("assert 1 < 2");
+    reject("assert 1 < 2, ;");
+}
+
+#[test]
 fn try_catches_and_finally() {
     let program = parse("try { print(1); } catch (error) if isinstance(error, \"error\") { print(2); } finally { print(3); }");
     let Stmt::Try { catches, finally, .. } = &program.statements[0] else { panic!("try") };

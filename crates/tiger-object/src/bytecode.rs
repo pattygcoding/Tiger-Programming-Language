@@ -413,6 +413,13 @@ pub enum Instr {
     IterDrop,
     /// Pop a value and raise it as a `throw`.
     Throw,
+    /// Raise a failed `assert`, positioned where the statement is.
+    ///
+    /// `message` says whether the operand stack holds the assertion's own message;
+    /// when it is false the engine reports the bare `assertion failed`, which is
+    /// what `assert condition;` asks for. A message is rendered with `str` exactly
+    /// as the interpreter renders it.
+    Assert { message: bool },
     /// Import `chunk.names[i]` and bind it as `chunk.names[j]`.
     Import { path: u32, name: u32 },
     /// Runs `chunk.tries[i]`: the body, then its catch clauses, then its `finally`.

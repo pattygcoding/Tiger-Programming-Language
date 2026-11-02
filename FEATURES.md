@@ -35,6 +35,7 @@ repeated below.
 | Aggregate built-ins and comprehensions | `38_aggregates` |
 | Text precision | `39_text_precision` |
 | Syntax additions | `40_syntax_gaps` |
+| Assertions | `40_syntax_gaps` |
 | Sets and tuples | `41_sets_and_tuples` |
 | File imports and exports | `42_module_exports` |
 
@@ -56,7 +57,8 @@ repeated below.
   `throw error;` rethrows. Kinds include `zero division`, `math domain`,
   `math range`, `numeric range`, `constant reassignment`, `duplicate
   declaration`, `undefined name`, `index range`, `index type`, `missing key`,
-  `not indexable`, `unsupported operands`, and `missing file`.
+  `not indexable`, `unsupported operands`, `missing file`, and
+  `assertion failed`.
 
 ```tg
 class Counter {
@@ -201,6 +203,10 @@ print(describe("tiger", "wild", size="large"));
   across nested loops.
 - **`do...while`**: `do { ... } while (condition);`, with `continue` re-checking
   the condition.
+- **Assertions**: `assert condition, message;` fails with a catchable runtime
+  error whose `kind` is `assertion failed`. The message is optional, may be any
+  value (rendered with `str`), and is evaluated only when the condition is
+  falsey. Existing `try`/`catch`, typed guards, and `finally` apply unchanged.
 
 ## Input and files
 

@@ -105,7 +105,7 @@ must be positive -2
 true
 ```
 
-`throw expression;` raises any Tiger value, including `null`. `try { ... } catch (name) { ... }` catches thrown values unchanged. A caught runtime error is a structured `error` value: `error["message"]` is the bare diagnostic, `error["kind"]` is a stable category, and `error["origin"]` is the `file:line:column` (or `line:column`) position. `print(error)` and `str(error)` show the positioned diagnostic, and `"text" in error` checks whether that text contains a substring, so older code keeps working. Kinds include `zero division`, `math domain`, `math range`, `numeric range`, `constant reassignment`, `duplicate declaration`, `undefined name`, `index range`, `index type`, `missing key`, `not indexable`, `unsupported operands`, and `missing file`; anything unmatched is `runtime error`. The catch binding is mutable and local. Try and catch blocks have separate scopes. Rethrow with `throw name;`; bare `throw;` is not supported. Errors in a catch propagate to an outer handler. Returns, breaks, and continues pass through try/catch normally.
+`throw expression;` raises any Tiger value, including `null`. `try { ... } catch (name) { ... }` catches thrown values unchanged. A caught runtime error is a structured `error` value: `error["message"]` is the bare diagnostic, `error["kind"]` is a stable category, and `error["origin"]` is the `file:line:column` (or `line:column`) position. `print(error)` and `str(error)` show the positioned diagnostic, and `"text" in error` checks whether that text contains a substring, so older code keeps working. Kinds include `zero division`, `math domain`, `math range`, `numeric range`, `constant reassignment`, `duplicate declaration`, `undefined name`, `index range`, `index type`, `missing key`, `not indexable`, `unsupported operands`, `missing file`, and `assertion failed`; anything unmatched is `runtime error`. The catch binding is mutable and local. Try and catch blocks have separate scopes. Rethrow with `throw name;`; bare `throw;` is not supported. Errors in a catch propagate to an outer handler. Returns, breaks, and continues pass through try/catch normally.
 
 ## Finally
 
@@ -150,6 +150,45 @@ print(classify(1), classify(5));
 Each `catch` clause may carry an `if condition` guard, evaluated with the binding in scope; the first clause whose guard is truthy, or that has no guard, runs. Combined with `error["kind"]`, this dispatches on the failure category instead of matching message text. Clauses are tried in order, so a plain `catch (error)` works as the fallback. An error that no clause matches propagates to an outer handler after any `finally` runs.
 
 Uncaught throws stop execution and report `uncaught throw: ...` at the throw position. Parsing errors cannot be caught because parsing precedes execution. Execution-step and evaluation-depth limits cannot be caught. Output and mutations before an error are not rolled back.
+
+## Assertions
+
+```tg
+function average(items) {
+    assert len(items) > 0, "average of an empty list";
+    var total = 0;
+    for item in items {
+        total = total + item;
+    }
+    return total / len(items);
+}
+print(average([2, 4, 6]));
+try {
+    average([]);
+} catch (error) if error["kind"] == "assertion failed" {
+    print(error["kind"], error["message"]);
+}
+assert true;
+print("checks passed");
+```
+
+```text
+4
+assertion failed assertion failed: average of an empty list
+checks passed
+```
+
+`assert condition, message;` fails when the condition is falsey, using the same [truthiness](types-and-operators.md) as `if`. The failure is an ordinary catchable runtime error whose `kind` is `assertion failed`, so a typed catch guard can tell it apart from every other failure; an uncaught one stops the program at the `assert`, and `error["origin"]` points at the keyword. The message is optional: `assert len(items) > 0;` reports the bare `assertion failed`. When a message is present it is evaluated only if the condition fails and is rendered with `str`, so `assert count > 0, f"count is {count}";` costs nothing on the passing path.
+
+**Expected error:**
+
+```tg
+assert 1 > 2, "one is not greater";
+```
+
+```error
+assertion failed: one is not greater
+```
 
 ## Resource Limits
 

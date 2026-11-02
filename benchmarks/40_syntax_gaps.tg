@@ -1,8 +1,10 @@
-// 40_syntax_gaps.tg - conditional expressions, slicing, loop labels, do...while.
+// 40_syntax_gaps.tg - conditional expressions, slicing, loop labels, do...while,
+// and assertions.
 //
 // A small report built from a table of readings: labels are chosen with
 // conditional expressions, rows and columns are read with slices, nested loops
-// are left with labeled break and continue, and input is walked with do...while.
+// are left with labeled break and continue, input is walked with do...while, and
+// assertions guard what the report believes.
 
 print("== conditional expressions ==");
 function sign(value) {
@@ -97,6 +99,90 @@ counting: while rows < 3 {
         }
         print(rows, columns);
     }
+}
+
+print("== assertions ==");
+function ratio(part, whole) {
+    assert whole != 0, "whole must be non-zero";
+    return part / whole;
+}
+print(ratio(8, 2));
+
+var checked = 0;
+for value in [1, 2, 3] {
+    assert value > 0;
+    checked = checked + 1;
+}
+print("checked", checked);
+
+function note(message) {
+    print("evaluated", message);
+    return message;
+}
+assert 2 > 1, note("never runs");
+print("message is lazy");
+
+try {
+    assert 1 > 2, "one is not greater";
+} catch (error) if error["kind"] == "assertion failed" {
+    print(error["kind"], error["message"], "assertion failed" in error);
+}
+
+try {
+    assert 1 > 2;
+} catch (error) {
+    print(error["message"]);
+}
+
+try {
+    assert 1 > 2, ["rows", 3];
+} catch (error) {
+    print(error["message"]);
+}
+
+try {
+    assert 0, "zero is falsey";
+} catch (error) {
+    print("zero", error["kind"]);
+}
+try {
+    assert "", "empty text is falsey";
+} catch (error) {
+    print("empty text", error["kind"]);
+}
+try {
+    assert [], "an empty list is falsey";
+} catch (error) {
+    print("empty list", error["kind"]);
+}
+try {
+    assert null, "null is falsey";
+} catch (error) {
+    print("null", error["kind"]);
+}
+
+try {
+    assert [0], "a populated list is truthy";
+    assert "0", "non-empty text is truthy";
+    assert -1, "a non-zero number is truthy";
+    print("truthy checks passed");
+} catch (error) {
+    print("unexpected", error["message"]);
+}
+
+function verify(limit) {
+    try {
+        assert limit < 3, f"limit {limit} is too large";
+        return "accepted";
+    } finally {
+        print("checked limit", limit);
+    }
+}
+print(verify(2));
+try {
+    verify(5);
+} catch (error) {
+    print(error["kind"]);
 }
 
 print("done");

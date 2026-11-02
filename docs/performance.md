@@ -1225,7 +1225,7 @@ identifier, number, and string in the source, and it is why the parser has no
 `pos` field and no placeholder to leave behind. Two smaller copies went with it: an
 f-string field's tokens are moved into the nested parser rather than copied, and a
 member name asks `lexer::is_keyword` — a `match` — instead of scanning the
-thirty-six-entry keyword table.
+thirty-seven-entry keyword table.
 
 Together those cut the parse by about 28% and a whole corpus pass by about 7%. What
 is left is mostly the AST itself: every node is a boxed enum carrying a `Base`, so

@@ -234,7 +234,7 @@ See the [performance guide](performance.md) and
 
 `cargo test` checks the unit tests, the language suites in
 `crates/tiger-evaluator/tests/`, the forty-four 100-200-line benchmark programs
-against fixed output files, the 189 documentation examples, every example and
+against fixed output files, the 190 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, the
 differential test that runs every one of those programs on both engines and
 checks that the results match, and the

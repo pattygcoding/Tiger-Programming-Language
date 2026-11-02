@@ -62,6 +62,14 @@ pub enum Stmt {
         base: Base,
         value: Expr,
     },
+    /// `assert condition, message;` raises an `assertion failed` runtime error
+    /// when the condition is falsey. The message is optional and is evaluated
+    /// only when the assertion fails.
+    Assert {
+        base: Base,
+        condition: Expr,
+        message: Option<Expr>,
+    },
     Try {
         base: Base,
         body: Block,
@@ -149,6 +157,7 @@ impl Stmt {
         match self {
             Stmt::Import { base, .. }
             | Stmt::Throw { base, .. }
+            | Stmt::Assert { base, .. }
             | Stmt::Try { base, .. }
             | Stmt::Destructure { base, .. }
             | Stmt::Expression { base, .. }

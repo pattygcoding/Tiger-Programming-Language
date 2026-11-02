@@ -10,7 +10,7 @@ use tiger_object as object;
 use tiger_object::bytecode::{CachedProperty, Chunk, Instr, Op, TryProto, SPECIALIZE_AFTER};
 use tiger_object::{Env, FunctionValue, Keyword, Value};
 
-use crate::{builtins, methods, runtime, Evaluator, Signal};
+use crate::{assertion_error, builtins, methods, runtime, Evaluator, Signal};
 
 /// Runs a native call — a built-in, or a string method — timing it when the profiler is
 /// on and calling it straight through when it is off.
@@ -2018,6 +2018,10 @@ impl Evaluator {
                     // belong to the frames parked underneath.
                     self.release_scopes_to(&mut env, &mut scopes, scope_mark);
                     return Err(Signal::Throw { value, origin: chunk.base_at(chunk.position(pc - 1)).location() });
+                }
+                Instr::Assert { message } => {
+                    let message = if message { Some(stack.pop().expect("stack")) } else { None };
+                    return Err(assertion_error(&chunk.base_at(chunk.position(pc - 1)), message));
                 }
                 // A frame's last act: the value it ends with, read from its own slot or
                 // computed from the two operands below it, and the exit in one dispatch.

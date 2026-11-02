@@ -7,7 +7,7 @@ function tokens(source) {
 }
 
 test("all reserved words, literals, and built-ins", () => {
-  for (const text of "const var function class extends super this public private protected return if elif else while do for in and or not div break continue switch match case default try catch finally throw import as".split(" ")) {
+  for (const text of "const var function class extends super this public private protected return if elif else while do for in and or not div break continue switch match case default try catch finally throw assert import as".split(" ")) {
     assert.deepEqual(tokens(text), [{ text, kind: "keyword" }]);
   }
   for (const text of ["true", "false", "null"]) {

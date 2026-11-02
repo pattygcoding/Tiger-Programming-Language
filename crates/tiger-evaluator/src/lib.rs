@@ -89,6 +89,7 @@ type Eval = Result<Value, Signal>;
 
 /// Classifies a diagnostic once, where it is raised.
 const ERROR_KINDS: &[(&str, &str)] = &[
+    ("assertion failed", "assertion failed"),
     ("division by zero", "zero division"),
     ("domain error", "math domain"),
     ("range error", "math range"),
@@ -126,6 +127,19 @@ pub(crate) fn runtime(base: &Base, message: String) -> Signal {
 
 fn fatal(base: &Base, message: String) -> Signal {
     Signal::Runtime { error: new_runtime_error(base, message), fatal: true }
+}
+
+/// Builds the runtime error a failed `assert` raises from its message value.
+///
+/// The message is rendered with `str`, the same conversion `print` uses, so a
+/// list or a number reads the way it would anywhere else. An absent message, and
+/// one that renders as empty text, report the bare `assertion failed`.
+pub(crate) fn assertion_error(base: &Base, message: Option<Value>) -> Signal {
+    let detail = message.map(|value| object::format(&value)).filter(|detail| !detail.is_empty());
+    match detail {
+        Some(detail) => runtime(base, format!("assertion failed: {}", detail)),
+        None => runtime(base, "assertion failed".to_string()),
+    }
 }
 
 /// Wraps a numeric result, rejecting a non-finite value the way the interpreter
@@ -575,6 +589,17 @@ impl Evaluator {
             Stmt::Throw { base, value } => {
                 let value = self.expression(value, env)?;
                 return Err(Signal::Throw { value, origin: base.location() });
+            }
+            Stmt::Assert { base, condition, message } => {
+                if !object::truthy(&self.expression(condition, env)?) {
+                    // The message is evaluated only on the failing path, so a
+                    // passing assertion pays for the condition and nothing else.
+                    let message = match message {
+                        Some(message) => Some(self.expression(message, env)?),
+                        None => None,
+                    };
+                    return Err(assertion_error(base, message));
+                }
             }
             Stmt::Try { .. } => return self.try_statement(statement, env),
             Stmt::Destructure { .. } => return self.destructure(statement, env),

@@ -13,7 +13,7 @@ built-in names can be shadowed and are still colored as built-ins.
 
 | Category | Grammar |
 | --- | --- |
-| Keywords | `const var function class extends super this public private protected return if elif else while for in and or not break continue switch match case default try catch throw import as` |
+| Keywords | `const var function class extends super this public private protected return if elif else while do for in and or not div break continue switch match case default try catch finally throw assert import as` |
 | Primitive literals | Numbers, strings, `true`, `false`, `null` |
 | Numbers | Decimal digits, optional fractional part with digits after the dot, optional `e`/`E` exponent with optional sign; unary `+`/`-` are separate operators |
 | Strings | Single or double quotes; escapes `\n`, `\r`, `\t`, `\xHH`, `\uXXXX`, `\UXXXXXXXX`, `\\`, `\"`, `\'` are highlighted separately; an `r`/`R` prefix makes the text raw |

@@ -37,6 +37,13 @@ fn scans_symbolic_logical_operators() {
 }
 
 #[test]
+fn scans_assert_as_a_reserved_word() {
+    assert_eq!(kinds("assert 1 < 2, \"why\";"), vec!["assert", NUMBER, "<", NUMBER, ",", STRING, ";", EOF]);
+    // `assert` is a statement keyword, so a program cannot bind the name.
+    assert!(tiger_lexer::is_keyword("assert"));
+}
+
+#[test]
 fn scans_match_and_the_removed_c_style_words() {
     assert_eq!(kinds("match value { case _: }"), vec!["match", IDENT, "{", "case", IDENT, ":", "}", EOF]);
     for source in ["cif", "celse", "cfor"] {

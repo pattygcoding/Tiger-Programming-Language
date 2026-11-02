@@ -297,6 +297,17 @@ impl Parser {
             self.expect(";")?;
             return Ok(Stmt::Throw { base, value });
         }
+        if self.take_if("assert") {
+            // The message is optional and, like Python's, only evaluated when the
+            // assertion fails.
+            let condition = self.expression(0)?;
+            let mut message = None;
+            if self.take_if(",") {
+                message = Some(self.expression(0)?);
+            }
+            self.expect(";")?;
+            return Ok(Stmt::Assert { base, condition, message });
+        }
         if self.take_if("try") {
             return self.try_statement(base);
         }

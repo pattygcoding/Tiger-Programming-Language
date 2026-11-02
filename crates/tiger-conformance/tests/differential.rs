@@ -130,7 +130,7 @@ fn programs(directory: &str) -> Vec<Fixture> {
 /// condition sees, what happens when the `finally` itself leaves or fails, and
 /// how the blocks scope their declarations.
 fn semantics() -> Vec<Fixture> {
-    const SOURCES: [&str; 21] = [
+    const SOURCES: [&str; 25] = [
         // A `finally` runs on normal completion, on a caught throw, and on an
         // error that no clause takes.
         r#"try { print("body"); } finally { print("finally"); }"#,
@@ -150,6 +150,13 @@ fn semantics() -> Vec<Fixture> {
         r#"try { try { throw "x"; } catch (error) { throw "y"; } } catch (error) { print(error); }"#,
         // A caught runtime error arrives as an error value.
         r#"try { const bad = 1 / 0; } catch (error) { print("zero division" in error, type(error)); }"#,
+        // An assertion is a catchable error of its own kind, its message is
+        // evaluated only on the failing path, and an absent message reports the
+        // bare failure.
+        r#"assert 1 < 2, "passes"; print("after assert");"#,
+        r#"try { assert 1 > 2, "one is not greater"; } catch (error) { print(error["kind"], error["message"], error["origin"] == ""); }"#,
+        r#"function note() { print("evaluated"); return "why"; } assert 1 < 2, note(); try { assert 0, note(); } catch (error) { print(error["message"]); }"#,
+        r#"try { assert 1 > 2; } catch (error) { print(error["message"]); } print("done");"#,
         // The body and each clause have their own scope.
         r#"var value = 1; try { var value = 2; print(value); } catch (error) { value = 9; } print(value);"#,
         // A `switch` falls through from the case that matched, takes the last
