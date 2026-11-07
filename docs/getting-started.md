@@ -4,7 +4,7 @@
 
 ## Your First Program
 
-Tiger source files end in `.tg`. With Go 1.22 or newer installed, run a source file from the repository root:
+Tiger source files end in `.tg`. With Rust installed, run a source file from the repository root:
 
 ```sh
 cargo run --release -p tiger-cli -- run examples/demo.tg
