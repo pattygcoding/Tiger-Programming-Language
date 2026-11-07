@@ -61,4 +61,20 @@ Open the URL it prints (`http://127.0.0.1:7171` unless that port is busy), choos
 
 Change `quantity` to `2`. The discount condition becomes false, and the result is `24`. Then make `price` a constant: reading it in the multiplication still works, but assigning it a second value would fail.
 
+## Run From Any Directory
+
+After `cargo build --release`, the binary is `target/release/tiger` (`target\release\tiger.exe` on Windows). Add that folder to your `PATH` so `tiger` works from any directory:
+
+```sh
+# POSIX shells (bash, zsh, fish): add the release folder for this shell (run from the repository root).
+export PATH="$PWD/target/release:$PATH"
+```
+
+```powershell
+# Windows PowerShell: add the release folder for this session.
+$env:Path = "$env:Path;$PWD\target\release"
+```
+
+To make the change permanent, add the same line to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`), or run `[Environment]::SetEnvironmentVariable("Path", "$env:Path;$PWD\target\release", "User")` on Windows. See [Running and Building](running-and-building.md#add-tiger-to-your-path) for copying the binary and the full details.
+
 See [Running and Building](running-and-building.md) for native executables, standalone builds, PowerShell commands, and Wasm targets.

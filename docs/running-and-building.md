@@ -40,6 +40,34 @@ On Windows PowerShell the binary is `.\target\release\tiger.exe`.
 
 Input paths must end in `.tg`. Build accepts `-o` before or after the source path. Everything after the source path belongs to the program: `tiger run greet.tg Ada Grace` makes `sys.argv` the list `["greet.tg", "Ada", "Grace"]`, and a built executable does the same with its own path first. There is no interactive REPL or standard-input source mode; standard input is passed to the program, where `input()` reads it (for example, `tiger run app.tg < answers.txt`). Standalone executables and the WASI build also read standard input; the browser playground asks for each line in the output pane. CLI exit codes are `0` for success, `1` for file/language/build errors, `2` for invalid arguments, and otherwise the status the program chose with `sys.exit`, whose message (when the argument is not an integer) is printed on standard error first. See [`sys`](standard-library.md#sys).
 
+### Add `tiger` to your PATH
+
+After `cargo build --release`, the binary is `target/release/tiger` (`target\release\tiger.exe` on Windows). To run `tiger` from any directory, either copy the binary onto a folder that is already on your `PATH`, or add the release folder to your `PATH`.
+
+On POSIX shells (bash, zsh, fish):
+
+```sh
+# Copy the binary somewhere already on PATH, e.g. ~/.local/bin or /usr/local/bin.
+cp target/release/tiger ~/.local/bin/tiger
+
+# Or add the release folder to PATH for this shell (run from the repository root):
+export PATH="$PWD/target/release:$PATH"
+```
+
+To make the folder persistent, add the same `export PATH=...` line to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`) with the absolute path to the repository's `target/release` folder. `make build` puts the binary in that same folder.
+
+On Windows PowerShell:
+
+```powershell
+# Add the release folder to PATH for this session only.
+$env:Path = "$env:Path;$PWD\target\release"
+
+# Or add it permanently to the user's PATH.
+[Environment]::SetEnvironmentVariable("Path", "$env:Path;$PWD\target\release", "User")
+```
+
+Or copy `tiger.exe` into a folder already on your `PATH` (for example `%LOCALAPPDATA%\Microsoft\WindowsApps`). After the change, `tiger run hello.tg` works from any directory. For a single self-contained program, `tiger build` produces a standalone executable you can also place on your `PATH`.
+
 ## Standalone Executables
 
 ```powershell
