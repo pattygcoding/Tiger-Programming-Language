@@ -27,7 +27,7 @@ arrangement `tools/flamegraph` uses, and for the same reason.
 | Panel | What it is | Where the code lives |
 | --- | --- | --- |
 | Tiger vs CPython | One fixed workload, one pinned section at a time, in process on both sides, each program's own compile removed. The bar is Tiger's work over CPython's `exec`; the rule marks 1.00x. | `tiger_conformance::protocol`, the same module the threshold test runs |
-| The corpus | The forty-four benchmark programs, timed in process with one warm-up run each, reporting the best of the batch. | `src/report.rs`, the way `tests/timing.rs` does it |
+| The corpus | The forty-five benchmark programs, timed in process with one warm-up run each, reporting the best of the batch. | `src/report.rs`, the way `tests/timing.rs` does it |
 | Compiled engine vs the tree-walker | The same corpus a second time on `Engine::Tree`, which is how the compiled engine's share of a workload is read without a profiler. Opt-in, because it doubles the wait. | the same |
 
 The protocol half is shared with `crates/tiger-conformance/tests/protocol.rs` rather

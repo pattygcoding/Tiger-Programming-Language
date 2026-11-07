@@ -1,5 +1,5 @@
 //! Module loaders and the built-in `math`, `algo`, `random`, `secrets`, `json`,
-//! `time`, `regex`, and `sys` modules.
+//! `time`, `regex`, `api`, and `sys` modules.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -470,18 +470,16 @@ pub fn json_module() -> Rc<Module> {
         };
         parse_json(text)
     });
-    let stringify = object::Builtin::new("json.stringify", |_host, arguments, keywords| {
+    let stringify_builtin = object::Builtin::new("json.stringify", |_host, arguments, keywords| {
         if !keywords.is_empty() {
             return Err("json.stringify does not accept keyword arguments".to_string());
         }
         if arguments.len() != 1 {
             return Err(format!("json.stringify expects 1 argument, got {}", arguments.len()));
         }
-        let mut out = String::new();
-        write_json(&mut out, &arguments[0], &mut Vec::new())?;
-        Ok(Value::string(&out))
+        Ok(Value::string(&stringify(&arguments[0])?))
     });
-    module("json", &[("parse", parse), ("stringify", stringify)])
+    module("json", &[("parse", parse), ("stringify", stringify_builtin)])
 }
 
 fn parse_json(text: &str) -> Result<Value, String> {
@@ -1028,4 +1026,19 @@ pub fn regex_module() -> Rc<Module> {
 /// The `algo` module: a suite of classic algorithms.
 pub fn algo_module() -> Rc<Module> {
     crate::algo::algo_module()
+}
+
+/// The `api` module: HTTP requests and the pure URL and query helpers.
+///
+/// The request methods delegate to the target's engine, so the browser and WASI
+/// builds expose the same surface without linking a socket.
+pub fn api_module() -> Rc<Module> {
+    crate::apimod::api_module()
+}
+
+/// Serializes a value to JSON, the same way `json.stringify` does.
+pub(crate) fn stringify(value: &Value) -> Result<String, String> {
+    let mut out = String::new();
+    write_json(&mut out, value, &mut Vec::new())?;
+    Ok(out)
 }

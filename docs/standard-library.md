@@ -259,4 +259,44 @@ Output:
 
 See [Files](file-io.md) for the other file helpers and [Built-ins](builtins.md) for the module list.
 
+## api
+
+`api` is an HTTP client. It makes requests with `get`, `post`, `put`, `patch`, `delete`, `head`, and `request`, and it offers two pure helpers, `parse_url` and `encode_query`, that work without a socket. The native build speaks plain HTTP/1.1; `https://` needs a TLS stack this build does not carry, so it reports a clear error. The browser and WASI builds keep the module surface but every request reports that the target has no sockets. The two pure helpers work on every target.
+
+| Function | Result |
+| --- | --- |
+| `api.get(url, headers=null, params=null, timeout=null, follow_redirects=true)` | A response dictionary |
+| `api.post(url, body=null, json=null, headers=null, params=null, timeout=null)` | A response dictionary |
+| `api.put`, `api.patch`, `api.delete`, `api.head` | A response dictionary, with the same arguments as `post` |
+| `api.request(method, url, ...)` | A response dictionary, the primitive the others delegate to |
+| `api.parse_url(url)` | The `scheme`, `host`, `port`, `path`, `query`, and `fragment` of a URL, as a dictionary |
+| `api.encode_query(dict)` | A dictionary as an `a=1&b=2` query string |
+
+A response is an ordinary dictionary: `status`, `reason`, `ok`, `url`, `headers`, and `body`. A non-2xx/3xx status is not an error: `ok` is `false` and the body is still returned. A connection failure, a timeout, a malformed URL, or an unsupported scheme raises a catchable error, like a file read. A `post` (or `put`, `patch`, or `delete`) accepts a string `body` or a `json` value; `get` and `head` carry no body. `headers` is a dictionary of string names to string values, `params` is a dictionary or a query string, `timeout` is a number of seconds, and `follow_redirects` defaults to `true`.
+
+```tg
+const parsed = api.parse_url("http://example.com:8080/search?q=two%20words");
+print(parsed["scheme"], parsed["host"], parsed["port"]);
+print(parsed["path"], parsed["query"]);
+print(api.encode_query({"q": "two words", "page": 2, "tag": ["a", "b"]}));
+```
+
+Output:
+
+```text
+http example.com 8080
+/search q=two%20words
+q=two%20words&page=2&tag=a&tag=b
+```
+
+**Expected error:**
+
+```tg
+api.parse_url("ftp://example.com");
+```
+
+```error
+unsupported URL scheme
+```
+
 [Guide index](README.md) | [Built-ins](builtins.md) | [Files](file-io.md)

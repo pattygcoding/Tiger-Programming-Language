@@ -2,7 +2,7 @@
 
 [Guide index](README.md) | [Classes and Inheritance](classes-and-inheritance.md) | [Runtime and Errors](runtime-and-errors.md)
 
-Tiger provides the general built-ins `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, `isinstance`, and `graphemes`, the aggregate built-ins `sum`, `min`, `max`, `any`, `all`, `zip`, `enumerate`, `map`, `filter`, and `sorted`, the [`math`](math.md), [`algo`](algo.md), `random`, `secrets`, `json`, `time`, and `regex` modules, plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, `remove_file`, and `list_dir` described in [Files](file-io.md). See [Standard Library Additions](standard-library.md) for the `random`, `secrets`, `json`, `time`, and `regex` modules. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration (at the top level or in an inner scope) or a parameter can shadow them; for example, `import "lib/math.tg" as math;` hides the built-in `math` in that file. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
+Tiger provides the general built-ins `print`, `input`, `str`, `int`, `float`, `bool`, `len`, `range`, `type`, `isinstance`, and `graphemes`, the aggregate built-ins `sum`, `min`, `max`, `any`, `all`, `zip`, `enumerate`, `map`, `filter`, and `sorted`, the [`math`](math.md), [`algo`](algo.md), `random`, `secrets`, `json`, `time`, `regex`, and `api` modules, plus the file functions `open`, `read_file`, `write_file`, `append_file`, `file_exists`, `remove_file`, and `list_dir` described in [Files](file-io.md). See [Standard Library Additions](standard-library.md) for the `random`, `secrets`, `json`, `time`, `regex`, and `api` modules. Their initial bindings are constant. Assignment cannot replace them, but an explicit declaration (at the top level or in an inner scope) or a parameter can shadow them; for example, `import "lib/math.tg" as math;` hides the built-in `math` in that file. Built-in signatures are fixed; only user-defined functions and methods may declare `*args` or `**kwargs` (see [Functions and Closures](functions-and-closures.md)).
 
 ## print(...values, end="\n")
 
@@ -288,7 +288,7 @@ The names are stable and match the diagnostics produced elsewhere in the runtime
 | `instance` | An instance |
 | `bound method` | A method read through an instance |
 | `super` | A `super` receiver inside a method |
-| `module` | A built-in module (`math`, `algo`, `random`, `secrets`, `json`, `time`, `regex`) or an imported file |
+| `module` | A built-in module (`math`, `algo`, `random`, `secrets`, `json`, `time`, `regex`, `api`) or an imported file |
 | `file` | An open file object |
 | `error` | A runtime error caught by `catch` |
 
@@ -372,7 +372,7 @@ print(list(filter(values, function(value) { return value > 15; })));
 
 ## Built-in Modules
 
-Seven read-only modules are available without an import:
+Eight read-only modules are available without an import:
 
 - [`math`](math.md): `ceil`, `floor`, `round`, `sqrt`, `abs`, `pow`, `log`, `sin`, `cos`, `tan`, `min`, and `max`.
 - [`algo`](algo.md): `fibonacci`, `fibonacciList`, `factorial`, `factorialList`, `removeDuplicates`, `findMatches`, `takeInventory`, `findPlace`, `isPrime`, `rainwater`, `medianSorted`, `mergeKSorted`, `editDistance`, `regexMatch`, and the `slidingWindow*` and `palindrome*` functions.
@@ -381,6 +381,7 @@ Seven read-only modules are available without an import:
 - [`json`](standard-library.md#json): `parse` and `stringify`.
 - [`time`](standard-library.md#time): `now`, `now_ms`, `sleep`, `iso`, and `parts`; native and WASI only.
 - [`regex`](standard-library.md#regex): `match`, `find`, `findAll`, `groups`, `replace`, and `split`; native and WASI only.
+- [`api`](standard-library.md#api): `get`, `post`, `put`, `patch`, `delete`, `head`, and `request` for HTTP, plus the pure helpers `parse_url` and `encode_query`; the request methods are native only, while the two helpers work on every target.
 
 ```tg
 print(math.sqrt(16), algo.findMatches([1, 2, 3], [3, 1]), json.stringify({"ok": true}));
@@ -392,7 +393,7 @@ print(math.sqrt(16), algo.findMatches([1, 2, 3], [3, 1]), json.stringify({"ok": 
 
 ## What Is Not Built In
 
-There is no network API, `reduce`, or `groupby`. File input and output use the helpers and file objects in [Files](file-io.md). Share other helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
+There is no `reduce` or `groupby`. File input and output use the helpers and file objects in [Files](file-io.md). Share other helper functions through [Tiger file imports](modules.md). See [sorting and searching](../benchmarks/03_sorting_search.tg) and [text processing](../benchmarks/05_strings.tg).
 
 ## range(stop), range(start, stop), range(start, stop, step)
 

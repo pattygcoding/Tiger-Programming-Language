@@ -28,8 +28,8 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 | Word operators | `and or not in div` | `keyword.operator.word.tiger` |
 | Symbolic logical operators | `&& \|\| !`, aliases of `and`, `or`, and `not` in any position | `keyword.operator.logical.tiger` |
 | Literal values | `true false null` | `constant.language.tiger` |
-| Built-in calls | `print input str int float bool len range type isinstance sum min max any all zip enumerate map filter sorted open read_file write_file append_file file_exists remove_file list_dir math algo random secrets json time regex` | `support.function.tiger` |
-| Module members | `math.` followed by `ceil floor round sqrt abs pow log sin cos tan min max`; `algo.` followed by one of its exported names | `support.function.math.tiger` / `support.function.algo.tiger` |
+| Built-in calls | `print input str int float bool len range type isinstance sum min max any all zip enumerate map filter sorted open read_file write_file append_file file_exists remove_file list_dir math algo random secrets json time regex api` | `support.function.tiger` |
+| Module members | `math.` followed by `ceil floor round sqrt abs pow log sin cos tan min max`; `algo.` followed by one of its exported names; `api.` followed by `get post put patch delete head request parse_url encode_query` | `support.function.math.tiger` / `support.function.algo.tiger` / `support.function.api.tiger` |
 | Function declarations / calls | Name after `function`; a name directly before `(` | `entity.name.function.tiger` / `entity.name.function.call.tiger` |
 | Class declarations | Name after `class`, parent after `extends` | `entity.name.type.class.tiger` / `entity.other.inherited-class.tiger` |
 | Arithmetic / update | `+ - * / % div ++ --` | `keyword.operator.arithmetic.tiger` |

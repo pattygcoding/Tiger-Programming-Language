@@ -192,6 +192,14 @@
           }
         },
         {
+          "match": "(?<![\\p{L}\\p{Nd}_.])(api)\\s*(\\.)\\s*(get|post|put|patch|delete|head|request|parse_url|encode_query)(?![\\p{L}\\p{Nd}_])",
+          "captures": {
+            "1": { "name": "support.module.tiger" },
+            "2": { "name": "punctuation.accessor.tiger" },
+            "3": { "name": "support.function.api.tiger" }
+          }
+        },
+        {
           "match": "(?<![\\p{L}\\p{Nd}_.])(sys)\\s*(\\.)\\s*(argv|env|exit)(?![\\p{L}\\p{Nd}_])",
           "captures": {
             "1": { "name": "support.module.tiger" },

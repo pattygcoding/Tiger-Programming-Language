@@ -378,9 +378,10 @@ Every language or runtime change should ship with, per
 
 Some of the "missing" pieces are choices, not oversights, and should stay out
 unless the design changes: arbitrary-precision integers (numbers are float64),
-a package manager (imports are file-based), asynchronous syntax (the runtime is a
-synchronous tree-walker), and network access in the sandboxed
-browser and WASI targets.
+a package manager (imports are file-based), and asynchronous syntax (the runtime
+is a synchronous tree-walker). The native `api` module reaches the network, but
+the sandboxed browser and WASI targets keep its surface and report a clear error
+for every request.
 
 [Guide index](README.md) | [Project README](../README.md)
 

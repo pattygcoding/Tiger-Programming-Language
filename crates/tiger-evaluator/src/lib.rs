@@ -14,6 +14,7 @@ use tiger_object::bytecode::{CallLayout, GenProto};
 use tiger_object::{Env, Keyword, Module, RuntimeError, Value};
 
 mod algo;
+mod apimod;
 mod builtins;
 mod compiler;
 mod files;
@@ -22,6 +23,13 @@ mod modules;
 
 #[cfg(feature = "profile")]
 pub mod profile;
+// The `api` module's HTTP client lives here on native targets and in the stub
+// below in the browser and WASI builds, so no socket is linked into a sandboxed
+// target. The pure URL and query helpers stay in `apimod` on every target.
+#[cfg(not(target_arch = "wasm32"))]
+mod api_engine;
+#[cfg(target_arch = "wasm32")]
+mod api_stub;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 mod regex_engine;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -33,8 +41,8 @@ use crate::vm::native_call;
 
 pub use files::{parse_file_mode, FileMode, FileSystem, MemoryFileSystem, OsFileSystem};
 pub use modules::{
-    algo_module, json_module, math_module, random_module, regex_module, secrets_module, sys_module, time_module, BundleLoader, FileLoader,
-    ModuleLoader,
+    algo_module, api_module, json_module, math_module, random_module, regex_module, secrets_module, sys_module, time_module, BundleLoader,
+    FileLoader, ModuleLoader,
 };
 
 /// How a program finished: the status `sys.exit` chose, and the message a

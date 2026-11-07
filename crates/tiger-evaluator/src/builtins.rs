@@ -97,6 +97,7 @@ fn build_shared() -> Vec<(Rc<str>, Value)> {
     add("json", Value::Module(modules::json_module()));
     add("time", Value::Module(modules::time_module()));
     add("regex", Value::Module(modules::regex_module()));
+    add("api", Value::Module(modules::api_module()));
     bindings
 }
 

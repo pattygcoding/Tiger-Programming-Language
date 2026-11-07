@@ -2,7 +2,7 @@
 //!
 //! The protocol half is `tiger_conformance::protocol`, which is the same code the
 //! threshold test runs, so a dashboard number is a number the gate would assert on.
-//! The corpus half times the forty-four benchmark programs the way
+//! The corpus half times the forty-five benchmark programs the way
 //! `crates/tiger-conformance/tests/timing.rs` does, in process, with no process
 //! startup in the numbers.
 //!
@@ -22,7 +22,7 @@ use crate::json;
 pub struct Plan {
     /// How many times each program or section runs.
     pub iterations: u32,
-    /// Whether the forty-four benchmark programs are timed at all.
+    /// Whether the forty-five benchmark programs are timed at all.
     pub corpus: bool,
     /// Whether the corpus is timed a second time on the tree-walker, which is how
     /// the compiled engine's share of a workload is read without a profiler.
@@ -139,7 +139,7 @@ fn time_program(
 /// Times every benchmark program once, reporting each as it finishes.
 fn time_corpus(engine: Engine, label: &'static str, iterations: u32, progress: &mut dyn FnMut(Progress)) -> Corpus {
     let directory = tiger_conformance::root().join("benchmarks");
-    let mut programs = Vec::with_capacity(44);
+    let mut programs = Vec::with_capacity(45);
     for path in benchmark_paths() {
         let name = path.file_stem().map(|stem| stem.to_string_lossy().to_string()).unwrap_or_default();
         let source = tiger_conformance::normalize(&std::fs::read_to_string(&path).expect("read program"));

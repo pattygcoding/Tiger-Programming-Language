@@ -1,0 +1,62 @@
+== parse_url ==
+{"scheme":"http","host":"example.com","port":80,"path":"/","query":"","fragment":""}
+{"scheme":"https","host":"example.com","port":443,"path":"/","query":"","fragment":""}
+{"scheme":"http","host":"example.com","port":8080,"path":"/a/b","query":"x=1","fragment":"top"}
+{"scheme":"http","host":"example.com","port":80,"path":"/secure","query":"","fragment":""}
+{"scheme":"http","host":"[::1]","port":8080,"path":"/health","query":"","fragment":""}
+{"scheme":"http","host":"example.com","port":80,"path":"/trimmed","query":"","fragment":""}
+{"scheme":"http","host":"EXAMPLE.COM","port":80,"path":"/Upper","query":"","fragment":""}
+{"scheme":"http","host":"example.com","port":80,"path":"/","query":"q=1","fragment":""}
+{"scheme":"http","host":"example.com","port":80,"path":"/","query":"","fragment":"frag"}
+{"scheme":"http","host":"example.com","port":80,"path":"/","query":"","fragment":""}
+== parse_url fields ==
+https example.com 8443
+/a/b x=1 top
+[80, 443]
+== encode_query ==
+a=1&b=2
+q=two%20words&n=3
+ok=true&off=false&note=
+tag=a&tag=b&id=7
+unicode=h%C3%A9llo&path=a%2Fb&amp=a%26b&eq=a%3Db
+
+empty=
+nested=1&nested=2&nested=3&nested=4
+t=1&t=2&n=-1.5
+== round trip ==
+http://example.com/search?q=two%20words&page=2&tag=a&tag=b
+/search q=two%20words&page=2&tag=a&tag=b
+q=q%3Dtwo%2520words%26page%3D2%26tag%3Da%26tag%3Db
+== helper errors ==
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+== encode_query errors ==
+true
+true
+true
+true
+== request argument validation ==
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+done

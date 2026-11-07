@@ -1,0 +1,121 @@
+// 45_api.tg - regression workload for the api module's hermetic helpers.
+//
+// The api module's request methods need a server, so this workload covers the
+// pure pieces: api.parse_url (scheme, host, port, path, query, fragment,
+// userinfo, IPv6, default ports, whitespace) and api.encode_query (percent
+// encoding, repeated keys, numbers, booleans, nulls, nesting). It also
+// exercises the argument validation every request method shares, so a
+// malformed call fails before a socket is opened. The network calls themselves
+// are covered by crates/tiger-evaluator/tests/api.rs against a loopback server.
+
+print("== parse_url ==");
+
+const plain = api.parse_url("http://example.com/");
+print(json.stringify(plain));
+
+const secure = api.parse_url("https://example.com");
+print(json.stringify(secure));
+
+const explicit = api.parse_url("http://example.com:8080/a/b?x=1#top");
+print(json.stringify(explicit));
+
+const userinfo = api.parse_url("http://user:pass@example.com/secure");
+print(json.stringify(userinfo));
+
+const ipv6 = api.parse_url("http://[::1]:8080/health");
+print(json.stringify(ipv6));
+
+const padded = api.parse_url("  http://example.com/trimmed  ");
+print(json.stringify(padded));
+
+const upper = api.parse_url("HTTP://EXAMPLE.COM/Upper");
+print(json.stringify(upper));
+
+const query_only = api.parse_url("http://example.com?q=1");
+print(json.stringify(query_only));
+
+const fragment_only = api.parse_url("http://example.com#frag");
+print(json.stringify(fragment_only));
+
+const empty_path = api.parse_url("http://example.com");
+print(json.stringify(empty_path));
+
+print("== parse_url fields ==");
+
+const parts = api.parse_url("https://example.com:8443/a/b?x=1#top");
+print(parts["scheme"], parts["host"], parts["port"]);
+print(parts["path"], parts["query"], parts["fragment"]);
+
+const default_ports = [api.parse_url("http://a/")["port"], api.parse_url("https://a/")["port"]];
+print(default_ports);
+
+print("== encode_query ==");
+
+print(api.encode_query({"a": "1", "b": "2"}));
+print(api.encode_query({"q": "two words", "n": 3}));
+print(api.encode_query({"ok": true, "off": false, "note": null}));
+print(api.encode_query({"tag": ["a", "b"], "id": 7}));
+print(api.encode_query({"unicode": "héllo", "path": "a/b", "amp": "a&b", "eq": "a=b"}));
+print(api.encode_query({}));
+print(api.encode_query({"empty": ""}));
+print(api.encode_query({"nested": [1, 2, [3, 4]]}));
+print(api.encode_query({"t": (1, 2), "n": -1.5}));
+
+print("== round trip ==");
+
+const base = "http://example.com/search";
+const query = api.encode_query({"q": "two words", "page": 2, "tag": ["a", "b"]});
+const url = base + "?" + query;
+const rebuilt = api.parse_url(url);
+print(url);
+print(rebuilt["path"], rebuilt["query"]);
+print(api.encode_query({"q": rebuilt["query"]}));
+
+print("== helper errors ==");
+
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return error["message"];
+    }
+}
+
+print("invalid URL" in fails(function() { api.parse_url("example.com"); }));
+print("missing host" in fails(function() { api.parse_url("http://"); }));
+print("missing host" in fails(function() { api.parse_url("http://:80/"); }));
+print("invalid port" in fails(function() { api.parse_url("http://example.com:notaport/"); }));
+print("unsupported URL scheme" in fails(function() { api.parse_url("ftp://example.com/"); }));
+print("unsupported URL scheme" in fails(function() { api.parse_url("ws://example.com/"); }));
+print("expects 1 argument" in fails(function() { api.parse_url(); }));
+print("expects 1 argument" in fails(function() { api.parse_url("http://a", "b"); }));
+print("does not accept keyword arguments" in fails(function() { api.parse_url(url="http://a"); }));
+print("expects a string" in fails(function() { api.parse_url(42); }));
+
+print("== encode_query errors ==");
+
+print("expects a dictionary" in fails(function() { api.encode_query(["a"]); }));
+print("expects string keys" in fails(function() { api.encode_query({1: "a"}); }));
+print("expects 1 argument" in fails(function() { api.encode_query(); }));
+print("does not accept keyword arguments" in fails(function() { api.encode_query(query="a=1"); }));
+
+print("== request argument validation ==");
+
+print("expects a URL" in fails(function() { api.get(); }));
+print("expects a method and a URL" in fails(function() { api.request(); }));
+print("expects a string method" in fails(function() { api.request(1, "http://a"); }));
+print("expects at most 1 positional argument" in fails(function() { api.get("http://a", "b"); }));
+print("does not accept a body" in fails(function() { api.get("http://a", body="x"); }));
+print("does not accept a body" in fails(function() { api.head("http://a", body="x"); }));
+print("accepts either body or json" in fails(function() { api.post("http://a", body="x", json={}); }));
+print("expects a non-negative timeout" in fails(function() { api.get("http://a", timeout=-1); }));
+print("expects headers to be a dictionary" in fails(function() { api.get("http://a", headers=["x"]); }));
+print("expects header names to be strings" in fails(function() { api.get("http://a", headers={1: "x"}); }));
+print("expects header values to be strings" in fails(function() { api.get("http://a", headers={"a": 1}); }));
+print("expects params to be a dictionary or a string" in fails(function() { api.get("http://a", params=1); }));
+print("expects a boolean follow_redirects argument" in fails(function() { api.get("http://a", follow_redirects=1); }));
+print("does not accept keyword argument" in fails(function() { api.get("http://a", bogus=1); }));
+print("needs a TLS stack" in fails(function() { api.get("https://example.com/"); }));
+
+print("done");

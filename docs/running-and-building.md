@@ -233,8 +233,8 @@ See the [performance guide](performance.md) and
 [benchmarks/python/README.md](../benchmarks/python/README.md).
 
 `cargo test` checks the unit tests, the language suites in
-`crates/tiger-evaluator/tests/`, the forty-four 100-200-line benchmark programs
-against fixed output files, the 190 documentation examples, every example and
+`crates/tiger-evaluator/tests/`, the forty-five 100-200-line benchmark programs
+against fixed output files, the 192 documentation examples, every example and
 portfolio-feature program, the standalone-build integration tests, the
 differential test that runs every one of those programs on both engines and
 checks that the results match, and the
@@ -266,7 +266,7 @@ make dashboard
 
 It serves `http://127.0.0.1:7171`, falls back to a free port when that one is busy,
 and opens the browser. Pressing **Play** on the page measures with the controls the
-page offers — the batch size, whether the forty-four benchmark programs are timed,
+page offers — the batch size, whether the forty-five benchmark programs are timed,
 and whether the corpus is timed a second time on the tree-walker — and the bars fill
 in as each section and each program finishes rather than after the run is over.
 
