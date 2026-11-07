@@ -1,0 +1,36 @@
+== basic members ==
+RED GREEN BLUE
+0 1 2
+class instance
+== explicit and implicit values ==
+0 1 2 4
+5 6 7
+-1 0 10
+== expressions ==
+4 8
+== switching ==
+red green blue
+gb
+== hashing ==
+red green blue
+3 true true
+1 2
+== equality ==
+true false false
+== isinstance ==
+true true false
+== enum as a value ==
+RED 0
+GREEN 1
+BLUE 2
+RED BLUE
+RED 1
+GREEN BLUE RED
+== enum and a const dictionary ==
+1 true
+== read-only and error paths ==
+true
+true
+true
+true
+done

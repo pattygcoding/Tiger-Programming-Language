@@ -48,7 +48,7 @@ Reserved keywords:
 
 ```text
 and as assert break case catch class const continue default div do
-elif else extends false for function if import in match not null or
+elif else enum extends false for function if import in match not null or
 private protected public return super switch this throw true try var while
 ```
 

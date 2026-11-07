@@ -196,7 +196,7 @@ pub(crate) fn iterable_elements(value: &Value) -> Result<Vec<Value>, &'static st
 /// loop iterations, so a tight loop does not allocate a scope per iteration.
 pub(crate) fn declares_in(statements: &[Stmt]) -> bool {
     statements.iter().any(|statement| match statement {
-        Stmt::Import { .. } | Stmt::Destructure { .. } | Stmt::Function(_) | Stmt::Class(_) => true,
+        Stmt::Import { .. } | Stmt::Destructure { .. } | Stmt::Function(_) | Stmt::Class(_) | Stmt::Enum(_) => true,
         Stmt::Assign { declaration, .. } => *declaration,
         _ => false,
     })
@@ -651,6 +651,9 @@ impl Evaluator {
             }
             Stmt::Class(declaration) => {
                 self.define_class(declaration, env)?;
+            }
+            Stmt::Enum(declaration) => {
+                self.define_enum(declaration, env)?;
             }
             Stmt::Return { value, .. } => {
                 let value = match value {
@@ -1122,6 +1125,9 @@ impl Evaluator {
                 let receiver = self.expression(receiver, env)?;
                 match receiver {
                     Value::Instance(instance) => Ok(Target::Property { base: base.clone(), instance, name: name.clone() }),
+                    Value::Class(class) => {
+                        Err(runtime(base, format!("cannot assign to read-only member {:?} of class {}", name, class.name)))
+                    }
                     other => Err(runtime(base, format!("cannot assign a property of {}", other.type_name()))),
                 }
             }
@@ -2188,6 +2194,52 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Defines an `enum` as a class whose members are read-only static attributes.
+    ///
+    /// Each member is an instance of the enum class carrying `name` and `value`
+    /// fields, so `Color.RED.name` is `"RED"`, `Color.RED.value` is its underlying
+    /// value, and `isinstance(Color.RED, Color)` holds. A member without an
+    /// explicit value takes the previous member's value plus one, starting at zero.
+    fn define_enum(&mut self, declaration: &Rc<tiger_ast::EnumDecl>, env: &Env) -> Result<(), Signal> {
+        let class = object::Class::new(declaration.name.clone(), None);
+        // `name` and `value` are declared as read-only fields so member access
+        // resolves through the ordinary instance-field path.
+        for field_name in ["name", "value"] {
+            class.fields.borrow_mut().push(Rc::new(object::Field {
+                declaration: tiger_ast::FieldDecl {
+                    base: declaration.base.clone(),
+                    name: field_name.to_string(),
+                    access: "public".to_string(),
+                    constant: true,
+                    value: None,
+                },
+                owner: class.clone(),
+                env: env.clone(),
+                name: Rc::from(field_name),
+            }));
+        }
+        let name_key: Rc<str> = Rc::from("name");
+        let value_key: Rc<str> = Rc::from("value");
+        let mut next_value = 0.0;
+        let mut members = Vec::with_capacity(declaration.members.len());
+        for member in &declaration.members {
+            let value = match &member.value {
+                Some(expression) => self.expression(expression, env)?,
+                None => Value::Number(next_value),
+            };
+            if let Value::Number(number) = &value {
+                next_value = number + 1.0;
+            }
+            let instance = Rc::new(object::Instance { class: class.clone(), fields: std::cell::RefCell::new(Vec::new()) });
+            instance.set_field(&name_key, Value::string(&member.name));
+            instance.set_field(&value_key, value);
+            members.push((member.name.clone(), Value::Instance(instance)));
+        }
+        *class.members.borrow_mut() = members;
+        object::define(env, &declaration.name, Value::Class(class), false).map_err(|message| runtime(&declaration.base, message))?;
+        Ok(())
+    }
+
     fn member_access(&mut self, base: &Base, class: &Rc<object::Class>, name: &str, env: &Env, writing: bool) -> Result<(), Signal> {
         if let Some(field) = class.find_field(name) {
             self.accessible(base, &field.declaration.access, &field.owner, env)?;
@@ -2342,6 +2394,13 @@ impl Evaluator {
                     return Ok(Value::BoundMethod(Rc::new(object::BoundMethod { method, receiver: super_value.receiver.clone() })));
                 }
                 Err(runtime(base, format!("parent class {} has no method {:?}", parent.name, name)))
+            }
+            Value::Class(class) => {
+                // A class's static members are its enum constants, read-only.
+                if let Some(value) = class.find_member(name) {
+                    return Ok(value);
+                }
+                Err(runtime(base, format!("class {} has no member {:?}", class.name, name)))
             }
             other => {
                 // A value with no member namespace of its own still rejects the

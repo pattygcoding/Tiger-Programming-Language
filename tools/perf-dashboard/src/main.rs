@@ -12,7 +12,7 @@
 //! The numbers it shows are the numbers the suites measure. The protocol half is
 //! `tiger_conformance::protocol`, which is what the threshold test in
 //! `crates/tiger-conformance/tests/protocol.rs` runs, so a dashboard row is a row
-//! the gate would assert on. The corpus half times the forty-five benchmark programs
+//! the gate would assert on. The corpus half times the forty-six benchmark programs
 //! the way the timing harness does, in process, with no process startup in the
 //! numbers.
 //!

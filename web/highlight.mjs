@@ -1,5 +1,5 @@
 export const keywords = new Set([
-  "const", "var", "function", "class", "extends", "super", "return", "if", "elif", "else",
+  "const", "var", "function", "class", "enum", "extends", "super", "return", "if", "elif", "else",
   "while", "do", "for", "in", "and", "or", "not", "div",
   "break", "continue", "switch", "match", "case", "default",
   "this", "public", "private", "protected", "try", "catch", "finally", "throw", "assert",

@@ -1742,6 +1742,13 @@ fn scan_stmt(statement: &Stmt, inside: bool, out: &mut HashSet<String>) {
         }
         Stmt::Function(declaration) => scan_function(declaration, out),
         Stmt::Class(declaration) => scan_class(declaration, out),
+        Stmt::Enum(declaration) => {
+            for member in &declaration.members {
+                if let Some(value) = &member.value {
+                    scan_expr(value, inside, out);
+                }
+            }
+        }
         Stmt::If { branches, else_block, .. } => {
             for branch in branches {
                 scan_expr(&branch.condition, inside, out);

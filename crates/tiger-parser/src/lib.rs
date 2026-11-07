@@ -202,6 +202,7 @@ impl Parser {
         let names = match statement {
             Stmt::Function(declaration) => vec![ExportName { name: declaration.name.clone(), base: declaration.base.clone() }],
             Stmt::Class(declaration) => vec![ExportName { name: declaration.name.clone(), base: declaration.base.clone() }],
+            Stmt::Enum(declaration) => vec![ExportName { name: declaration.name.clone(), base: declaration.base.clone() }],
             Stmt::Import { name, base, names, .. } => {
                 if name.is_empty() {
                     names.iter().map(|imported| ExportName { name: imported.alias.clone(), base: imported.base.clone() }).collect()
@@ -328,6 +329,9 @@ impl Parser {
         }
         if self.take_if("class") {
             return self.class(base);
+        }
+        if self.take_if("enum") {
+            return self.enum_declaration(base);
         }
         if self.take_if("function") {
             if self.at(lexer::IDENT) {
@@ -807,6 +811,42 @@ impl Parser {
         self.take_if(";");
         self.depth -= 1;
         Ok(Stmt::Class(Rc::new(ClassDecl { base, name: class_name, parent, parent_name, constructor, methods, fields })))
+    }
+
+    /// Parses `enum Name { MEMBER, MEMBER = value, ... }`.
+    ///
+    /// Members are comma-separated, a trailing comma is allowed, and a member
+    /// without an explicit value takes the previous member's value plus one
+    /// (starting at zero). Names must be unique within the enum.
+    fn enum_declaration(&mut self, base: Base) -> Result<Stmt, String> {
+        self.enter()?;
+        let name = self.expect(lexer::IDENT)?;
+        let enum_name = name.text.clone();
+        self.expect("{")?;
+        let mut members: Vec<EnumMember> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        while !self.at("}") && !self.at(lexer::EOF) {
+            let member = self.expect(lexer::IDENT)?;
+            if seen.contains(&member.text) {
+                return Err(member.errorf(&format!("duplicate enum member {:?}", member.text)));
+            }
+            seen.push(member.text.clone());
+            let mut value = None;
+            if self.take_if("=") {
+                value = Some(self.expression(0)?);
+            }
+            members.push(EnumMember { base: Base::from_token(&member), name: member.text, value });
+            if !self.take_if(",") {
+                break;
+            }
+        }
+        self.expect("}")?;
+        self.take_if(";");
+        self.depth -= 1;
+        if members.is_empty() {
+            return Err(name.errorf(&format!("enum {} must declare at least one member", enum_name)));
+        }
+        Ok(Stmt::Enum(Rc::new(EnumDecl { base, name: enum_name, members })))
     }
 
     fn block(&mut self) -> Result<Block, String> {

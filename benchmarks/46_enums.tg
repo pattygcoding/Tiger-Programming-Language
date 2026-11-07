@@ -1,0 +1,100 @@
+// 46_enums.tg - regression workload for the enum declaration.
+//
+// An enum is a closed set of named constants that share a type. This workload
+// covers implicit and explicit values, member access, hashing in dictionaries and
+// sets, switch dispatch, equality, and the read-only and error paths. A parser
+// error (a duplicate member, an empty body) cannot be caught at runtime, so those
+// are covered by crates/tiger-evaluator/tests/enums.rs.
+
+print("== basic members ==");
+enum Color { RED, GREEN, BLUE }
+print(Color.RED.name, Color.GREEN.name, Color.BLUE.name);
+print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);
+print(type(Color), type(Color.RED));
+
+print("== explicit and implicit values ==");
+enum Flags { NONE = 0, READ = 1, WRITE = 2, EXEC = 4 }
+print(Flags.NONE.value, Flags.READ.value, Flags.WRITE.value, Flags.EXEC.value);
+
+enum Step { BASE = 5, NEXT, AFTER }
+print(Step.BASE.value, Step.NEXT.value, Step.AFTER.value);
+
+enum Negative { LOW = -1, ZERO, HIGH = 10 }
+print(Negative.LOW.value, Negative.ZERO.value, Negative.HIGH.value);
+
+print("== expressions ==");
+enum Computed { BASE = 2 + 2, DOUBLE = 2 * 4 }
+print(Computed.BASE.value, Computed.DOUBLE.value);
+
+print("== switching ==");
+function label(color) {
+    switch color {
+        case Color.RED: return "red";
+        case Color.GREEN: return "green";
+        case Color.BLUE: return "blue";
+    }
+    return "unknown";
+}
+print(label(Color.RED), label(Color.GREEN), label(Color.BLUE));
+
+var seen = "";
+switch (Color.GREEN) {
+    case Color.RED: seen += "r";
+    case Color.GREEN: seen += "g";
+    case Color.BLUE: seen += "b"; break;
+}
+print(seen);
+
+print("== hashing ==");
+const names = {Color.RED: "red", Color.GREEN: "green", Color.BLUE: "blue"};
+print(names[Color.RED], names[Color.GREEN], names[Color.BLUE]);
+const colors = {Color.RED, Color.GREEN, Color.BLUE};
+print(len(colors), Color.RED in colors, Color.BLUE in colors);
+enum A { X }
+enum B { X }
+const cross = {A.X: 1, B.X: 2};
+print(cross[A.X], cross[B.X]);
+
+print("== equality ==");
+print(Color.RED == Color.RED, Color.RED == Color.GREEN, Color.RED == Color.BLUE);
+
+print("== isinstance ==");
+print(isinstance(Color.RED, Color), isinstance(Color.RED, "instance"), isinstance(Color.RED, "class"));
+
+print("== enum as a value ==");
+const palette = [Color.RED, Color.GREEN, Color.BLUE];
+for color in palette { print(color.name, color.value); }
+print(palette[0].name, palette[2].name);
+
+const byName = {Color.RED.name: Color.RED, Color.GREEN.name: Color.GREEN};
+print(byName["RED"].name, byName["GREEN"].value);
+
+function next(color) {
+    switch color {
+        case Color.RED: return Color.GREEN;
+        case Color.GREEN: return Color.BLUE;
+        case Color.BLUE: return Color.RED;
+    }
+    return Color.RED;
+}
+print(next(Color.RED).name, next(Color.GREEN).name, next(Color.BLUE).name);
+
+print("== enum and a const dictionary ==");
+const ColorMap = {"RED": 0, "GREEN": 1, "BLUE": 2};
+print(ColorMap["GREEN"], ColorMap["RED"] < ColorMap["BLUE"]);
+
+print("== read-only and error paths ==");
+function fails(action) {
+    try {
+        action();
+        return "no error";
+    } catch (error) {
+        return error["message"];
+    }
+}
+print("cannot assign to read-only" in fails(function() { Color.RED = 5; }));
+print("cannot reassign const field" in fails(function() { Color.RED.name = "BLUE"; }));
+print("cannot reassign const field" in fails(function() { Color.RED.value = 9; }));
+print("has no member" in fails(function() { Color.NOPE; }));
+
+print("done");

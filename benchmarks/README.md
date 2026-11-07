@@ -1,6 +1,6 @@
 # Tiger Benchmark Programs
 
-Run all forty-five programs and compare their output with the corresponding checked-in `.txt` files:
+Run all forty-six programs and compare their output with the corresponding checked-in `.txt` files:
 
 ```sh
 cargo test -p tiger-conformance --test benchmarks -- --nocapture
@@ -61,6 +61,7 @@ TIGER_BENCH_FILTER=08_graphs cargo test -p tiger-conformance --test benchmarks -
 | `43_lazy_iterators.tg` | `range`, `map`, and `filter` as lazy iterators, generator expressions with filters and nested clauses, single-use consumption, early exit through a long source, the reshaping built-ins over a lazy source, and the operations that reject an iterator |
 | `44_comprehensions.tg` | List and dictionary comprehensions over every iterable, filters, nested and repeated clauses, the clause variable's own scope, closures made by an element, comprehensions of comprehensions feeding built-ins, a 20,000-element comprehension, and every rejection path |
 | `45_api.tg` | The `api` module's hermetic helpers: `api.parse_url` over schemes, ports, paths, queries, fragments, userinfo, IPv6 literals, whitespace, and default ports; `api.encode_query` over strings, numbers, booleans, nulls, repeated list keys, tuples, nesting, unicode, and empty dictionaries; a round trip from a dictionary to a URL and back; and the argument validation every request method shares |
+| `46_enums.tg` | Enum declarations with implicit and explicit values, auto-increment, negative and expression values, member `name`/`value` access, `switch` dispatch and fall-through, hashing in dictionaries and sets, equality, `isinstance` against the enum and against `"instance"`, and the read-only and missing-member error paths |
 
 Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 
@@ -68,7 +69,7 @@ Run only the five OOP programs (`11_oop_shapes` through `15_oop_callbacks`):
 TIGER_BENCH_FILTER=_oop_ cargo test -p tiger-conformance --test benchmarks -- --nocapture
 ```
 
-Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty-five source files and forty-five matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream. A program that imports resolves its paths inside this directory, so a helper module belongs under `support/`, which the corpus counts do not treat as a program: `support/toolbox.tg` is the module `42_module_exports.tg` imports.
+Each program is 100-200 physical lines, including ordinary blank lines. The test suite enforces this range and checks that exactly forty-six source files and forty-six matching output files exist. Every program executes in a fresh evaluator with the normal execution limits, and each run receives a fresh in-memory filesystem so file-I/O workloads stay hermetic. A program with a matching `.in` file reads it as standard input through `input()`; programs without one have no input stream. A program that imports resolves its paths inside this directory, so a helper module belongs under `support/`, which the corpus counts do not treat as a program: `support/toolbox.tg` is the module `42_module_exports.tg` imports.
 
 Expected outputs are fixed reference results, not regenerated from interpreter output. Comparison preserves spaces and the final newline; only CRLF line endings are normalized to LF for cross-platform Git checkouts. Missing pairs, invalid lengths, syntax/runtime errors, and output mismatches fail the command with a nonzero exit status.
 

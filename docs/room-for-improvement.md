@@ -317,31 +317,32 @@ weakest candidate.
 
 ## 10. Enumerations
 
-**Missing:** an `enum` type for a fixed set of named constants.
-
-**Why it matters:** enumerations give a closed set of names a shared type, so a
-`switch` can be exhaustive and a value can be checked with `isinstance`. Tiger
-uses loose constants, which can collide and are just numbers or strings.
-
-**Workaround:** a constant dictionary of names.
+**Implemented.** `enum` declares a closed set of named constants that share a
+type, so a `switch` can be exhaustive over the set and a value can be checked
+with `isinstance`.
 
 ```tg
-const Color = {"RED": 0, "GREEN": 1, "BLUE": 2};
-print(Color["GREEN"]);
-print(Color["RED"] < Color["BLUE"]);
+enum Color { RED, GREEN, BLUE }
+print(Color.GREEN.name, Color.GREEN.value);
+print(Color.RED == Color.GREEN);
+print(isinstance(Color.RED, Color));
 ```
 
 Output:
 
 ```text
-1
+GREEN 1
+false
 true
 ```
 
-**Suggested direction:** an enum is a class whose members are read-only
-attributes, so it can be built from the existing class machinery once member
-access can resolve class-level names. Until then a `const` dictionary documents
-intent and keeps the names in one place.
+A member takes an explicit value with `= expression`, or the previous member's
+value plus one, starting at zero. Each member is a singleton instance of the
+enum class, carrying its own `name` and `value`, so member access, hashing,
+equality, and `switch` all work through the ordinary class machinery. Members
+are read-only: `Color.RED = 5` and `Color.RED.name = "BLUE"` both fail. The enum
+class is the type, so `isinstance(Color.RED, Color)` is true and `type(Color.RED)`
+is `instance`.
 
 ## Constraints from the Wasm build
 

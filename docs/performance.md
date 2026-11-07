@@ -672,7 +672,7 @@ Over the 44 benchmark programs — 780,348 instructions — the mix is:
 | Control, collections, and the rest | 24.5% | ~8 | 2.0 |
 | **All** | 100% | — | **~9.4** |
 
-The corpus is not the same one this table first described: it holds 45 programs now, and the
+The corpus is not the same one this table first described: it holds 46 programs now, and the
 comprehension program added in this session's work is over half of its instructions, which is what
 moved locals down and control, collections, and the rest up. The conclusion the table was written for
 survives it — a call is one instruction in fifteen and about 40% of the time, because the *weighted*

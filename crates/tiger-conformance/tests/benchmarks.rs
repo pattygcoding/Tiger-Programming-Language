@@ -1,6 +1,6 @@
-//! The 45 benchmark programs, compared against their `.txt` expectations.
+//! The 46 benchmark programs, compared against their `.txt` expectations.
 //!
-//! A port of `benchmarks/benchmarks_test.go`: the same 45/45 counts, the same
+//! A port of `benchmarks/benchmarks_test.go`: the same 46/46 counts, the same
 //! 100-200 line budget, the same orphan check, and the same CRLF normalization.
 //!
 //! A benchmark may import a helper from `benchmarks/support/`, which the
@@ -30,8 +30,8 @@ fn stem(path: &Path) -> String {
 fn corpus_is_complete() {
     let sources = fixtures("tg");
     let outputs = fixtures("txt");
-    assert_eq!(sources.len(), 45, "want 45 Tiger programs, got {}", sources.len());
-    assert_eq!(outputs.len(), 45, "want 45 expected outputs, got {}", outputs.len());
+    assert_eq!(sources.len(), 46, "want 46 Tiger programs, got {}", sources.len());
+    assert_eq!(outputs.len(), 46, "want 46 expected outputs, got {}", outputs.len());
     for output in fixtures("txt").into_iter().chain(fixtures("in")) {
         let source = output.with_extension("tg");
         assert!(source.exists(), "orphan fixture {}", output.display());

@@ -29,8 +29,8 @@ they are worth keeping for their own sake rather than for the number.
 ## Validation
 
 Run `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` before
-finishing. `cargo test` runs the unit tests, the language suites, the 45
-benchmark programs, the 192 documentation examples, the example and portfolio
+finishing. `cargo test` runs the unit tests, the language suites, the 46
+benchmark programs, the 197 documentation examples, the example and portfolio
 programs, the standalone-build integration tests, the differential test that runs
 every one of those programs on both engines and checks that they agree, and the
 browser runtime under Node. The browser tests skip with a message until `cargo

@@ -202,7 +202,58 @@ Reading a method through an instance produces a bound method. It retains its rec
 - `print` and `str` use stable descriptions such as `<class Counter>`, `<Counter instance>`, and `<bound method Counter.add>`. There are no user-defined conversion hooks for `print` and `str`; a class can define its own `ToString()` method for explicit calls (see [conversion methods](builtins.md#conversion-methods-tostring-toint-tofloat-tobool)).
 - Class names are mutable bindings. A class's recorded parent reference does not change merely because the parent's name is later rebound.
 - Duplicate members, duplicate constructors, duplicate parameters, a `this` parameter, and direct self-inheritance are syntax errors. Missing parents, non-class parents, invalid arity, and invalid `super` access are runtime errors.
-- Static methods, static fields, decorators, getters/setters, multiple parents, and operator overloading are not implemented. Declared fields belong to instances. Class-level member access such as `Counter.add` is not supported.
+- Static methods, static fields, decorators, getters/setters, multiple parents, and operator overloading are not implemented. Declared fields belong to instances. Class-level member access such as `Counter.add` is not supported, except for an enum's read-only members such as `Color.RED`.
+
+## Enumerations
+
+An `enum` declares a closed set of named constants that share a type. Each member is a singleton instance of the enum class, carrying its own `name` and `value`, so member access, hashing, equality, and `switch` all work through the ordinary class machinery.
+
+```tg
+enum Color { RED, GREEN, BLUE }
+print(Color.GREEN.name, Color.GREEN.value);
+print(Color.RED == Color.GREEN);
+print(isinstance(Color.RED, Color));
+```
+
+```text
+GREEN 1
+false
+true
+```
+
+A member takes an explicit value with `= expression`, or the previous member's value plus one, starting at zero. The value is the expression's result, so it can be any number, not only an integer.
+
+```tg
+enum Flags { NONE = 0, READ = 1, WRITE = 2, EXEC = 4 }
+print(Flags.NONE.value, Flags.READ.value, Flags.WRITE.value, Flags.EXEC.value);
+```
+
+```text
+0 1 2 4
+```
+
+Members are read-only, so a member's value and its fields cannot be reassigned. `switch` is exhaustive over the closed set, and `isinstance(value, Color)` tests a member against its enum. Because each member is a hashable singleton, members can be dictionary keys or set elements.
+
+```tg
+enum Color { RED, GREEN }
+const names = {Color.RED: "red", Color.GREEN: "green"};
+print(names[Color.RED], names[Color.GREEN]);
+```
+
+```text
+red green
+```
+
+Assigning to a member is rejected.
+
+```tg
+enum Color { RED }
+Color.RED = 5;
+```
+
+```error
+cannot assign to read-only member "RED" of class Color
+```
 
 ## Try It
 

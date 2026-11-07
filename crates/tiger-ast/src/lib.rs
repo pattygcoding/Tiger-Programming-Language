@@ -97,6 +97,7 @@ pub enum Stmt {
     },
     Function(Rc<FunctionDecl>),
     Class(Rc<ClassDecl>),
+    Enum(Rc<EnumDecl>),
     Return {
         base: Base,
         value: Option<Expr>,
@@ -172,6 +173,7 @@ impl Stmt {
             | Stmt::Switch { base, .. } => base,
             Stmt::Function(declaration) => &declaration.base,
             Stmt::Class(declaration) => &declaration.base,
+            Stmt::Enum(declaration) => &declaration.base,
         }
     }
 }
@@ -233,6 +235,22 @@ pub struct ClassDecl {
     pub constructor: Option<Rc<FunctionDecl>>,
     pub methods: Vec<Rc<FunctionDecl>>,
     pub fields: Vec<FieldDecl>,
+}
+
+/// One member of an `enum` declaration: a name and an optional explicit value.
+#[derive(Clone, Debug)]
+pub struct EnumMember {
+    pub base: Base,
+    pub name: String,
+    pub value: Option<Expr>,
+}
+
+/// An `enum` declaration: a closed set of named constants that share a type.
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub base: Base,
+    pub name: String,
+    pub members: Vec<EnumMember>,
 }
 
 /// One positional call argument; `spread` marks a star argument.

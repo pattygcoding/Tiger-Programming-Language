@@ -20,7 +20,7 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 
 | Category | Tokens or rules | Suggested scope |
 | --- | --- | --- |
-| Declarations | `const var function class extends` | `storage.type.tiger` |
+| Declarations | `const var function class enum extends` | `storage.type.tiger` |
 | Module imports | `import as` | `keyword.control.import.tiger` |
 | Access modifiers | `public private protected` | `storage.modifier.tiger` |
 | Control flow | `if elif else while do for return break continue switch match case default try catch finally throw assert` | `keyword.control.tiger` |
@@ -32,6 +32,7 @@ Reload the VS Code window afterwards. Run `node --test editors/vscode/grammar.te
 | Module members | `math.` followed by `ceil floor round sqrt abs pow log sin cos tan min max`; `algo.` followed by one of its exported names; `api.` followed by `get post put patch delete head request parse_url encode_query` | `support.function.math.tiger` / `support.function.algo.tiger` / `support.function.api.tiger` |
 | Function declarations / calls | Name after `function`; a name directly before `(` | `entity.name.function.tiger` / `entity.name.function.call.tiger` |
 | Class declarations | Name after `class`, parent after `extends` | `entity.name.type.class.tiger` / `entity.other.inherited-class.tiger` |
+| Enum declarations | Name after `enum` | `entity.name.type.enum.tiger` |
 | Arithmetic / update | `+ - * / % div ++ --` | `keyword.operator.arithmetic.tiger` |
 | Exponentiation | `**` between two values | `keyword.operator.power.tiger` |
 | Bitwise | `& \| ^ ~ << >>` | `keyword.operator.bitwise.tiger` |

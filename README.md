@@ -140,7 +140,7 @@ The [portfolio-features](portfolio-features/) directory holds complete programs,
 
 ## Regression Benchmarks
 
-Run all forty-five reference-output programs, including OOP, control-flow, exception, variadic-call, function-ergonomics, aggregate/comprehension, lazy-iterator, text-precision, syntax-gap, file-I/O, list-sort, input, conversion, type-inspection, string-method, collection-method, set-and-tuple, module-export, operator, standard-library, math, algo, and api workloads:
+Run all forty-six reference-output programs, including OOP, control-flow, exception, variadic-call, function-ergonomics, aggregate/comprehension, lazy-iterator, text-precision, syntax-gap, file-I/O, list-sort, input, conversion, type-inspection, string-method, collection-method, set-and-tuple, module-export, operator, standard-library, math, algo, api, and enum workloads:
 
 ```sh
 cargo test -p tiger-conformance --test benchmarks -- --nocapture

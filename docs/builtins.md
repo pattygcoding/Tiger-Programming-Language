@@ -250,7 +250,7 @@ size does not accept number
 
 ## type(value), isinstance(value, name)
 
-`type(value)` returns the name of a value's type as a string. `isinstance(value, name)` returns `true` when the value's type matches `name`, which may be one name or a list of names.
+`type(value)` returns the name of a value's type as a string. `isinstance(value, name)` returns `true` when the value's type matches `name`, which may be one name or a list of names. When `name` is a class value, `isinstance` returns `true` when the value is an instance of that class or a subclass, which is how an enum member is tested against its enum.
 
 ```tg
 print(type(1), type("x"), type(true), type(null));
@@ -268,6 +268,17 @@ list dict set tuple builtin module
 class instance bound method
 true false true
 true true
+```
+
+An enum member is an instance of its enum, so `isinstance` accepts the enum class as the second argument.
+
+```tg
+enum Color { RED, GREEN }
+print(isinstance(Color.RED, Color), isinstance(Color.GREEN, Color), isinstance(Color.RED, "instance"));
+```
+
+```text
+true true true
 ```
 
 The names are stable and match the diagnostics produced elsewhere in the runtime:

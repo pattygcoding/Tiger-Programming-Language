@@ -133,6 +133,9 @@ pub enum Key {
     Number(u64),
     String(RcStr),
     Bool(bool),
+    /// An enum member, keyed by its enum name and member name, so a member can be
+    /// a dictionary key or a set element.
+    Enum(RcStr, RcStr),
 }
 
 /// Builds the hash key for a value, rejecting non-scalar and non-finite keys.
@@ -160,6 +163,16 @@ fn key_for(value: &Value, role: &str, non_finite: &str) -> Result<Key, String> {
         }
         Value::String(text) => Ok(Key::String(text.clone())),
         Value::Bool(flag) => Ok(Key::Bool(*flag)),
+        // An enum member is an instance of a class that declares static members.
+        // It is hashable by its enum name and member name, so it can be a
+        // dictionary key or a set element.
+        Value::Instance(instance) if !instance.class.members.borrow().is_empty() => {
+            let fields = instance.fields.borrow();
+            if let Some((_, Value::String(name))) = fields.iter().find(|(key, _)| &**key == "name") {
+                return Ok(Key::Enum(RcStr::new(&instance.class.name), name.clone()));
+            }
+            Err(format!("{} cannot be a {}", value.type_name(), role))
+        }
         other => Err(format!("{} cannot be a {}", other.type_name(), role)),
     }
 }
@@ -833,6 +846,10 @@ pub struct Class {
     pub constructor: RefCell<Option<Rc<Method>>>,
     pub methods: RefCell<Vec<(String, Rc<Method>)>>,
     pub fields: RefCell<Vec<Rc<Field>>>,
+    /// Read-only static members, in declaration order. An `enum` fills this with
+    /// its constants; an ordinary class leaves it empty. A member is read as
+    /// `Class.MEMBER` and cannot be assigned.
+    pub members: RefCell<Vec<(String, Value)>>,
 }
 
 impl Class {
@@ -843,7 +860,13 @@ impl Class {
             constructor: RefCell::new(None),
             methods: RefCell::new(Vec::new()),
             fields: RefCell::new(Vec::new()),
+            members: RefCell::new(Vec::new()),
         })
+    }
+
+    /// The static member named `name`, if the class declares one.
+    pub fn find_member(&self, name: &str) -> Option<Value> {
+        self.members.borrow().iter().find(|(member, _)| member == name).map(|(_, value)| value.clone())
     }
 
     pub fn find_method(self: &Rc<Class>, name: &str) -> Option<Rc<Method>> {

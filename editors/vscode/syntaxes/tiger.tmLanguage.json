@@ -9,6 +9,7 @@
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#class-declaration" },
+    { "include": "#enum-declaration" },
     { "include": "#function-declaration" },
     { "include": "#module-members" },
     { "include": "#keywords" },
@@ -126,6 +127,13 @@
         "4": { "name": "entity.other.inherited-class.tiger" }
       }
     },
+    "enum-declaration": {
+      "match": "(?<![\\p{L}\\p{Nd}_])(enum)\\s+([\\p{L}_][\\p{L}\\p{Nd}_]*)",
+      "captures": {
+        "1": { "name": "storage.type.enum.tiger" },
+        "2": { "name": "entity.name.type.enum.tiger" }
+      }
+    },
     "function-declaration": {
       "match": "(?<![\\p{L}\\p{Nd}_])(function)\\s+([\\p{L}_][\\p{L}\\p{Nd}_]*)",
       "captures": {
@@ -211,7 +219,7 @@
     },
     "keywords": {
       "patterns": [
-        { "name": "storage.type.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:const|var|function|class|extends)(?![\\p{L}\\p{Nd}_])" },
+        { "name": "storage.type.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:const|var|function|class|enum|extends)(?![\\p{L}\\p{Nd}_])" },
         { "name": "keyword.control.import.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:import|as)(?![\\p{L}\\p{Nd}_])" },
         { "name": "storage.modifier.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:public|private|protected)(?![\\p{L}\\p{Nd}_])" },
         { "name": "keyword.control.tiger", "match": "(?<![\\p{L}\\p{Nd}_])(?:if|elif|else|while|do|for|return|break|continue|switch|match|case|default|try|catch|finally|throw|assert)(?![\\p{L}\\p{Nd}_])" },

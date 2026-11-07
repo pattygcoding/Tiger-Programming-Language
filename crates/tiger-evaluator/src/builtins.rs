@@ -261,9 +261,30 @@ fn isinstance_builtin() -> Rc<object::Builtin> {
         if arguments.len() != 2 {
             return Err(format!("isinstance expects 2 arguments, got {}", arguments.len()));
         }
+        // A class value checks membership in that class (or a subclass), which is
+        // how an enum member is tested against its enum: `isinstance(Color.RED, Color)`.
+        if let Value::Class(class) = &arguments[1] {
+            let matches = match &arguments[0] {
+                Value::Instance(instance) => is_subclass(&instance.class, class),
+                _ => false,
+            };
+            return Ok(Value::Bool(matches));
+        }
         let names = type_name_list(&arguments[1])?;
         Ok(Value::Bool(names.iter().any(|name| *name == arguments[0].type_name())))
     })
+}
+
+/// Whether `class` is `parent` or a subclass of it.
+fn is_subclass(class: &Rc<object::Class>, parent: &Rc<object::Class>) -> bool {
+    let mut current = Some(class.clone());
+    while let Some(level) = current {
+        if Rc::ptr_eq(&level, parent) {
+            return true;
+        }
+        current = level.parent.clone();
+    }
+    false
 }
 
 fn type_name_list(value: &Value) -> Result<Vec<&'static str>, String> {
