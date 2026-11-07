@@ -13,45 +13,21 @@ use common::{expect_errors, expect_outputs, output};
 #[test]
 fn members() {
     expect_outputs(&[
-        (
-            "enum Color { RED, GREEN, BLUE } print(Color.RED.name, Color.GREEN.name, Color.BLUE.name);",
-            "RED GREEN BLUE\n",
-        ),
-        (
-            "enum Color { RED, GREEN, BLUE } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);",
-            "0 1 2\n",
-        ),
+        ("enum Color { RED, GREEN, BLUE } print(Color.RED.name, Color.GREEN.name, Color.BLUE.name);", "RED GREEN BLUE\n"),
+        ("enum Color { RED, GREEN, BLUE } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);", "0 1 2\n"),
         ("enum Color { RED, GREEN } print(type(Color), type(Color.RED));", "class instance\n"),
-        (
-            "enum Color { RED, GREEN } print(Color.RED == Color.RED, Color.RED == Color.GREEN);",
-            "true false\n",
-        ),
-        (
-            "enum Color { RED, GREEN } print(isinstance(Color.RED, Color), isinstance(Color.GREEN, Color));",
-            "true true\n",
-        ),
-        (
-            "enum Color { RED } print(isinstance(Color.RED, \"instance\"), isinstance(Color.RED, \"class\"));",
-            "true false\n",
-        ),
+        ("enum Color { RED, GREEN } print(Color.RED == Color.RED, Color.RED == Color.GREEN);", "true false\n"),
+        ("enum Color { RED, GREEN } print(isinstance(Color.RED, Color), isinstance(Color.GREEN, Color));", "true true\n"),
+        ("enum Color { RED } print(isinstance(Color.RED, \"instance\"), isinstance(Color.RED, \"class\"));", "true false\n"),
     ]);
 }
 
 #[test]
 fn explicit_and_implicit_values() {
     expect_outputs(&[
-        (
-            "enum Color { RED = 1, GREEN = 2, BLUE = 4 } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);",
-            "1 2 4\n",
-        ),
-        (
-            "enum Color { RED = 5, GREEN, BLUE } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);",
-            "5 6 7\n",
-        ),
-        (
-            "enum Color { RED = -1, GREEN = 0, BLUE } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);",
-            "-1 0 1\n",
-        ),
+        ("enum Color { RED = 1, GREEN = 2, BLUE = 4 } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);", "1 2 4\n"),
+        ("enum Color { RED = 5, GREEN, BLUE } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);", "5 6 7\n"),
+        ("enum Color { RED = -1, GREEN = 0, BLUE } print(Color.RED.value, Color.GREEN.value, Color.BLUE.value);", "-1 0 1\n"),
         ("enum Color { RED } print(Color.RED.value);", "0\n"),
         ("enum Color { RED = 2 + 2 } print(Color.RED.value);", "4\n"),
         ("enum Color { RED } print(Color.RED.value, Color.RED.value);", "0 0\n"),
@@ -103,14 +79,8 @@ print(n[A.X], n[B.X]);"#;
 #[test]
 fn enum_in_scope_and_rebinding() {
     expect_outputs(&[
-        (
-            "function make() { enum Color { RED, GREEN } return Color.GREEN; } print(make().name);",
-            "GREEN\n",
-        ),
-        (
-            "enum Color { RED } const copy = Color.RED; print(copy.name, copy == Color.RED);",
-            "RED true\n",
-        ),
+        ("function make() { enum Color { RED, GREEN } return Color.GREEN; } print(make().name);", "GREEN\n"),
+        ("enum Color { RED } const copy = Color.RED; print(copy.name, copy == Color.RED);", "RED true\n"),
     ]);
 }
 
@@ -120,10 +90,7 @@ fn errors() {
         ("enum Color { RED, RED }", "duplicate enum member \"RED\""),
         ("enum Color {}", "enum Color must declare at least one member"),
         ("enum Color { RED } print(Color.NOPE);", "class Color has no member \"NOPE\""),
-        (
-            "enum Color { RED } Color.RED = 5;",
-            "cannot assign to read-only member \"RED\" of class Color",
-        ),
+        ("enum Color { RED } Color.RED = 5;", "cannot assign to read-only member \"RED\" of class Color"),
         ("enum Color { RED } Color.RED.name = \"BLUE\";", "cannot reassign const field \"name\""),
         ("enum Color { RED } Color.RED.value = 9;", "cannot reassign const field \"value\""),
         ("enum { RED }", "expected \"identifier\""),
